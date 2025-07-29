@@ -3,72 +3,103 @@ from typing import Optional
 
 
 class RotatedSurfaceCode:
-    def __init__(self, d):
+    def __init__(self, d: int):
         """
         Args:
-            d (int): distance of the code (odd integer)
+            d (int): distance of the code, must be an odd integer.
         """
-        assert d % 2 == 1, "Distance d must be an odd number"
+        if d % 2 == 0:
+            raise ValueError("Distance d must be an odd number")
 
         self.d = d
         self.n = d * d  # number of data qubits
+        self.mx = (d * d - 1) // 2  # number of X-type stabilizers
+        self.mz = (d * d - 1) // 2  # number of X-type stabilizers
         self._generate_parity_check_matrices()  # obtain self.Hx and self.Hz
 
-    def _coord_to_index(self, row, col):
-        """Convert (row, col) coordinates to data qubit index i."""
-        assert 0 <= row < self.d and 0 <= col < self.d
-        return row * self.d + col
+    def _coord_to_dq(self, row: int, col: int) -> int:
+        """Convert (row, col) coordinates to data qubit index."""
+        assert row % 2 == 1 and col % 2 == 1, "only odd rows and columns are data qubits"
+        rr = row // 2
+        cc = col // 2
+        assert 0 <= rr < self.d and 0 <= cc < self.d, "coordinates out of bounds"
+        return rr * self.d + cc
 
-    def _index_to_coord(self, i):
+    def _dq_to_coord(self, i: int) -> tuple[int, int]:
         """Convert data qubit index i to (row, col) coordinates."""
-        assert 0 <= i < self.n
-        return divmod(i, self.d)
+        assert 0 <= i < self.n, "index out of bounds"
+        rr, cc = divmod(i, self.d)
+        return 2 * rr + 1, 2 * cc + 1
+
+    def _coord_to_xstab(self, row: int, col: int) -> int:
+        """Convert (row, col) coordinates to X-type stabilizer index."""
+        assert row % 2 == 0 and col % 2 == 0, "only even rows and columns are stabilizers"
+        assert (row + col) % 4 == 2, "this is not an X-type stabilizer"
+        rr = row // 2
+        cc = (col - 2) // 4
+        assert 0 <= rr <= self.d and 0 <= cc < self.d // 2, "coordinates out of bounds"
+        return rr * (self.d // 2) + cc
+
+    def _xstab_to_coord(self, i: int) -> tuple[int, int]:
+        """Convert X-type stabilizer index i to (row, col) coordinates."""
+        assert 0 <= i < self.mx, "index out of bounds"
+        rr, cc = divmod(i, self.d // 2)
+        row = 2 * rr
+        col = 4 * cc + (2 if rr % 2 == 0 else 4)
+        return row, col
+
+    def _coord_to_zstab(self, row: int, col: int) -> int:
+        """Convert (row, col) coordinates to Z-type stabilizer index."""
+        assert row % 2 == 0 and col % 2 == 0, "only even rows and columns are stabilizers"
+        assert (row + col) % 4 == 0, "this is not a Z-type stabilizer"
+        rr = (row - 2) // 4
+        cc = col // 2
+        assert 0 <= rr < self.d // 2 and 0 <= cc <= self.d, "coordinates out of bounds"
+        return rr * (self.d + 1) + cc
+
+    def _zstab_to_coord(self, i: int) -> tuple[int, int]:
+        """Convert Z-type stabilizer index i to (row, col) coordinates."""
+        assert 0 <= i < self.mz, "index out of bounds"
+        rr, cc = divmod(i, self.d + 1)
+        row = 4 * rr + (4 if cc % 2 == 0 else 2)
+        col = 2 * cc
+        return row, col
 
     def _generate_parity_check_matrices(self):
         """
         Generate the X- and Z-type parity-check matrices self.Hx and self.Hz, dtype=int, values in {0, 1}.
         """
-        x_checks = []
-        z_checks = []
-        # stabilizer generators in the bulk of the lattice
-        for row in range(self.d - 1):
-            for col in range(self.d - 1):
-                check = np.zeros(self.n, dtype=int)
-                check[self._coord_to_index(row, col)] = 1
-                check[self._coord_to_index(row, col + 1)] = 1
-                check[self._coord_to_index(row + 1, col)] = 1
-                check[self._coord_to_index(row + 1, col + 1)] = 1
-                if (row + col) % 2 == 0:
-                    x_checks.append(check)
-                else:
-                    z_checks.append(check)
-        # stabilizer generators on the upper boundary
-        for col in range(0, self.d - 1, 2):
-            check = np.zeros(self.n, dtype=int)
-            check[self._coord_to_index(0, col)] = 1
-            check[self._coord_to_index(0, col + 1)] = 1
-            z_checks.append(check)
-        # stabilizer generators on the lower boundary
-        for col in range(1, self.d - 1, 2):
-            check = np.zeros(self.n, dtype=int)
-            check[self._coord_to_index(self.d - 1, col)] = 1
-            check[self._coord_to_index(self.d - 1, col + 1)] = 1
-            z_checks.append(check)
-        # stabilizer generators on the left boundary
-        for row in range(1, self.d - 1, 2):
-            check = np.zeros(self.n, dtype=int)
-            check[self._coord_to_index(row, 0)] = 1
-            check[self._coord_to_index(row + 1, 0)] = 1
-            x_checks.append(check)
-        # stabilizer generators on the right boundary
-        for row in range(0, self.d - 1, 2):
-            check = np.zeros(self.n, dtype=int)
-            check[self._coord_to_index(row, self.d - 1)] = 1
-            check[self._coord_to_index(row + 1, self.d - 1)] = 1
-            x_checks.append(check)
-        # convert to numpy arrays
-        self.Hx = np.array(x_checks, dtype=int)
-        self.Hz = np.array(z_checks, dtype=int)
+        # TODO: use csc sparse matrix
+        self.Hx = np.zeros((self.mx, self.n), dtype=int)
+        self.Hz = np.zeros((self.mz, self.n), dtype=int)
+
+        # X-type stabilizers
+        for i in range(self.mx):
+            row, col = self._xstab_to_coord(i)
+            data_qubits = []
+            if row > 0 and col > 0:
+                data_qubits.append(self._coord_to_dq(row - 1, col - 1))
+            if row > 0 and col < 2 * self.d:
+                data_qubits.append(self._coord_to_dq(row - 1, col + 1))
+            if row < 2 * self.d and col > 0:
+                data_qubits.append(self._coord_to_dq(row + 1, col - 1))
+            if row < 2 * self.d and col < 2 * self.d:
+                data_qubits.append(self._coord_to_dq(row + 1, col + 1))
+            self.Hx[i, data_qubits] = 1
+
+        # Z-type stabilizers
+        for i in range(self.mz):
+            row, col = self._zstab_to_coord(i)
+            data_qubits = []
+            if row > 0 and col > 0:
+                data_qubits.append(self._coord_to_dq(row - 1, col - 1))
+            if row > 0 and col < 2 * self.d:
+                data_qubits.append(self._coord_to_dq(row - 1, col + 1))
+            if row < 2 * self.d and col > 0:
+                data_qubits.append(self._coord_to_dq(row + 1, col - 1))
+            if row < 2 * self.d and col < 2 * self.d:
+                data_qubits.append(self._coord_to_dq(row + 1, col + 1))
+            self.Hz[i, data_qubits] = 1
 
     def sample_error_and_syndrome_with_code_capacity_model(self, N: int, p: np.ndarray, seed: Optional[int] = None):
         """
