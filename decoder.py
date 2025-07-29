@@ -2,11 +2,63 @@ import numpy as np
 from typing import Optional, Tuple, List
 
 
-class BPDecoder:
+class Decoder:
+    """Base class for decoders.
+    """
+
+    def __init__(self, H: np.ndarray):
+        """
+        Parameters
+        ----------
+            H : ndarray
+                Parity check matrix, shape=(m, n), dtype=int, values in {0, 1}. Make sure every column has weight at least 1 
+                and every row has weight at least 2.
+        """
+        assert isinstance(H, np.ndarray)
+        m, n = H.shape
+        assert H.dtype == int and np.all(np.isin(H, [0, 1]))
+
+        self.H = H
+        self.m: int = m
+        self.n: int = n
+
+        # get neighboring check nodes of each variable node in the Tanner graph
+        # dict: v-node -> list of c-nodes
+        self.neighbors_v = {v: np.nonzero(H[:, v] == 1)[0].tolist()
+                            for v in range(n)}
+        assert all(len(self.neighbors_v[v]) >= 1 for v in range(n)), \
+            "Every variable must be involved in at least one check."
+
+        # get neighboring variable nodes of each check node in the Tanner graph
+        # dict: c-node -> list of v-nodes
+        self.neighbors_c = {c: np.nonzero(H[c] == 1)[0].tolist()
+                            for c in range(m)}
+        assert all(len(self.neighbors_c[c]) >= 2 for c in range(m)), \
+            "Every check must involve at least two variables."
+
+    def decode(self, syndrome: np.ndarray, verbose: bool = False) -> Optional[np.ndarray]:
+        """
+        Parameters
+        ----------
+            syndrome : ndarray
+                Syndrome vector, shape=(m,), dtype=int, values in {0, 1}.
+            
+            verbose : bool
+                If True, print decoding information. Default is False.
+
+        Returns
+        -------
+            ehat : ndarray or None
+                Decoded error vector if at least one solution is found, otherwise None.
+        """
+        pass
+
+
+class BPDecoder(Decoder):
     """Belief Propagation decoder for syndrome-based LDPC decoding, min-sum variant.
     """
 
-    def __init__(self, H: np.ndarray, prior: np.ndarray):
+    def __init__(self, H: np.ndarray, prior: np.ndarray, max_iter: Optional[int] = None, record_history: bool = False):
         """
         Parameters
         ----------
@@ -16,46 +68,37 @@ class BPDecoder:
             
             prior : ndarray
                 Prior error probabilities for each bit, shape=(n,), dtype=float, values in (0, 0.5).
-        """
-        assert isinstance(H, np.ndarray)
-        assert isinstance(prior, np.ndarray)
-        m, n = H.shape
-        assert prior.shape == (n,)
-        assert H.dtype == int and np.all(np.isin(H, [0, 1]))
-        assert prior.dtype == float and 0 < prior.min() and prior.max() < 0.5
-
-        self.H = H
-        self.m: int = m
-        self.n: int = n
-        self.prior = prior
-        # log-likelihood ratios of prior probabilities
-        self.llr_prior = np.log((1 - prior) / prior)
-
-        # get neighboring check nodes of each variable node
-        # dict: v-node -> list of c-nodes
-        self.neighbors_v = {v: np.nonzero(H[:, v] == 1)[0] for v in range(n)}
-        assert all(len(self.neighbors_v[v]) >= 1 for v in range(
-            n)), "Every variable must be involved in at least one check."
-
-        # get neighboring variable nodes of each check node
-        # dict: c-node -> list of v-nodes
-        self.neighbors_c = {c: np.nonzero(H[c] == 1)[0] for c in range(m)}
-        assert all(len(self.neighbors_c[c]) >= 2 for c in range(
-            m)), "Every check must involve at least two variables."
-
-    def decode(self, syndrome: np.ndarray, max_iter: Optional[int] = None, record_history: bool = False, verbose: bool = False
-               ) -> Tuple[Optional[np.ndarray], np.ndarray]:
-        """
-        Parameters
-        ----------
-            syndrome : ndarray
-                Syndrome vector, shape=(m,), dtype=int, values in {0, 1}.
             
             max_iter : int or None
                 Max number of BP iterations. If None, defaults to code length n.
             
             record_history : bool
                 If True, record marginals and hard decisions at each iteration. Default is False.
+        """
+        super().__init__(H)
+
+        assert isinstance(prior, np.ndarray)
+        assert prior.shape == (self.n,)
+        assert prior.dtype == float and 0 < prior.min() and prior.max() < 0.5
+
+        self.prior = prior
+        # log-likelihood ratios of prior probabilities
+        self.llr_prior = np.log((1 - prior) / prior)
+
+        # set max number of iterations
+        if max_iter is None:
+            max_iter = self.n
+        self.max_iter = max_iter
+
+        # set whether to record history
+        self.record_history = record_history
+
+    def decode(self, syndrome: np.ndarray, verbose: bool = False) -> Optional[np.ndarray]:
+        """
+        Parameters
+        ----------
+            syndrome : ndarray
+                Syndrome vector, shape=(m,), dtype=int, values in {0, 1}.
             
             verbose : bool
                 If True, print convergence information. Default is False.
@@ -64,16 +107,10 @@ class BPDecoder:
         -------
             ehat : ndarray or None
                 Decoded error vector if the BP decoding converges, otherwise None.
-
-            marginal : ndarray
-                Marginal log-likelihood ratios from the last iteration.
         """
         assert isinstance(syndrome, np.ndarray)
         assert syndrome.shape == (self.m,)
         assert syndrome.dtype == int and np.all(np.isin(syndrome, [0, 1]))
-
-        if max_iter is None:
-            max_iter = self.n
 
         # convert syndrome from {0,1} to {1,-1} representation
         syndrome_sign = 1 - 2 * syndrome
@@ -84,7 +121,7 @@ class BPDecoder:
         msg_c_to_v = {}
 
         # initialization (iteration 0)
-        if record_history:
+        if self.record_history:
             history_marginal = []  # record marginals obtained at each iteration
             history_marginal.append(np.copy(self.llr_prior))
             history_ehat = []  # record hard decisions obtained at each iteration
@@ -96,7 +133,7 @@ class BPDecoder:
 
         # main BP iterations (iteration 1 to max_iter)
         it = 1
-        while it <= max_iter:
+        while it <= self.max_iter:
             # check-to-variable messages
             for c in range(self.m):
                 for v_out in self.neighbors_c[c]:
@@ -122,7 +159,7 @@ class BPDecoder:
             ehat = np.zeros(self.n, dtype=int)
             ehat[marginal < 0] = 1
             # record history if needed
-            if record_history:
+            if self.record_history:
                 history_marginal.append(np.copy(marginal))
                 history_ehat.append(np.copy(ehat))
             # check if syndrome is satisfied
@@ -137,19 +174,16 @@ class BPDecoder:
             else:
                 print("Max iterations reached without convergence.")
 
-        if record_history:
+        if self.record_history:
             # (i,j) entry is marginal of variable j after iteration i
             self.history_marginal = np.array(history_marginal, dtype=float)
             # (i,j) entry is hard decision of variable j after iteration i
             self.history_ehat = np.array(history_ehat, dtype=int)
 
-        if converged:
-            return ehat, marginal
-        else:
-            return None, marginal
+        return ehat if converged else None
 
 
-class RelayBPDecoder(BPDecoder):
+class RelayBPDecoder(Decoder):
     """Relay Belief Propagation decoder proposed in the paper
     ["Improved belief propagation is sufficient for real-time decoding of quantum memory." arXiv:2506.01779 (2025)](https://arxiv.org/abs/2506.01779).
     """
@@ -178,16 +212,25 @@ class RelayBPDecoder(BPDecoder):
             max_iter_list : list[int]
                 List of max number of iterations for each relay leg, of length max_leg.
         """
-        super().__init__(H, prior)
+        super().__init__(H)
 
-        assert isinstance(mem_strength, np.ndarray)
-        assert mem_strength.shape == (
-            max_leg, self.n) and mem_strength.dtype == float
-        assert isinstance(max_iter_list, list)
-        assert len(max_iter_list) == max_leg
+        assert isinstance(prior, np.ndarray)
+        assert prior.shape == (self.n,)
+        assert prior.dtype == float and 0 < prior.min() and prior.max() < 0.5
+
+        self.prior = prior
+        # log-likelihood ratios of prior probabilities
+        self.llr_prior = np.log((1 - prior) / prior)
 
         self.num_sol = num_sol
         self.max_leg = max_leg
+
+        assert isinstance(mem_strength, np.ndarray)
+        assert mem_strength.shape == (max_leg, self.n)
+        assert mem_strength.dtype == float
+        assert isinstance(max_iter_list, list)
+        assert len(max_iter_list) == max_leg
+
         self.mem_strength = mem_strength
         self.max_iter_list = max_iter_list
 
@@ -199,7 +242,7 @@ class RelayBPDecoder(BPDecoder):
                 Syndrome vector, shape=(m,), dtype=int, values in {0, 1}.
             
             verbose : bool
-                If True, print convergence information. Default is False.
+                If True, print decoding information. Default is False.
 
         Returns
         -------
