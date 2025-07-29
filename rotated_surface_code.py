@@ -5,17 +5,21 @@ from typing import Optional
 class RotatedSurfaceCode:
     def __init__(self, d: int):
         """
-        Args:
-            d (int): distance of the code, must be an odd integer.
+        Parameters
+        ----------
+            d : int
+                Distance of the code, must be an odd integer at least 3.
         """
         if d % 2 == 0:
             raise ValueError("Distance d must be an odd number")
+        if d < 3:
+            raise ValueError("Distance d must be at least 3")
 
         self.d = d
         self.n = d * d  # number of data qubits
         self.mx = (d * d - 1) // 2  # number of X-type stabilizers
         self.mz = (d * d - 1) // 2  # number of X-type stabilizers
-        self._generate_parity_check_matrices()  # obtain self.Hx and self.Hz
+        self._calculate_stabilizer_matrices()  # obtain self.Hx and self.Hz
 
     def _coord_to_dq(self, row: int, col: int) -> int:
         """Convert (row, col) coordinates to data qubit index."""
@@ -65,9 +69,9 @@ class RotatedSurfaceCode:
         col = 2 * cc
         return row, col
 
-    def _generate_parity_check_matrices(self):
+    def _calculate_stabilizer_matrices(self):
         """
-        Generate the X- and Z-type parity-check matrices self.Hx and self.Hz, dtype=int, values in {0, 1}.
+        Generate the X- and Z-type stabilizer matrices self.Hx and self.Hz, dtype=int, values in {0, 1}.
         """
         # TODO: use csc sparse matrix
         self.Hx = np.zeros((self.mx, self.n), dtype=int)
@@ -100,6 +104,125 @@ class RotatedSurfaceCode:
             if row < 2 * self.d and col < 2 * self.d:
                 data_qubits.append(self._coord_to_dq(row + 1, col + 1))
             self.Hz[i, data_qubits] = 1
+
+    def get_parity_check_matrix(self, detector_type: str, noise_model: str, num_round: Optional[int] = None) -> np.ndarray:
+        """
+        Get the parity check matrix for the specified detector type and noise model.
+
+        Parameters
+        ----------
+            detector_type : str
+                'X' or 'Z'.
+
+            noise_model : str
+                'code-capacity' or 'phenomenological'.
+            
+            num_round : int or None
+                Number of rounds of stabilizer measurement. If None, defaults to the code distance. This parameter is ignored 
+                when noise_model is 'code-capacity'.
+
+        Returns
+        -------
+            pcm : ndarray
+                Parity check matrix, dtype=int, values in {0, 1}. A nonzero entry at row i and column j indicates that the 
+                i-th detector is flipped by the j-th error mechanism.
+
+        Notes
+        -----
+            'code-capacity' noise model:
+                When detector_type is 'X' (similarly for 'Z'), this noise model assumes a single round of perfect stabilizer 
+                measurement and only considers Pauli Z errors on data qubits; the detectors are simply the meas. outcome of 
+                X-type stabilizers. Hence the pcm is nothing but the X-type stabilizer matrix.
+            
+            'phenomenological' noise model:
+                When detector_type is 'X' (similarly for 'Z'), this noise model assumes multiple rounds of noisy stabilizer 
+                measurement, considering in each round both Pauli Z errors on data qubits and bit-flip errors on the X-type 
+                stabilizer meas. outcomes; the detectors are the *change* between two meas. outcomes of the same X-type 
+                stabilizer in consecutive rounds. More precisely, the detectors are defined as follows:
+
+                    - D_{0,i} = meas. outcome of X-type stabilizer i in round 0,
+
+                    - D_{t,i} = XOR of the two meas. outcomes of X-type stabilizer i in round t-1 and round t, for 1 <= t < #round.
+                
+                The error mechanisms are defined as follows:
+
+                    - E1_{t,j} = Pauli Z error on data qubit j happening just before round t, for 0 <= t < #round.
+
+                    - E2_{t,i} = bit-flip error on the meas. outcome of X-type stabilizer i in round t, for 0 <= t < #round.
+                
+                The pcm has shape (#detector, #error_mechanism) and can be written as two parts as pcm = [pcm1, pcm2], where pcm1 
+                consists of the first (#round * #data_qubit) columns, and pcm2 consists of the last (#round * #x_stabilizer) columns.
+                The detector D_{t,i} corresponds to row (t * #x_stabilizer + i) in pcm, the error mechanism E1_{t,j} corresponds to 
+                column (t * #data_qubit + j) in pcm1, and the error mechanism E2_{t,i} corresponds to column (t * #x_stabilizer + i) 
+                in pcm2.
+        """
+        if detector_type not in ['X', 'Z']:
+            raise ValueError("detector type must be 'X' or 'Z'")
+
+        if num_round is None:
+            num_round = self.d
+
+        if noise_model == 'code-capacity':
+            pcm = np.copy(self.Hx if detector_type == 'X' else self.Hz)
+        elif noise_model == 'phenomenological':
+            pcm = self._pcm_phenomelogical(detector_type, num_round)
+        else:
+            # TODO: implement 'circuit-level' noise model
+            raise ValueError("unknown error model")
+
+        return pcm
+
+    def _pcm_phenomelogical(self, detector_type: str, num_round: int) -> np.ndarray:
+        """
+        Generate the parity check matrix for the phenomenological noise model.
+        """
+        if detector_type == 'X':
+            num_detectors = num_round * self.mx
+            num_dq_errors = num_round * self.n
+            num_meas_errors = num_round * self.mx
+            num_errors = num_dq_errors + num_meas_errors
+
+            pcm1 = np.zeros((num_detectors, num_dq_errors), dtype=int)
+            for t in range(num_round):
+                pcm1[t * self.mx:(t + 1) * self.mx,
+                     t * self.n:(t + 1) * self.n] = self.Hx
+
+            pcm2 = np.zeros((num_detectors, num_meas_errors), dtype=int)
+            for t in range(num_round):
+                pcm2[t * self.mx:(t + 1) * self.mx,
+                     t * self.mx:(t + 1) * self.mx] = np.eye(self.mx, dtype=int)
+                if t > 0:
+                    pcm2[t * self.mx:(t + 1) * self.mx,
+                         (t - 1) * self.mx:t * self.mx] = np.eye(self.mx, dtype=int)
+
+            pcm = np.hstack((pcm1, pcm2))
+
+        else:  # detector_type == 'Z'
+            num_detectors = num_round * self.mz
+            num_dq_errors = num_round * self.n
+            num_meas_errors = num_round * self.mz
+            num_errors = num_dq_errors + num_meas_errors
+
+            pcm1 = np.zeros((num_detectors, num_dq_errors), dtype=int)
+            for t in range(num_round):
+                pcm1[t * self.mz:(t + 1) * self.mz,
+                     t * self.n:(t + 1) * self.n] = self.Hz
+
+            pcm2 = np.zeros((num_detectors, num_meas_errors), dtype=int)
+            for t in range(num_round):
+                pcm2[t * self.mz:(t + 1) * self.mz,
+                     t * self.mz:(t + 1) * self.mz] = np.eye(self.mz, dtype=int)
+                if t > 0:
+                    pcm2[t * self.mz:(t + 1) * self.mz,
+                         (t - 1) * self.mz:t * self.mz] = np.eye(self.mz, dtype=int)
+
+            pcm = np.hstack((pcm1, pcm2))
+
+        assert pcm.shape == (num_detectors, num_errors)
+        assert pcm.dtype == int
+        assert np.all(np.isin(pcm, [0, 1]))
+        return pcm
+
 
     def sample_error_and_syndrome_with_code_capacity_model(self, N: int, p: np.ndarray, seed: Optional[int] = None):
         """
