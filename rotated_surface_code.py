@@ -19,7 +19,14 @@ class RotatedSurfaceCode:
         self.n = d * d  # number of data qubits
         self.mx = (d * d - 1) // 2  # number of X-type stabilizers
         self.mz = (d * d - 1) // 2  # number of X-type stabilizers
+        self.k = 1  # number of logical qubits
         self._calculate_stabilizer_matrices()  # obtain self.Hx and self.Hz
+        self._calculate_logical_operator_matrices()  # obtain self.Lx and self.Lz
+
+        assert np.all((self.Hx @ self.Hz.T) % 2 == 0)
+        assert np.all((self.Hx @ self.Lz.T) % 2 == 0)
+        assert np.all((self.Hz @ self.Lx.T) % 2 == 0)
+        assert np.all((self.Lx @ self.Lz.T) % 2 == np.eye(self.k, dtype=int))
 
     def _coord_to_dq(self, row: int, col: int) -> int:
         """Convert (row, col) coordinates to data qubit index."""
@@ -71,7 +78,9 @@ class RotatedSurfaceCode:
 
     def _calculate_stabilizer_matrices(self):
         """
-        Generate the X- and Z-type stabilizer matrices self.Hx and self.Hz, dtype=int, values in {0, 1}.
+        Construct the X- and Z-type stabilizer matrices self.Hx and self.Hz, ndim=2, dtype=int, values in {0, 1}.
+        The i-th X-type (similarly for Z-type) stabilizer is the tensor product of Pauli X operators acting 
+        on the data qubits indexed by the the i-th row of self.Hx.
         """
         # TODO: use csc sparse matrix
         self.Hx = np.zeros((self.mx, self.n), dtype=int)
@@ -104,6 +113,26 @@ class RotatedSurfaceCode:
             if row < 2 * self.d and col < 2 * self.d:
                 data_qubits.append(self._coord_to_dq(row + 1, col + 1))
             self.Hz[i, data_qubits] = 1
+
+    def _calculate_logical_operator_matrices(self):
+        """Construct the matrices self.Lx and self.Lz representing logical X and Z operators, ndim=2, dtype=int, values in {0, 1}.
+        The i-th logical X (similarly for Z) operator is the tensor product of Pauli X operators acting on the data qubits indexed 
+        by the the i-th row of self.Hx.
+        """
+        # TODO: use csc sparse matrix
+        self.Lx = np.zeros((1, self.n), dtype=int)
+        self.Lz = np.zeros((1, self.n), dtype=int)
+
+        # logical X
+        data_qubits = [self._coord_to_dq(row, 1)
+                       for row in range(1, 2 * self.d, 2)]
+        self.Lx[0, data_qubits] = 1
+
+        # logical Z
+        data_qubits = [self._coord_to_dq(1, col)
+                       for col in range(1, 2 * self.d, 2)]
+        self.Lz[0, data_qubits] = 1
+
 
     def get_parity_check_matrix(self, detector_type: str, noise_model: str, num_round: Optional[int] = None) -> np.ndarray:
         """
