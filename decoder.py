@@ -133,7 +133,7 @@ class BPDecoder:
 
 
 class RelayBPDecoder(BPDecoder):
-    """Relay Belief Propagation decoder, based on the description in the paper
+    """Relay Belief Propagation decoder proposed in the paper
     ["Improved belief propagation is sufficient for real-time decoding of quantum memory." arXiv:2506.01779 (2025)](https://arxiv.org/abs/2506.01779).
     """
 
