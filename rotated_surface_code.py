@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.sparse as sp
 from typing import Literal, Tuple
 
 
@@ -23,16 +24,18 @@ class RotatedSurfaceCode:
         self._construct_stabilizer_matrices()  # obtain self.Hx and self.Hz
         self._construct_logical_operator_matrices()  # obtain self.Lx and self.Lz
 
-        assert np.all((self.Hx @ self.Hz.T) % 2 == 0)
-        assert np.all((self.Hx @ self.Lz.T) % 2 == 0)
-        assert np.all((self.Hz @ self.Lx.T) % 2 == 0)
-        assert np.all((self.Lx @ self.Lz.T) % 2 == np.eye(self.k, dtype=int))
+        # Check orthogonality conditions
+        assert np.all((self.Hx @ self.Hz.T).data % 2 == 0)
+        assert np.all((self.Hx @ self.Lz.T).data % 2 == 0)
+        assert np.all((self.Hz @ self.Lx.T).data % 2 == 0)
+        assert np.all((self.Lx @ self.Lz.T).toarray() % 2 ==
+                      np.eye(self.k, dtype=np.uint8))
 
     def get_check_matrix_action_matrix_probability_vector(self,
                                                           noise_model: Literal['code-capacity', 'phenomenological'],
                                                           detector_type: Literal['X', 'Z'],
                                                           **kwargs
-                                                          ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                                                          ) -> Tuple[sp.csr_matrix, sp.csr_matrix, np.ndarray]:
         """
         Given the specified noise model, detector type, and other noise parameters, generate the triple (check matrix, action 
         matrix, probability vector) which are used to construct a decoder.
@@ -61,12 +64,12 @@ class RotatedSurfaceCode:
 
         Returns
         -------
-            cm : ndarray
-                Check matrix, shape=(#detectors, #error_mechanisms), values in {0, 1}.
+            cm : csr_matrix
+                Check matrix, shape=(#detectors, #error_mechanisms), dtype=np.uint8, values in {0, 1}.
                 A nonzero entry at row i and column j indicates that the i-th detector is flipped by the j-th error mechanism.
-            
-            am : ndarray
-                Action matrix, shape=(#logical_qubits, #error_mechanisms), values in {0, 1}.
+
+            am : csr_matrix
+                Action matrix, shape=(#logical_qubits, #error_mechanisms), dtype=np.uint8, values in {0, 1}.
                 A nonzero entry at row i and column j indicates that the eigenvalue of the i-th logical operator (of the 
                 specified type) is flipped by the j-th error mechanism.
 
@@ -81,7 +84,7 @@ class RotatedSurfaceCode:
                 stabilizer measurement and only considers Pauli Z errors on data qubits. The detectors are simply the 
                 measurement outcome of X-type stabilizers. Hence the check matrix and action matrix are nothing but the 
                 matrix representation of X-type stabilizers and logical X operators, respectively.
-            
+
             'phenomenological' noise model:
                 When detector_type is 'X' (similarly for 'Z'), this noise model assumes multiple rounds of noisy stabilizer 
                 measurements. At the beginning of each round, each data qubit suffers a Pauli Z error with probability 
@@ -93,13 +96,13 @@ class RotatedSurfaceCode:
                     - D_{0,i} = meas. outcome of X-type stabilizer i in round 0,
 
                     - D_{t,i} = XOR of the two meas. outcomes of X-type stabilizer i in round t-1 and round t, for 1 <= t < #round.
-                
+
                 The error mechanisms are defined as follows:
 
                     - E1_{t,j} = Pauli Z error on data qubit j happening at the beginning of round t, for 0 <= t < #round.
 
                     - E2_{t,i} = bit-flip error on the meas. outcome of X-type stabilizer i in round t, for 0 <= t < #round - 1.
-                
+
                 The matrix cm can be written as two parts as cm = [cm1, cm2], where cm1 describes how the detectors are affected by 
                 error mechanisms of the first category (E1), and cm2 for the second category (E2). Detector D_{t,i} corresponds to 
                 row (t * #x_stabilizers + i) in cm. Error mechanism E1_{t,j} corresponds to column (t * #data_qubits + j) in cm1, and 
@@ -205,13 +208,13 @@ class RotatedSurfaceCode:
 
     def _construct_stabilizer_matrices(self):
         """
-        Construct the X- and Z-type stabilizer matrices self.Hx and self.Hz, ndim=2, dtype=int, values in {0, 1}.
-        The i-th X-type (similarly for Z-type) stabilizer is the tensor product of Pauli X operators acting 
-        on the data qubits indexed by the the i-th row of self.Hx.
+        Construct the X- and Z-type stabilizer matrices self.Hx and self.Hz, CSR format, dtype=np.uint8, values in {0, 1}.
+        The i-th X-type (resp. Z-type) stabilizer is the tensor product of Pauli X (resp. Z) operators acting on the data 
+        qubits indexed by the the i-th row of self.Hx (resp. self.Hz).
         """
-        # TODO: use csc sparse matrix
-        self.Hx = np.zeros((self.mx, self.n), dtype=int)
-        self.Hz = np.zeros((self.mz, self.n), dtype=int)
+        # These are used to construct the CSR sparse matrices self.Hx and self.Hz
+        Hx_indices, Hx_indptr = [], [0]
+        Hz_indices, Hz_indptr = [], [0]
 
         # X-type stabilizers
         for i in range(self.mx):
@@ -225,7 +228,8 @@ class RotatedSurfaceCode:
                 data_qubits.append(self._coord_to_dq(row + 1, col - 1))
             if row < 2 * self.d and col < 2 * self.d:
                 data_qubits.append(self._coord_to_dq(row + 1, col + 1))
-            self.Hx[i, data_qubits] = 1
+            Hx_indices.extend(data_qubits)
+            Hx_indptr.append(len(Hx_indices))
 
         # Z-type stabilizers
         for i in range(self.mz):
@@ -239,33 +243,53 @@ class RotatedSurfaceCode:
                 data_qubits.append(self._coord_to_dq(row + 1, col - 1))
             if row < 2 * self.d and col < 2 * self.d:
                 data_qubits.append(self._coord_to_dq(row + 1, col + 1))
-            self.Hz[i, data_qubits] = 1
+            Hz_indices.extend(data_qubits)
+            Hz_indptr.append(len(Hz_indices))
+
+        # Create CSR sparse matrices
+        Hx_data = np.ones(len(Hx_indices), dtype=np.uint8)
+        Hz_data = np.ones(len(Hz_indices), dtype=np.uint8)
+        self.Hx = sp.csr_matrix((Hx_data, Hx_indices, Hx_indptr),
+                                shape=(self.mx, self.n))
+        self.Hz = sp.csr_matrix((Hz_data, Hz_indices, Hz_indptr),
+                                shape=(self.mz, self.n))
 
     def _construct_logical_operator_matrices(self):
-        """Construct the matrices self.Lx and self.Lz representing logical X and Z operators, ndim=2, dtype=int, values in {0, 1}.
-        The i-th logical X (similarly for Z) operator is the tensor product of Pauli X operators acting on the data qubits indexed 
-        by the the i-th row of self.Hx.
+        """Construct the matrices self.Lx and self.Lz representing logical X and Z operators, CSR format, dtype=np.uint8, values in {0, 1}.
+        The i-th logical X (resp. Z) operator is the tensor product of Pauli X (resp. Z) operators acting on the data qubits indexed by the 
+        i-th row of self.Hx (resp. self.Hz).
         """
-        # TODO: use csc sparse matrix
-        self.Lx = np.zeros((1, self.n), dtype=int)
-        self.Lz = np.zeros((1, self.n), dtype=int)
+        # These are used to construct the CSR sparse matrices self.Lx and self.Lz
+        Lx_indices, Lx_indptr = [], [0]
+        Lz_indices, Lz_indptr = [], [0]
 
         # logical X
         data_qubits = [self._coord_to_dq(row, 1)
                        for row in range(1, 2 * self.d, 2)]
-        self.Lx[0, data_qubits] = 1
+        Lx_indices.extend(data_qubits)
+        Lx_indptr.append(len(Lx_indices))
 
         # logical Z
         data_qubits = [self._coord_to_dq(1, col)
                        for col in range(1, 2 * self.d, 2)]
-        self.Lz[0, data_qubits] = 1
+        Lz_indices.extend(data_qubits)
+        Lz_indptr.append(len(Lz_indices))
 
-    def _cm_am_p_phenomenological(self,
-                                  detector_type: Literal['X', 'Z'],
-                                  num_round: int,
-                                  dq_error_rate: np.ndarray,
-                                  meas_error_rate: np.ndarray
-                                  ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        # Create CSR sparse matrices
+        Lx_data = np.ones(len(Lx_indices), dtype=np.uint8)
+        Lz_data = np.ones(len(Lz_indices), dtype=np.uint8)
+        self.Lx = sp.csr_matrix((Lx_data, Lx_indices, Lx_indptr),
+                                shape=(1, self.n))
+        self.Lz = sp.csr_matrix((Lz_data, Lz_indices, Lz_indptr),
+                                shape=(1, self.n))
+
+    def _cm_am_p_phenomenological(
+        self,
+        detector_type: Literal['X', 'Z'],
+        num_round: int,
+        dq_error_rate: np.ndarray,
+        meas_error_rate: np.ndarray
+    ) -> Tuple[sp.csr_matrix, sp.csr_matrix, np.ndarray]:
         """
         Generate the check matrix, action matrix, and probability vector for the phenomenological noise model.
         """
@@ -280,23 +304,24 @@ class RotatedSurfaceCode:
         num_errors = num_dq_errors + num_meas_errors
 
         # Construct cm
-        # TODO: clever way to construct cm1 and cm2
-        cm1 = np.zeros((num_detectors, num_dq_errors), dtype=int)
-        for t in range(num_round):
-            cm1[t * m:(t + 1) * m, t * n:(t + 1) * n] = H.copy()
-        cm2 = np.zeros((num_detectors, num_meas_errors), dtype=int)
-        for t in range(num_round - 1):
-            cm2[t * m:(t + 1) * m, t * m:(t + 1) * m] = np.eye(m, dtype=int)
-        for t in range(1, num_round):
-            cm2[t * m:(t + 1) * m, (t - 1) * m:t * m] = np.eye(m, dtype=int)
-        cm = np.hstack((cm1, cm2))
+        cm1 = sp.block_diag([H] * num_round, format='csr')
+        cm2_data = np.ones((2, num_meas_errors), dtype=np.uint8)
+        cm2_offsets = [0, -m]
+        cm2 = sp.dia_matrix((cm2_data, cm2_offsets),
+                            shape=(num_detectors, num_meas_errors))
+        cm = sp.hstack([cm1, cm2], format='csr')
+        assert isinstance(cm, sp.csr_matrix)
         assert cm.shape == (num_detectors, num_errors)
+        assert cm.dtype == np.uint8
 
         # Construct am
-        am1 = np.hstack([L] * num_round)
-        am2 = np.zeros((1, num_meas_errors), dtype=int)
-        am = np.hstack((am1, am2))
+        am1 = sp.hstack([L] * num_round, format='csr')
+        am2 = sp.csr_matrix((1, num_meas_errors),
+                            dtype=np.uint8)
+        am = sp.hstack([am1, am2], format='csr')
+        assert isinstance(am, sp.csr_matrix)
         assert am.shape == (self.k, num_errors)
+        assert am.dtype == np.uint8
 
         # Construct p
         p1 = np.concatenate([dq_error_rate] * num_round)
