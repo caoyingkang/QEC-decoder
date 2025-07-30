@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Optional, Tuple
+from typing import Literal, Tuple
 
 
 class RotatedSurfaceCode:
@@ -28,91 +28,132 @@ class RotatedSurfaceCode:
         assert np.all((self.Hz @ self.Lx.T) % 2 == 0)
         assert np.all((self.Lx @ self.Lz.T) % 2 == np.eye(self.k, dtype=int))
 
-    def get_check_matrices_and_action_matrices(self, noise_model: str, num_round: Optional[int] = None
-                                               ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def get_check_matrix_action_matrix_probability_vector(self,
+                                                          noise_model: Literal['code-capacity', 'phenomenological'],
+                                                          detector_type: Literal['X', 'Z'],
+                                                          **kwargs
+                                                          ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Get the check matrices and action matrices for the specified noise model.
+        Given the specified noise model, detector type, and other noise parameters, generate the triple (check matrix, action 
+        matrix, probability vector) which are used to construct a decoder.
 
         Parameters
         ----------
-            noise_model : str
-                'code-capacity' or 'phenomenological'.
-            
-            num_round : int or None
-                Number of rounds of stabilizer measurement. If None, defaults to the code distance. This parameter is ignored 
-                when noise_model is 'code-capacity'.
+            noise_model : Literal['code-capacity', 'phenomenological']
+
+            detector_type : Literal['X', 'Z']
+
+            **kwargs :
+                Additional parameters for the noise model.
+
+                num_round : int
+                    Number of rounds of stabilizer measurements. This argument must be provided for the 'phenomenological' noise 
+                    model. If provided, it must be at least 3.
+
+                dq_error_rate : ndarray or float
+                    Error rates of each data qubit, shape=(#data_qubits,), values in (0, 0.5). If a scalar is provided, it is 
+                    assumed to be the same for all data qubits. This argument must be provided for all noise models.
+
+                meas_error_rate : ndarray or float
+                    Measurement error rates of each stabilizer (of the specified type), shape=(#stabilizers,), values in (0, 0.5). 
+                    If a scalar is provided, it is assumed to be the same for all stabilizers. This argument must be provided for 
+                    the 'phenomenological' noise model.
 
         Returns
         -------
-            cmx : ndarray
-                X-type check matrix, shape=(# of X-type detectors, # of Z-type error mechanisms), dtype=int, values in {0, 1}.
+            cm : ndarray
+                Check matrix, shape=(#detectors, #error_mechanisms), values in {0, 1}.
                 A nonzero entry at row i and column j indicates that the i-th detector is flipped by the j-th error mechanism.
             
-            amx : ndarray
-                X-type action matrix, shape=(# of logical qubits, # of Z-type error mechanisms), dtype=int, values in {0, 1}.
-                A nonzero entry at row i and column j indicates that the eigenvalue of the logical X_i operator is flipped by 
-                the j-th error mechanism.
+            am : ndarray
+                Action matrix, shape=(#logical_qubits, #error_mechanisms), values in {0, 1}.
+                A nonzero entry at row i and column j indicates that the eigenvalue of the i-th logical operator (of the 
+                specified type) is flipped by the j-th error mechanism.
 
-            cmz : ndarray
-                Z-type check matrix, shape=(# of Z-type detectors, # of X-type error mechanisms), dtype=int, values in {0, 1}.
-                A nonzero entry at row i and column j indicates that the i-th detector is flipped by the j-th error mechanism.
-            
-            amz : ndarray
-                Z-type action matrix, shape=(# of logical qubits, # of X-type error mechanisms), dtype=int, values in {0, 1}.
-                A nonzero entry at row i and column j indicates that the eigenvalue of the logical Z_i operator is flipped by 
-                the j-th error mechanism.
+            p : ndarray
+                Probability vector, shape=(#error_mechanisms,), values in [0, 1].
+                The j-th entry is the probability that the j-th error mechanism occurs.
 
         Notes
         -----
             'code-capacity' noise model:
-                For the X-type (similarly for Z-type) decoding problem, this noise model assumes a single round of perfect 
-                stabilizer measurement and only considers Pauli Z errors on data qubits; the detectors are simply the 
-                measurement outcome of X-type stabilizers. Hence cmx is nothing but the X-type stabilizer matrix, and amx
-                is nothing but the matrix representation of logical X operators.
+                When detector_type is 'X' (similarly for 'Z'), this noise model assumes a single round of perfect 
+                stabilizer measurement and only considers Pauli Z errors on data qubits. The detectors are simply the 
+                measurement outcome of X-type stabilizers. Hence the check matrix and action matrix are nothing but the 
+                matrix representation of X-type stabilizers and logical X operators, respectively.
             
             'phenomenological' noise model:
-                For the X-type (similarly for Z-type) decoding problem, this noise model assumes multiple rounds of noisy 
-                stabilizer measurement, considering in each round both Pauli Z errors on data qubits and bit-flip errors 
-                on the X-type stabilizer measurement outcomes; the detectors are the *change* between two measured outcomes 
-                of the same X-type stabilizer in consecutive rounds. More precisely, X-type detectors are defined as follows:
+                When detector_type is 'X' (similarly for 'Z'), this noise model assumes multiple rounds of noisy stabilizer 
+                measurements. At the beginning of each round, each data qubit suffers a Pauli Z error with probability 
+                dq_error_rate; at the end of each round (except for the last round, which is by convention assumed to be 
+                error-free), each X-type stabilizer measurement outcome is flipped with probability meas_error_rate. The 
+                detectors are the *change* between two measured outcomes of the same stabilizer in consecutive rounds. 
+                More precisely, the detectors are defined as follows:
 
                     - D_{0,i} = meas. outcome of X-type stabilizer i in round 0,
 
                     - D_{t,i} = XOR of the two meas. outcomes of X-type stabilizer i in round t-1 and round t, for 1 <= t < #round.
                 
-                Z-type error mechanisms are defined as follows:
+                The error mechanisms are defined as follows:
 
-                    - E1_{t,j} = Pauli Z error on data qubit j happening just before round t, for 0 <= t < #round.
+                    - E1_{t,j} = Pauli Z error on data qubit j happening at the beginning of round t, for 0 <= t < #round.
 
-                    - E2_{t,i} = bit-flip error on the meas. outcome of X-type stabilizer i in round t, for 0 <= t < #round - 1. Note 
-                    that by convention, we assume that the last round of stabilizer measurement is error-free.
+                    - E2_{t,i} = bit-flip error on the meas. outcome of X-type stabilizer i in round t, for 0 <= t < #round - 1.
                 
-                The matrix cmx can be written as two parts as cmx = [cmx1, cmx2], where cmx1 consists of the first #round * #data_qubit 
-                columns of cmx, and cmx2 consists of the last (#round - 1) * #x_stabilizer columns of cmx. Detector D_{t,i} corresponds to 
-                row (t * #x_stabilizer + i) in cmx. Error mechanism E1_{t,j} corresponds to column (t * #data_qubit + j) in cmx1, and 
-                error mechanism E2_{t,i} corresponds to column (t * #x_stabilizer + i) in cmx2.
+                The matrix cm can be written as two parts as cm = [cm1, cm2], where cm1 describes how the detectors are affected by 
+                error mechanisms of the first category (E1), and cm2 for the second category (E2). Detector D_{t,i} corresponds to 
+                row (t * #x_stabilizers + i) in cm. Error mechanism E1_{t,j} corresponds to column (t * #data_qubits + j) in cm1, and 
+                E2_{t,i} corresponds to column (t * #x_stabilizers + i) in cm2.
 
-                The matrix amx can be written as two parts as amx = [amx1, amx2] in the same way as above, and the second part amx2 is 
-                the all-zeroes matrix.
+                The matrix am can be written as two parts as am = [am1, am2] in the same way as above. Since measurement errors do 
+                not affect the logical information, the second part am2 is the all-zeroes matrix.
         """
-        if num_round is None:
-            num_round = self.d
+        if detector_type not in ['X', 'Z']:
+            raise ValueError("detector_type must be 'X' or 'Z'")
 
+        # Parse dq_error_rate
+        if 'dq_error_rate' not in kwargs:
+            raise ValueError("dq_error_rate must be provided")
+        dq_error_rate = kwargs['dq_error_rate']
+        if isinstance(dq_error_rate, float):
+            dq_error_rate = np.full(self.n, dq_error_rate)
+        assert dq_error_rate.shape == (self.n,)
+        assert np.min(dq_error_rate) >= 0 and np.max(dq_error_rate) <= 0.5
+
+        # Parse num_round and meas_error_rate
+        if noise_model == 'phenomenological':
+            if 'num_round' not in kwargs:
+                raise ValueError("num_round must be provided")
+            num_round: int = kwargs['num_round']
+            assert num_round >= 3
+
+            if 'meas_error_rate' not in kwargs:
+                raise ValueError("meas_error_rate must be provided")
+            meas_error_rate = kwargs['meas_error_rate']
+            m = self.mx if detector_type == 'X' else self.mz
+            if isinstance(meas_error_rate, float):
+                meas_error_rate = np.full(m, meas_error_rate)
+            assert meas_error_rate.shape == (m,)
+            assert np.min(meas_error_rate) >= 0 and np.max(
+                meas_error_rate) <= 0.5
+
+        # Construct cm, am, p
         if noise_model == 'code-capacity':
-            cmx = np.copy(self.Hx)
-            cmz = np.copy(self.Hz)
-            amx = np.copy(self.Lx)
-            amz = np.copy(self.Lz)
+            if detector_type == 'X':
+                cm = self.Hx
+                am = self.Lx
+            else:
+                cm = self.Hz
+                am = self.Lz
+            p = dq_error_rate
         elif noise_model == 'phenomenological':
-            cmx = self._cm_phenomenological('X', num_round)
-            cmz = self._cm_phenomenological('Z', num_round)
-            amx = self._am_phenomenological('X', num_round)
-            amz = self._am_phenomenological('Z', num_round)
+            cm, am, p = self._cm_am_p_phenomenological(
+                detector_type, num_round, dq_error_rate, meas_error_rate)
         else:
             # TODO: implement 'circuit-level' noise model
             raise ValueError("unknown error model")
 
-        return cmx, amx, cmz, amz
+        return cm, am, p
 
     def _coord_to_dq(self, row: int, col: int) -> int:
         """Convert (row, col) coordinates to data qubit index."""
@@ -219,55 +260,48 @@ class RotatedSurfaceCode:
                        for col in range(1, 2 * self.d, 2)]
         self.Lz[0, data_qubits] = 1
 
-
-    def _cm_phenomenological(self, detector_type: str, num_round: int) -> np.ndarray:
+    def _cm_am_p_phenomenological(self,
+                                  detector_type: Literal['X', 'Z'],
+                                  num_round: int,
+                                  dq_error_rate: np.ndarray,
+                                  meas_error_rate: np.ndarray
+                                  ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Generate the check matrix of the specified detector type for the phenomenological noise model.
+        Generate the check matrix, action matrix, and probability vector for the phenomenological noise model.
         """
         n = self.n
         m = self.mx if detector_type == 'X' else self.mz
         H = self.Hx if detector_type == 'X' else self.Hz
+        L = self.Lx if detector_type == 'X' else self.Lz
 
         num_detectors = num_round * m
         num_dq_errors = num_round * n
         num_meas_errors = (num_round - 1) * m
         num_errors = num_dq_errors + num_meas_errors
 
+        # Construct cm
+        # TODO: clever way to construct cm1 and cm2
         cm1 = np.zeros((num_detectors, num_dq_errors), dtype=int)
         for t in range(num_round):
             cm1[t * m:(t + 1) * m, t * n:(t + 1) * n] = H.copy()
-
         cm2 = np.zeros((num_detectors, num_meas_errors), dtype=int)
         for t in range(num_round - 1):
             cm2[t * m:(t + 1) * m, t * m:(t + 1) * m] = np.eye(m, dtype=int)
         for t in range(1, num_round):
             cm2[t * m:(t + 1) * m, (t - 1) * m:t * m] = np.eye(m, dtype=int)
-
         cm = np.hstack((cm1, cm2))
-
         assert cm.shape == (num_detectors, num_errors)
-        assert cm.dtype == int
-        assert np.all(np.isin(cm, [0, 1]))
-        return cm
 
-    def _am_phenomenological(self, logical_type: str, num_round: int) -> np.ndarray:
-        """
-        Generate the action matrix of the specified logical type for the phenomenological noise model.
-        """
-        n = self.n
-        m = self.mx if logical_type == 'X' else self.mz
-        L = self.Lx if logical_type == 'X' else self.Lz
-
-        num_dq_errors = num_round * n
-        num_meas_errors = (num_round - 1) * m
-        num_errors = num_dq_errors + num_meas_errors
-
-        am1 = np.hstack([L.copy()] * num_round)
+        # Construct am
+        am1 = np.hstack([L] * num_round)
         am2 = np.zeros((1, num_meas_errors), dtype=int)
-
         am = np.hstack((am1, am2))
+        assert am.shape == (self.k, num_errors)
 
-        assert am.shape == (1, num_errors)
-        assert am.dtype == int
-        assert np.all(np.isin(am, [0, 1]))
-        return am
+        # Construct p
+        p1 = np.concatenate([dq_error_rate] * num_round)
+        p2 = np.concatenate([meas_error_rate] * (num_round - 1))
+        p = np.concatenate((p1, p2))
+        assert p.shape == (num_errors,)
+
+        return cm, am, p
