@@ -236,7 +236,14 @@ class RelayBPDecoder(Decoder):
     ["Improved belief propagation is sufficient for real-time decoding of quantum memory." arXiv:2506.01779 (2025)](https://arxiv.org/abs/2506.01779).
     """
 
-    def __init__(self, H: np.ndarray, prior: np.ndarray, num_sol: int, max_leg: int, mem_strength: np.ndarray, max_iter_list: List[int]):
+    def __init__(self,
+                 H: np.ndarray,
+                 prior: np.ndarray,
+                 num_sol: int,
+                 max_leg: int,
+                 mem_strength: np.ndarray,
+                 max_iter_list: List[int]
+                 ):
         """
         Parameters
         ----------
@@ -366,7 +373,12 @@ class RelayBPDecoder(Decoder):
 
         return ehat
 
-    def _DMem_BP_decode(self, syndrome: np.ndarray, init_marginal: np.ndarray, gamma: np.ndarray, max_iter: int, verbose: bool
+    def _DMem_BP_decode(self,
+                        syndrome: np.ndarray,
+                        init_marginal: np.ndarray,
+                        gamma: np.ndarray,
+                        max_iter: int,
+                        verbose: bool
                         ) -> Tuple[Optional[np.ndarray], np.ndarray]:
         """
         Disordered Memory BP decoding for a single relay leg.
