@@ -36,7 +36,7 @@ class Decoder:
         assert all(len(self.neighbors_c[c]) >= 2 for c in range(m)), \
             "Every check must involve at least two variables."
 
-    def decode(self, syndrome: np.ndarray, verbose: bool = False) -> Optional[np.ndarray]:
+    def decode(self, syndrome: np.ndarray, verbose: bool = False) -> np.ndarray:
         """
         Parameters
         ----------
@@ -49,7 +49,7 @@ class Decoder:
         Returns
         -------
             ehat : ndarray or None
-                Decoded error vector if at least one solution is found, otherwise None.
+                Decoded error vector.
         """
         pass
 
@@ -93,7 +93,7 @@ class BPDecoder(Decoder):
         # set whether to record history
         self.record_history = record_history
 
-    def decode(self, syndrome: np.ndarray, verbose: bool = False) -> Optional[np.ndarray]:
+    def decode(self, syndrome: np.ndarray, verbose: bool = False) -> np.ndarray:
         """
         Parameters
         ----------
@@ -105,8 +105,8 @@ class BPDecoder(Decoder):
 
         Returns
         -------
-            ehat : ndarray or None
-                Decoded error vector if the BP decoding converges, otherwise None.
+            ehat : ndarray
+                Decoded error vector.
         """
         assert isinstance(syndrome, np.ndarray)
         assert syndrome.shape == (self.m,)
@@ -180,7 +180,11 @@ class BPDecoder(Decoder):
             # (i,j) entry is hard decision of variable j after iteration i
             self.history_ehat = np.array(history_ehat, dtype=int)
 
-        return ehat if converged else None
+        if not converged:
+            # defaults to all-zero error vector if decoding fails
+            ehat = np.zeros(self.n, dtype=int)
+
+        return ehat
 
 
 class RelayBPDecoder(Decoder):
@@ -234,7 +238,7 @@ class RelayBPDecoder(Decoder):
         self.mem_strength = mem_strength
         self.max_iter_list = max_iter_list
 
-    def decode(self, syndrome: np.ndarray, verbose: bool = False) -> Optional[np.ndarray]:
+    def decode(self, syndrome: np.ndarray, verbose: bool = False) -> np.ndarray:
         """
         Parameters
         ----------
@@ -246,8 +250,8 @@ class RelayBPDecoder(Decoder):
 
         Returns
         -------
-            best_ehat : ndarray or None
-                Decoded error vector if at least one relay leg converges, otherwise None.
+            best_ehat : ndarray
+                Decoded error vector.
         """
         cnt = 0  # count number of solutions found
         best_ehat = None  # best solution found so far
@@ -282,7 +286,8 @@ class RelayBPDecoder(Decoder):
         if cnt == 0:  # no solution found
             if verbose:
                 print("No solution found.")
-            return None
+            # defaults to all-zero error vector if no solution is found
+            return np.zeros(self.n, dtype=int)
         else:  # at least one solution found
             if verbose:
                 print(
