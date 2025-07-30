@@ -48,7 +48,58 @@ def sample_error_and_syndrome(cm: np.ndarray, error_rate: np.ndarray, N: int, se
     return error, syndrome
 
 
-def print_statistics(cm: np.ndarray, am: np.ndarray, true_error: np.ndarray, decoded_error: np.ndarray):
+def get_logical_error_rate(cm: np.ndarray, am: np.ndarray, true_error: np.ndarray, decoded_error: np.ndarray) -> float:
+    """
+    Calculate the logical error rate.
+
+    Parameters
+    ----------
+        cm : ndarray
+            Check matrix, shape=(m, n), dtype=int, values in {0, 1}.
+
+        am : ndarray
+            Action matrix, shape=(k, n), dtype=int, values in {0, 1}.
+
+        true_error : ndarray
+            Array of true error patterns, shape=(N, n), dtype=int, values in {0, 1}.
+
+        decoded_error : ndarray
+            Array of decoded error patterns, shape=(N, n), dtype=int, values in {0, 1}.
+
+    Returns
+    -------
+        ler : float
+            Logical error rate.
+    """
+    assert isinstance(cm, np.ndarray) and cm.dtype == int and np.all(
+        np.isin(cm, [0, 1]))
+    assert isinstance(am, np.ndarray) and am.dtype == int and np.all(
+        np.isin(am, [0, 1]))
+    assert cm.shape[1] == am.shape[1]
+
+    n = cm.shape[1]
+
+    assert isinstance(true_error, np.ndarray) and true_error.dtype == int and np.all(
+        np.isin(true_error, [0, 1]))
+    assert isinstance(decoded_error, np.ndarray)
+    assert np.issubdtype(decoded_error.dtype, np.integer)
+    assert np.all(np.isin(decoded_error, [0, 1]))
+    assert true_error.shape == decoded_error.shape
+
+    N = true_error.shape[0]
+
+    residual_error = (true_error + decoded_error) % 2
+    residual_syndrome = (residual_error @ cm.T) % 2
+    residual_action = (residual_error @ am.T) % 2
+
+    correct_mask = np.all(residual_syndrome == 0, axis=1) \
+        & np.all(residual_action == 0, axis=1)
+    correct_cnt = np.sum(correct_mask)
+
+    return (N - correct_cnt) / N
+
+
+def print_statistics(cm: np.ndarray, am: np.ndarray, true_error: np.ndarray, decoded_error: np.ndarray, num_round: Optional[int] = None):
     """
     Calculate statistics of the decoding performance.
 
@@ -65,6 +116,9 @@ def print_statistics(cm: np.ndarray, am: np.ndarray, true_error: np.ndarray, dec
 
         decoded_error : ndarray
             Array of decoded error patterns, shape=(N, n), dtype=int, values in {0, 1}.
+
+        num_round : int or None
+            Number of rounds of stabilizer measurement.
     """
     assert isinstance(cm, np.ndarray) and cm.dtype == int and np.all(np.isin(cm, [0, 1]))
     assert isinstance(am, np.ndarray) and am.dtype == int and np.all(np.isin(am, [0, 1]))
@@ -73,7 +127,9 @@ def print_statistics(cm: np.ndarray, am: np.ndarray, true_error: np.ndarray, dec
     n = cm.shape[1]
 
     assert isinstance(true_error, np.ndarray) and true_error.dtype == int and np.all(np.isin(true_error, [0, 1]))
-    assert isinstance(decoded_error, np.ndarray) and decoded_error.dtype == int and np.all(np.isin(decoded_error, [0, 1]))
+    assert isinstance(decoded_error, np.ndarray)
+    assert np.issubdtype(decoded_error.dtype, np.integer)
+    assert np.all(np.isin(decoded_error, [0, 1]))
     assert true_error.shape == decoded_error.shape
 
     N = true_error.shape[0]
@@ -93,7 +149,15 @@ def print_statistics(cm: np.ndarray, am: np.ndarray, true_error: np.ndarray, dec
     print("Total number of samples: ", N)
     print("Number of samples with incorrect syndrome: {}".format(N - correct_syndrome_cnt))
     print("Number of samples with correct syndrome but with logical error: {}".format(correct_syndrome_cnt - correct_decoding_cnt))
-    print("Decoding failure rate: {}%".format((N - correct_decoding_cnt) / N * 100))
+
+    # logical error rate
+    ler = (N - correct_decoding_cnt) / N
+    print("Decoding failure rate: {}%".format(ler * 100))
+
+    if num_round is not None:
+        # logical error rate per cycle
+        ler_per_cycle = 1 - (1 - ler) ** (1.0 / num_round)
+        print("Logical error rate per cycle: {}%".format(ler_per_cycle * 100))
 
 
 def sample_depolarizing1_noise(n: int, p: np.ndarray, N: int, seed: Optional[int] = None) -> Tuple[np.ndarray, np.ndarray]:
