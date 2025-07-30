@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm import tqdm
 from typing import Optional, Tuple, List
 
 
@@ -53,12 +54,15 @@ class Decoder:
         """
         pass
 
-    def decode_batch(self, syndrome: np.ndarray) -> np.ndarray:
+    def decode_batch(self, syndrome: np.ndarray, progress_bar: bool = True) -> np.ndarray:
         """
         Parameters
         ----------
             syndrome : ndarray
                 Array of syndrome vectors, shape=(N,m), dtype=int, values in {0, 1}.
+            
+            progress_bar : bool
+                If True, show a progress bar. Default is True.
 
         Returns
         -------
@@ -199,12 +203,15 @@ class BPDecoder(Decoder):
 
         return ehat
 
-    def decode_batch(self, syndrome: np.ndarray) -> np.ndarray:
+    def decode_batch(self, syndrome: np.ndarray, progress_bar: bool = True) -> np.ndarray:
         """
         Parameters
         ----------
             syndrome : ndarray
                 Array of syndrome vectors, shape=(N,m), dtype=int, values in {0, 1}.
+
+            progress_bar : bool
+                If True, show a progress bar. Default is True.
 
         Returns
         -------
@@ -219,7 +226,7 @@ class BPDecoder(Decoder):
 
         # naive implementation
         ehat = np.zeros((N, self.n), dtype=int)
-        for i in range(N):
+        for i in tqdm(range(N), disable=not progress_bar):
             ehat[i] = self.decode(syndrome[i])
 
         return ehat
@@ -331,12 +338,15 @@ class RelayBPDecoder(Decoder):
                     f"Found {cnt} solutions, returning the best one with weight {best_weight}.")
             return best_ehat
 
-    def decode_batch(self, syndrome: np.ndarray) -> np.ndarray:
+    def decode_batch(self, syndrome: np.ndarray, progress_bar: bool = True) -> np.ndarray:
         """
         Parameters
         ----------
             syndrome : ndarray
                 Array of syndrome vectors, shape=(N,m), dtype=int, values in {0, 1}.
+
+            progress_bar : bool
+                If True, show a progress bar. Default is True.
 
         Returns
         -------
@@ -351,7 +361,7 @@ class RelayBPDecoder(Decoder):
 
         # naive implementation
         ehat = np.zeros((N, self.n), dtype=int)
-        for i in range(N):
+        for i in tqdm(range(N), disable=not progress_bar):
             ehat[i] = self.decode(syndrome[i])
 
         return ehat
