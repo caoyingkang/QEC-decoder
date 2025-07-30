@@ -74,21 +74,21 @@ class RotatedSurfaceCode:
                 For the X-type (similarly for Z-type) decoding problem, this noise model assumes multiple rounds of noisy 
                 stabilizer measurement, considering in each round both Pauli Z errors on data qubits and bit-flip errors 
                 on the X-type stabilizer measurement outcomes; the detectors are the *change* between two measured outcomes 
-                of the same X-type stabilizer in consecutive rounds. More precisely, there are in total #round * #x_stabilizer 
-                X-type detectors which are defined as follows:
+                of the same X-type stabilizer in consecutive rounds. More precisely, X-type detectors are defined as follows:
 
                     - D_{0,i} = meas. outcome of X-type stabilizer i in round 0,
 
                     - D_{t,i} = XOR of the two meas. outcomes of X-type stabilizer i in round t-1 and round t, for 1 <= t < #round.
                 
-                There are in total #round * (#data_qubit + #x_stabilizer) Z-type error mechanisms which are defined as follows:
+                Z-type error mechanisms are defined as follows:
 
                     - E1_{t,j} = Pauli Z error on data qubit j happening just before round t, for 0 <= t < #round.
 
-                    - E2_{t,i} = bit-flip error on the meas. outcome of X-type stabilizer i in round t, for 0 <= t < #round.
+                    - E2_{t,i} = bit-flip error on the meas. outcome of X-type stabilizer i in round t, for 0 <= t < #round - 1. Note 
+                    that by convention, we assume that the last round of stabilizer measurement is error-free.
                 
                 The matrix cmx can be written as two parts as cmx = [cmx1, cmx2], where cmx1 consists of the first #round * #data_qubit 
-                columns of cmx, and cmx2 consists of the last #round * #x_stabilizer columns of cmx. Detector D_{t,i} corresponds to 
+                columns of cmx, and cmx2 consists of the last (#round - 1) * #x_stabilizer columns of cmx. Detector D_{t,i} corresponds to 
                 row (t * #x_stabilizer + i) in cmx. Error mechanism E1_{t,j} corresponds to column (t * #data_qubit + j) in cmx1, and 
                 error mechanism E2_{t,i} corresponds to column (t * #x_stabilizer + i) in cmx2.
 
@@ -230,7 +230,7 @@ class RotatedSurfaceCode:
 
         num_detectors = num_round * m
         num_dq_errors = num_round * n
-        num_meas_errors = num_round * m
+        num_meas_errors = (num_round - 1) * m
         num_errors = num_dq_errors + num_meas_errors
 
         cm1 = np.zeros((num_detectors, num_dq_errors), dtype=int)
@@ -238,7 +238,7 @@ class RotatedSurfaceCode:
             cm1[t * m:(t + 1) * m, t * n:(t + 1) * n] = H.copy()
 
         cm2 = np.zeros((num_detectors, num_meas_errors), dtype=int)
-        for t in range(num_round):
+        for t in range(num_round - 1):
             cm2[t * m:(t + 1) * m, t * m:(t + 1) * m] = np.eye(m, dtype=int)
         for t in range(1, num_round):
             cm2[t * m:(t + 1) * m, (t - 1) * m:t * m] = np.eye(m, dtype=int)
@@ -259,7 +259,7 @@ class RotatedSurfaceCode:
         L = self.Lx if logical_type == 'X' else self.Lz
 
         num_dq_errors = num_round * n
-        num_meas_errors = num_round * m
+        num_meas_errors = (num_round - 1) * m
         num_errors = num_dq_errors + num_meas_errors
 
         am1 = np.hstack([L.copy()] * num_round)
