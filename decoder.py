@@ -48,11 +48,24 @@ class Decoder:
 
         Returns
         -------
-            ehat : ndarray or None
+            ehat : ndarray
                 Decoded error vector.
         """
         pass
 
+    def decode_batch(self, syndrome: np.ndarray) -> np.ndarray:
+        """
+        Parameters
+        ----------
+            syndrome : ndarray
+                Array of syndrome vectors, shape=(N,m), dtype=int, values in {0, 1}.
+
+        Returns
+        -------
+            ehat : ndarray
+                Array of decoded error vectors, shape=(N,n), dtype=int, values in {0, 1}.
+        """
+        pass
 
 class BPDecoder(Decoder):
     """Belief Propagation decoder for syndrome-based LDPC decoding, min-sum variant.
@@ -186,6 +199,30 @@ class BPDecoder(Decoder):
 
         return ehat
 
+    def decode_batch(self, syndrome: np.ndarray) -> np.ndarray:
+        """
+        Parameters
+        ----------
+            syndrome : ndarray
+                Array of syndrome vectors, shape=(N,m), dtype=int, values in {0, 1}.
+
+        Returns
+        -------
+            ehat : ndarray
+                Array of decoded error vectors, shape=(N,n), dtype=int, values in {0, 1}.
+        """
+        assert isinstance(syndrome, np.ndarray)
+        assert syndrome.shape[1] == self.m
+        assert syndrome.dtype == int and np.all(np.isin(syndrome, [0, 1]))
+
+        N = syndrome.shape[0]  # batch size
+
+        # naive implementation
+        ehat = np.zeros((N, self.n), dtype=int)
+        for i in range(N):
+            ehat[i] = self.decode(syndrome[i])
+
+        return ehat
 
 class RelayBPDecoder(Decoder):
     """Relay Belief Propagation decoder proposed in the paper
@@ -293,6 +330,31 @@ class RelayBPDecoder(Decoder):
                 print(
                     f"Found {cnt} solutions, returning the best one with weight {best_weight}.")
             return best_ehat
+
+    def decode_batch(self, syndrome: np.ndarray) -> np.ndarray:
+        """
+        Parameters
+        ----------
+            syndrome : ndarray
+                Array of syndrome vectors, shape=(N,m), dtype=int, values in {0, 1}.
+
+        Returns
+        -------
+            ehat : ndarray
+                Array of decoded error vectors, shape=(N,n), dtype=int, values in {0, 1}.
+        """
+        assert isinstance(syndrome, np.ndarray)
+        assert syndrome.shape[1] == self.m
+        assert syndrome.dtype == int and np.all(np.isin(syndrome, [0, 1]))
+
+        N = syndrome.shape[0]  # batch size
+
+        # naive implementation
+        ehat = np.zeros((N, self.n), dtype=int)
+        for i in range(N):
+            ehat[i] = self.decode(syndrome[i])
+
+        return ehat
 
     def _DMem_BP_decode(self, syndrome: np.ndarray, init_marginal: np.ndarray, gamma: np.ndarray, max_iter: int, verbose: bool
                         ) -> Tuple[Optional[np.ndarray], np.ndarray]:
