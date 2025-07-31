@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.sparse as sp
 from tqdm import tqdm
 from typing import Optional, Tuple, List
 
@@ -7,17 +8,17 @@ class Decoder:
     """Base class for decoders.
     """
 
-    def __init__(self, H: np.ndarray):
+    def __init__(self, H: sp.csr_matrix):
         """
         Parameters
         ----------
-            H : ndarray
-                Parity check matrix, shape=(m, n), dtype=int, values in {0, 1}. Make sure every column has weight at least 1 
+            H : csr_matrix
+                Parity check matrix, shape=(m, n), values in {0, 1}. Make sure every column has weight at least 1 
                 and every row has weight at least 2.
         """
-        assert isinstance(H, np.ndarray)
+        assert isinstance(H, sp.csr_matrix)
+        assert np.all(H.data == 1)
         m, n = H.shape
-        assert H.dtype == int and np.all(np.isin(H, [0, 1]))
 
         self.H = H
         self.m: int = m
@@ -25,14 +26,14 @@ class Decoder:
 
         # get neighboring check nodes of each variable node in the Tanner graph
         # dict: v-node -> list of c-nodes
-        self.neighbors_v = {v: np.nonzero(H[:, v] == 1)[0].tolist()
+        self.neighbors_v = {v: H[:, v].nonzero()[0].tolist()
                             for v in range(n)}
         assert all(len(self.neighbors_v[v]) >= 1 for v in range(n)), \
             "Every variable must be involved in at least one check."
 
         # get neighboring variable nodes of each check node in the Tanner graph
         # dict: c-node -> list of v-nodes
-        self.neighbors_c = {c: np.nonzero(H[c] == 1)[0].tolist()
+        self.neighbors_c = {c: H[c].nonzero()[1].tolist()
                             for c in range(m)}
         assert all(len(self.neighbors_c[c]) >= 2 for c in range(m)), \
             "Every check must involve at least two variables."
@@ -42,15 +43,15 @@ class Decoder:
         Parameters
         ----------
             syndrome : ndarray
-                Syndrome vector, shape=(m,), dtype=int, values in {0, 1}.
-            
+                Syndrome vector, shape=(m,), values in {0, 1}.
+
             verbose : bool
                 If True, print decoding information. Default is False.
 
         Returns
         -------
             ehat : ndarray
-                Decoded error vector.
+                Decoded error vector, shape=(n,), values in {0, 1}.
         """
         pass
 
@@ -59,36 +60,43 @@ class Decoder:
         Parameters
         ----------
             syndrome : ndarray
-                Array of syndrome vectors, shape=(N,m), dtype=int, values in {0, 1}.
-            
+                Array of syndrome vectors, shape=(N,m), values in {0, 1}.
+
             progress_bar : bool
                 If True, show a progress bar. Default is True.
 
         Returns
         -------
             ehat : ndarray
-                Array of decoded error vectors, shape=(N,n), dtype=int, values in {0, 1}.
+                Array of decoded error vectors, shape=(N,n), values in {0, 1}.
         """
         pass
+
 
 class BPDecoder(Decoder):
     """Belief Propagation decoder for syndrome-based LDPC decoding, min-sum variant.
     """
 
-    def __init__(self, H: np.ndarray, prior: np.ndarray, max_iter: Optional[int] = None, record_history: bool = False):
+    def __init__(
+        self,
+        H: sp.csr_matrix,
+        prior: np.ndarray,
+        max_iter: Optional[int] = None,
+        record_history: bool = False
+    ):
         """
         Parameters
         ----------
-            H : ndarray
-                Parity check matrix, shape=(m, n), dtype=int, values in {0, 1}. Make sure every column has weight at least 1 
+            H : csr_matrix
+                Parity check matrix, shape=(m, n), values in {0, 1}. Make sure every column has weight at least 1 
                 and every row has weight at least 2.
-            
+
             prior : ndarray
-                Prior error probabilities for each bit, shape=(n,), dtype=float, values in (0, 0.5).
-            
+                Prior error probabilities for each bit, shape=(n,), values in (0, 0.5).
+
             max_iter : int or None
                 Max number of BP iterations. If None, defaults to code length n.
-            
+
             record_history : bool
                 If True, record marginals and hard decisions at each iteration. Default is False.
         """
@@ -96,7 +104,7 @@ class BPDecoder(Decoder):
 
         assert isinstance(prior, np.ndarray)
         assert prior.shape == (self.n,)
-        assert prior.dtype == float and 0 < prior.min() and prior.max() < 0.5
+        assert prior.min() > 0 and prior.max() < 0.5
 
         self.prior = prior
         # log-likelihood ratios of prior probabilities
@@ -115,19 +123,19 @@ class BPDecoder(Decoder):
         Parameters
         ----------
             syndrome : ndarray
-                Syndrome vector, shape=(m,), dtype=int, values in {0, 1}.
-            
+                Syndrome vector, shape=(m,), values in {0, 1}.
+
             verbose : bool
-                If True, print convergence information. Default is False.
+                If True, print decoding information. Default is False.
 
         Returns
         -------
             ehat : ndarray
-                Decoded error vector.
+                Decoded error vector, shape=(n,), values in {0, 1}.
         """
         assert isinstance(syndrome, np.ndarray)
         assert syndrome.shape == (self.m,)
-        assert syndrome.dtype == int and np.all(np.isin(syndrome, [0, 1]))
+        assert np.all(np.isin(syndrome, [0, 1]))
 
         # convert syndrome from {0,1} to {1,-1} representation
         syndrome_sign = 1 - 2 * syndrome
@@ -142,7 +150,7 @@ class BPDecoder(Decoder):
             history_marginal = []  # record marginals obtained at each iteration
             history_marginal.append(np.copy(self.llr_prior))
             history_ehat = []  # record hard decisions obtained at each iteration
-            history_ehat.append(np.zeros(self.n, dtype=int))
+            history_ehat.append(np.zeros(self.n, dtype=np.uint8))
         for v in range(self.n):
             for c in self.neighbors_v[v]:
                 msg_v_to_c[(v, c)] = self.llr_prior[v]
@@ -173,12 +181,12 @@ class BPDecoder(Decoder):
                 marginal[v] += np.sum([msg_c_to_v[(c, v)]
                                       for c in self.neighbors_v[v]])
             # hard decisions
-            ehat = np.zeros(self.n, dtype=int)
+            ehat = np.zeros(self.n, dtype=np.uint8)
             ehat[marginal < 0] = 1
             # record history if needed
             if self.record_history:
-                history_marginal.append(np.copy(marginal))
-                history_ehat.append(np.copy(ehat))
+                history_marginal.append(marginal)
+                history_ehat.append(ehat)
             # check if syndrome is satisfied
             if np.all((self.H @ ehat) % 2 == syndrome):
                 converged = True
@@ -193,13 +201,13 @@ class BPDecoder(Decoder):
 
         if self.record_history:
             # (i,j) entry is marginal of variable j after iteration i
-            self.history_marginal = np.array(history_marginal, dtype=float)
+            self.history_marginal = np.array(history_marginal)
             # (i,j) entry is hard decision of variable j after iteration i
-            self.history_ehat = np.array(history_ehat, dtype=int)
+            self.history_ehat = np.array(history_ehat, dtype=np.uint8)
 
         if not converged:
             # defaults to all-zero error vector if decoding fails
-            ehat = np.zeros(self.n, dtype=int)
+            ehat = np.zeros(self.n, dtype=np.uint8)
 
         return ehat
 
@@ -208,7 +216,7 @@ class BPDecoder(Decoder):
         Parameters
         ----------
             syndrome : ndarray
-                Array of syndrome vectors, shape=(N,m), dtype=int, values in {0, 1}.
+                Array of syndrome vectors, shape=(N,m), values in {0, 1}.
 
             progress_bar : bool
                 If True, show a progress bar. Default is True.
@@ -216,54 +224,56 @@ class BPDecoder(Decoder):
         Returns
         -------
             ehat : ndarray
-                Array of decoded error vectors, shape=(N,n), dtype=int, values in {0, 1}.
+                Array of decoded error vectors, shape=(N,n), values in {0, 1}.
         """
         assert isinstance(syndrome, np.ndarray)
         assert syndrome.shape[1] == self.m
-        assert syndrome.dtype == int and np.all(np.isin(syndrome, [0, 1]))
+        assert np.all(np.isin(syndrome, [0, 1]))
 
         N = syndrome.shape[0]  # batch size
 
         # naive implementation
-        ehat = np.zeros((N, self.n), dtype=int)
+        ehat = np.zeros((N, self.n), dtype=np.uint8)
         for i in tqdm(range(N), disable=not progress_bar):
             ehat[i] = self.decode(syndrome[i])
 
         return ehat
+
 
 class RelayBPDecoder(Decoder):
     """Relay Belief Propagation decoder proposed in the paper
     ["Improved belief propagation is sufficient for real-time decoding of quantum memory." arXiv:2506.01779 (2025)](https://arxiv.org/abs/2506.01779).
     """
 
-    def __init__(self,
-                 H: np.ndarray,
-                 prior: np.ndarray,
-                 num_sol: int,
-                 max_leg: int,
-                 mem_strength: np.ndarray,
-                 max_iter_list: List[int]
-                 ):
+    def __init__(
+        self,
+        H: sp.csr_matrix,
+        prior: np.ndarray,
+        num_sol: int,
+        max_leg: int,
+        mem_strength: np.ndarray,
+        max_iter_list: List[int]
+    ):
         """
         Parameters
         ----------
-            H : ndarray
-                Parity check matrix, shape=(m, n), dtype=int, values in {0, 1}. Make sure every column has weight at least 1 
+            H : csr_matrix
+                Parity check matrix, shape=(m, n), values in {0, 1}. Make sure every column has weight at least 1 
                 and every row has weight at least 2.
-            
+
             prior : ndarray
-                Prior error probabilities for each bit, shape=(n,), dtype=float, values in (0, 0.5).
-            
+                Prior error probabilities for each bit, shape=(n,), values in (0, 0.5).
+
             num_sol : int
                 Number of solutions sought.
-            
+
             max_leg : int
                 Max number of relay legs.
-            
+
             mem_strength : ndarray
-                Memory strength for each bit and each relay leg, shape=(max_leg, n), dtype=float. As described in the paper, 
+                Memory strength for each bit and each relay leg, shape=(max_leg, n). As described in the paper, 
                 the memory strength can be negative.
-            
+
             max_iter_list : list[int]
                 List of max number of iterations for each relay leg, of length max_leg.
         """
@@ -271,7 +281,7 @@ class RelayBPDecoder(Decoder):
 
         assert isinstance(prior, np.ndarray)
         assert prior.shape == (self.n,)
-        assert prior.dtype == float and 0 < prior.min() and prior.max() < 0.5
+        assert prior.min() > 0 and prior.max() < 0.5
 
         self.prior = prior
         # log-likelihood ratios of prior probabilities
@@ -282,7 +292,6 @@ class RelayBPDecoder(Decoder):
 
         assert isinstance(mem_strength, np.ndarray)
         assert mem_strength.shape == (max_leg, self.n)
-        assert mem_strength.dtype == float
         assert isinstance(max_iter_list, list)
         assert len(max_iter_list) == max_leg
 
@@ -294,22 +303,26 @@ class RelayBPDecoder(Decoder):
         Parameters
         ----------
             syndrome : ndarray
-                Syndrome vector, shape=(m,), dtype=int, values in {0, 1}.
-            
+                Syndrome vector, shape=(m,), values in {0, 1}.
+
             verbose : bool
                 If True, print decoding information. Default is False.
 
         Returns
         -------
             best_ehat : ndarray
-                Decoded error vector.
+                Decoded error vector, shape=(n,), values in {0, 1}.
         """
+        assert isinstance(syndrome, np.ndarray)
+        assert syndrome.shape == (self.m,)
+        assert np.all(np.isin(syndrome, [0, 1]))
+
         cnt = 0  # count number of solutions found
         best_ehat = None  # best solution found so far
         # weight of the best solution found so far (the lower the better)
         best_weight = float('inf')
 
-        marginal = self.llr_prior.copy()
+        marginal = self.llr_prior
         for l in range(self.max_leg):
             if verbose:
                 print(f"Decoding relay leg {l}...")
@@ -338,7 +351,7 @@ class RelayBPDecoder(Decoder):
             if verbose:
                 print("No solution found.")
             # defaults to all-zero error vector if no solution is found
-            return np.zeros(self.n, dtype=int)
+            return np.zeros(self.n, dtype=np.uint8)
         else:  # at least one solution found
             if verbose:
                 print(
@@ -350,7 +363,7 @@ class RelayBPDecoder(Decoder):
         Parameters
         ----------
             syndrome : ndarray
-                Array of syndrome vectors, shape=(N,m), dtype=int, values in {0, 1}.
+                Array of syndrome vectors, shape=(N,m), values in {0, 1}.
 
             progress_bar : bool
                 If True, show a progress bar. Default is True.
@@ -358,45 +371,46 @@ class RelayBPDecoder(Decoder):
         Returns
         -------
             ehat : ndarray
-                Array of decoded error vectors, shape=(N,n), dtype=int, values in {0, 1}.
+                Array of decoded error vectors, shape=(N,n), values in {0, 1}.
         """
         assert isinstance(syndrome, np.ndarray)
         assert syndrome.shape[1] == self.m
-        assert syndrome.dtype == int and np.all(np.isin(syndrome, [0, 1]))
+        assert np.all(np.isin(syndrome, [0, 1]))
 
         N = syndrome.shape[0]  # batch size
 
         # naive implementation
-        ehat = np.zeros((N, self.n), dtype=int)
+        ehat = np.zeros((N, self.n), dtype=np.uint8)
         for i in tqdm(range(N), disable=not progress_bar):
             ehat[i] = self.decode(syndrome[i])
 
         return ehat
 
-    def _DMem_BP_decode(self,
-                        syndrome: np.ndarray,
-                        init_marginal: np.ndarray,
-                        gamma: np.ndarray,
-                        max_iter: int,
-                        verbose: bool
-                        ) -> Tuple[Optional[np.ndarray], np.ndarray]:
+    def _DMem_BP_decode(
+        self,
+        syndrome: np.ndarray,
+        init_marginal: np.ndarray,
+        gamma: np.ndarray,
+        max_iter: int,
+        verbose: bool
+    ) -> Tuple[Optional[np.ndarray], np.ndarray]:
         """
         Disordered Memory BP decoding for a single relay leg.
 
         Parameters
         ----------
             syndrome : ndarray
-                Syndrome vector, shape=(m,), dtype=int, values in {0, 1}.
-            
+                Syndrome vector, shape=(m,), values in {0, 1}.
+
             init_marginal : ndarray
-                Initial marginals, shape=(n,), dtype=float.
-            
+                Initial marginals, shape=(n,).
+
             gamma : ndarray
-                Memory strength for this relay leg, shape=(n,), dtype=float.
-            
+                Memory strength for this relay leg, shape=(n,).
+
             max_iter : int
                 Max number of BP iterations for this relay leg.
-            
+
             verbose : bool
                 If True, print convergence information.
 
@@ -404,12 +418,12 @@ class RelayBPDecoder(Decoder):
         -------
             ehat : ndarray or None
                 Decoded error vector if the BP decoding converges, otherwise None.
-            
+
             marginal : ndarray
                 Marginal log-likelihood ratios from the last iteration.
         """
-        syndrome_sign = 1 - 2 * \
-            syndrome  # convert syndrome from {0,1} to {1,-1} representation
+        # Convert syndrome from {0,1} to {1,-1} representation
+        syndrome_sign = 1 - 2 * syndrome
 
         # dict: (v, c) -> message from variable node v to check node c
         msg_v_to_c = {}
@@ -449,7 +463,7 @@ class RelayBPDecoder(Decoder):
                 marginal[v] += np.sum([msg_c_to_v[(c, v)]
                                       for c in self.neighbors_v[v]])
             # hard decisions
-            ehat = np.zeros(self.n, dtype=int)
+            ehat = np.zeros(self.n, dtype=np.uint8)
             ehat[marginal < 0] = 1
             # check if syndrome is satisfied
             if np.all((self.H @ ehat) % 2 == syndrome):

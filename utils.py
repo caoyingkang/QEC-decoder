@@ -8,7 +8,7 @@ def sample_error_and_syndrome(
     error_rate: np.ndarray,
     N: int,
     seed: Optional[int] = None
-) -> Tuple[sp.csr_matrix, sp.csr_matrix]:
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Sample error patterns and calculate syndromes.
 
@@ -28,10 +28,10 @@ def sample_error_and_syndrome(
 
     Returns
     -------
-        error : csr_matrix
+        error : ndarray
             Array of error patterns, shape=(N, n), dtype=np.uint8, values in {0, 1}.
 
-        syndrome : csr_matrix
+        syndrome : ndarray
             Array of syndrome vectors, shape=(N, m), dtype=np.uint8, values in {0, 1}.
     """
     assert isinstance(cm, sp.csr_matrix)
@@ -46,15 +46,14 @@ def sample_error_and_syndrome(
         np.random.seed(seed)
 
     error = (np.random.rand(N, n) < error_rate).astype(np.uint8)
-    error = sp.csr_matrix(error)
-    syndrome = mod2(error @ cm.T).astype(np.uint8)
+    syndrome = ((error @ cm.T) % 2).astype(np.uint8)
 
-    assert isinstance(error, sp.csr_matrix)
-    assert isinstance(syndrome, sp.csr_matrix)
+    assert isinstance(error, np.ndarray)
+    assert isinstance(syndrome, np.ndarray)
     assert error.shape == (N, n) and error.dtype == np.uint8
     assert syndrome.shape == (N, m) and syndrome.dtype == np.uint8
-    assert np.all(error.data == 1)
-    assert np.all(syndrome.data == 1)
+    assert np.all(np.isin(error, [0, 1]))
+    assert np.all(np.isin(syndrome, [0, 1]))
 
     return error, syndrome
 
@@ -62,8 +61,8 @@ def sample_error_and_syndrome(
 def get_logical_error_rate(
     cm: sp.csr_matrix,
     am: sp.csr_matrix,
-    true_error: sp.csr_matrix,
-    decoded_error: sp.csr_matrix
+    true_error: np.ndarray,
+    decoded_error: np.ndarray
 ) -> float:
     """
     Calculate the logical error rate.
@@ -76,10 +75,10 @@ def get_logical_error_rate(
         am : csr_matrix
             Action matrix, shape=(k, n), values in {0, 1}.
 
-        true_error : csr_matrix
+        true_error : ndarray
             Array of true error patterns, shape=(N, n), values in {0, 1}.
 
-        decoded_error : csr_matrix
+        decoded_error : ndarray
             Array of decoded error patterns, shape=(N, n), values in {0, 1}.
 
     Returns
@@ -95,23 +94,23 @@ def get_logical_error_rate(
 
     n = cm.shape[1]
 
-    assert isinstance(true_error, sp.csr_matrix)
-    assert np.all(true_error.data == 1)
-    assert isinstance(decoded_error, sp.csr_matrix)
-    assert np.all(decoded_error.data == 1)
+    assert isinstance(true_error, np.ndarray)
+    assert np.all(np.isin(true_error, [0, 1]))
+    assert isinstance(decoded_error, np.ndarray)
+    assert np.all(np.isin(decoded_error, [0, 1]))
     assert true_error.shape == decoded_error.shape
     assert true_error.shape[1] == n
 
     N = true_error.shape[0]
 
-    residual_error = mod2(true_error + decoded_error)
-    residual_syndrome = mod2(residual_error @ cm.T)
-    residual_action = mod2(residual_error @ am.T)
+    residual_error = (true_error + decoded_error) % 2
+    residual_syndrome = (residual_error @ cm.T) % 2
+    residual_action = (residual_error @ am.T) % 2
 
-    correct_cnt = np.sum(
-        (residual_syndrome.sum(axis=1) == 0) &
-        (residual_action.sum(axis=1) == 0)
-    )
+    correct_syndrome_mask = np.all(residual_syndrome == 0, axis=1)
+    correct_action_mask = np.all(residual_action == 0, axis=1)
+    correct_mask = correct_syndrome_mask & correct_action_mask
+    correct_cnt = np.sum(correct_mask)
 
     return (N - correct_cnt) / N
 
@@ -125,7 +124,12 @@ def mod2(a: sp.csr_matrix) -> sp.csr_matrix:
     return a
 
 
-def sample_depolarizing1_noise(n: int, p: np.ndarray, N: int, seed: Optional[int] = None) -> Tuple[np.ndarray, np.ndarray]:
+def sample_depolarizing1_noise(
+    n: int,
+    p: np.ndarray,
+    N: int,
+    seed: Optional[int] = None
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Sample independent single-qubit depolarizing noise on n fault locations.
 
@@ -135,7 +139,7 @@ def sample_depolarizing1_noise(n: int, p: np.ndarray, N: int, seed: Optional[int
             Number of fault locations.
 
         p : ndarray
-            Depolarizing error probabilities for each fault location, shape (n,), dtype=float, values in (0, 0.5).
+            Depolarizing error probabilities for each fault location, shape (n,), values in (0, 0.5).
 
         N : int
             Number of samples.
@@ -146,13 +150,13 @@ def sample_depolarizing1_noise(n: int, p: np.ndarray, N: int, seed: Optional[int
     Returns
     -------
         ex: ndarray
-            X-component of the sampled Pauli errors, shape (N, n), dtype=int, values in {0, 1}.
+            X-component of the sampled Pauli errors, shape (N, n), values in {0, 1}.
 
         ez: ndarray
-            Z-component of the sampled Pauli errors, shape (N, n), dtype=int, values in {0, 1}.
+            Z-component of the sampled Pauli errors, shape (N, n), values in {0, 1}.
     """
-    assert isinstance(
-        p, np.ndarray) and p.dtype == float and 0 < p.min() and p.max() < 0.5
+    assert isinstance(p, np.ndarray)
+    assert p.min() > 0 and p.max() < 0.5
     assert p.shape == (n,)
 
     if seed is not None:
@@ -167,12 +171,12 @@ def sample_depolarizing1_noise(n: int, p: np.ndarray, N: int, seed: Optional[int
     x_mask: np.ndarray = (paulis == 'X')
     y_mask: np.ndarray = (paulis == 'Y')
     z_mask: np.ndarray = (paulis == 'Z')
-    ex = (x_mask | y_mask).astype(int)
-    ez = (z_mask | y_mask).astype(int)
+    ex = (x_mask | y_mask).astype(np.uint8)
+    ez = (z_mask | y_mask).astype(np.uint8)
 
-    assert ex.shape == (N, n) and ex.dtype == int and np.all(
-        np.isin(ex, [0, 1]))
-    assert ez.shape == (N, n) and ez.dtype == int and np.all(
-        np.isin(ez, [0, 1]))
+    assert ex.shape == (N, n)
+    assert np.all(np.isin(ex, [0, 1]))
+    assert ez.shape == (N, n)
+    assert np.all(np.isin(ez, [0, 1]))
 
     return ex, ez
