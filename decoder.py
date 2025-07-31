@@ -138,7 +138,7 @@ class BPDecoder(Decoder):
         assert np.all(np.isin(syndrome, [0, 1]))
 
         # convert syndrome from {0,1} to {1,-1} representation
-        syndrome_sign = 1 - 2 * syndrome
+        syndrome_sign = 1 - 2 * syndrome.astype(int)
 
         # dict: (v, c) -> message from variable node v to check node c
         msg_v_to_c = {}
@@ -423,7 +423,7 @@ class RelayBPDecoder(Decoder):
                 Marginal log-likelihood ratios from the last iteration.
         """
         # Convert syndrome from {0,1} to {1,-1} representation
-        syndrome_sign = 1 - 2 * syndrome
+        syndrome_sign = 1 - 2 * syndrome.astype(int)
 
         # dict: (v, c) -> message from variable node v to check node c
         msg_v_to_c = {}
