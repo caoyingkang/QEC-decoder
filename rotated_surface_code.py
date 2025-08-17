@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.sparse as sp
+import stim
 from typing import Literal, Tuple
 
 
@@ -17,10 +18,37 @@ class RotatedSurfaceCode:
             raise ValueError("Distance d must be at least 3")
 
         self.d = d
+        self.width = 2 * d + 1  # width of the grid holding the qubits
         self.n = d * d  # number of data qubits
         self.mx = (d * d - 1) // 2  # number of X-type stabilizers
-        self.mz = (d * d - 1) // 2  # number of X-type stabilizers
+        self.mz = (d * d - 1) // 2  # number of Z-type stabilizers
+        self.m = self.mx + self.mz  # number of stabilizers
         self.k = 1  # number of logical qubits
+
+        # Store all the coordinates of data qubits, X-type stabilizers, and Z-type stabilizers.
+        self.dq_coords = [(x, y) for x in range(self.width)
+                          for y in range(self.width)
+                          if self._is_data_qubit_coord(x, y)]
+        self.xstab_coords = [(x, y) for x in range(self.width)
+                             for y in range(self.width)
+                             if self._is_x_stabilizer_coord(x, y)]
+        self.zstab_coords = [(x, y) for x in range(self.width)
+                             for y in range(self.width)
+                             if self._is_z_stabilizer_coord(x, y)]
+        assert len(self.dq_coords) == self.n
+        assert len(self.xstab_coords) == self.mx
+        assert len(self.zstab_coords) == self.mz
+
+        # Store all the indices of data qubits, X-type stabilizers, and Z-type stabilizers, sorted in ascending order.
+        self.dq_indices = sorted(self._coord_to_index(*coo)
+                                 for coo in self.dq_coords)
+        self.xstab_indices = sorted(self._coord_to_index(*coo)
+                                    for coo in self.xstab_coords)
+        self.zstab_indices = sorted(self._coord_to_index(*coo)
+                                    for coo in self.zstab_coords)
+        self.stab_indices = sorted(self.xstab_indices + self.zstab_indices)
+        self.all_indices = sorted(self.dq_indices + self.stab_indices)
+
         self._construct_stabilizer_matrices()  # obtain self.Hx and self.Hz
         self._construct_logical_operator_matrices()  # obtain self.Lx and self.Lz
 
@@ -330,3 +358,237 @@ class RotatedSurfaceCode:
         assert p.shape == (num_errors,)
 
         return cm, am, p
+
+    def _coord_to_index(self, x: int, y: int) -> int:
+        """Convert (x, y) coordinates to lattice site index."""
+        assert (x + y) % 2 == 0, "Not a valid lattice site"
+        return (y // 2) * self.width + x
+
+    def _index_to_coord(self, i: int) -> tuple[int, int]:
+        """Convert lattice site index to (x, y) coordinates."""
+        x = i % self.width
+        y = 2 * (i // self.width) + (x % 2)
+        return x, y
+
+    def _is_data_qubit_coord(self, x: int, y: int) -> bool:
+        """Check if (x, y) is the coordinate of a data qubit."""
+        return 0 <= x < self.width and 0 <= y < self.width and x % 2 == 1 and y % 2 == 1
+
+    def _is_x_stabilizer_coord(self, x: int, y: int) -> bool:
+        """Check if (x, y) is the coordinate of an X-type stabilizer."""
+        return 2 <= x < self.width - 2 and 0 <= y < self.width and x % 2 == 0 and y % 2 == 0 and (x + y) % 4 == 2
+
+    def _is_z_stabilizer_coord(self, x: int, y: int) -> bool:
+        """Check if (x, y) is the coordinate of a Z-type stabilizer."""
+        return 0 <= x < self.width and 2 <= y < self.width - 2 and x % 2 == 0 and y % 2 == 0 and (x + y) % 4 == 0
+
+    def make_circuit_memory_z_experiment(
+        self,
+        rounds: int,
+        *,
+        data_qubit_error_rate: float,
+        prep_error_rate: float = None,
+        meas_error_rate: float = None,
+        gate1_error_rate: float = None,
+        gate2_error_rate: float = None,
+        keep_z_detectors_only: bool = False,
+    ) -> stim.Circuit:
+        """
+        Return a stim.Circuit object for the memory Z experiment.
+
+        Parameters
+        ----------
+        rounds : int
+            The number of rounds of stabilizer measurements.
+        data_qubit_error_rate : float
+            The error rate of data qubits before each round of syndrome extraction.
+        prep_error_rate : float, optional
+            The error rate of state preparation. If None, no state preparation error is included.
+        meas_error_rate : float, optional
+            The error rate of measurement. If None, no measurement error is included.
+        gate1_error_rate : float, optional
+            The error rate of single-qubit gates. If None, no single-qubit gate error is included.
+        gate2_error_rate : float, optional
+            The error rate of two-qubit gates. If None, no two-qubit gate error is included.
+        keep_z_detectors_only : bool, optional
+            If True, only keep the Z-type detectors in the output circuit. Default is False.
+
+        Returns
+        -------
+        circuit : stim.Circuit
+            The stim.Circuit object for the memory Z experiment.
+        """
+        # ------------------------------------------------------------------------------------------------
+        # Build syndrome extraction circuit.
+        # ------------------------------------------------------------------------------------------------
+        circuit_SE = stim.Circuit()
+        # Prepare all ancilla qubits in the |0> state.
+        circuit_SE.append("R", self.stab_indices)
+        if prep_error_rate is not None:
+            circuit_SE.append("X_ERROR", self.stab_indices, prep_error_rate)  # noqa: E501
+        circuit_SE.append("TICK")
+        # Apply Hadamard gates to X-type ancilla qubits.
+        circuit_SE.append("H", self.xstab_indices)
+        if gate1_error_rate is not None:
+            circuit_SE.append("DEPOLARIZE1", self.xstab_indices, gate1_error_rate)  # noqa: E501
+        circuit_SE.append("TICK")
+        # Apply CNOT gates in the 1st layer.
+        cnot_indices = []
+        for x, y in self.xstab_coords:
+            if x < self.width - 1 and y < self.width - 1:
+                cnot_indices += [self._coord_to_index(x, y),
+                                 self._coord_to_index(x + 1, y + 1)]
+        for x, y in self.zstab_coords:
+            if x < self.width - 1 and y < self.width - 1:
+                cnot_indices += [self._coord_to_index(x + 1, y + 1),
+                                 self._coord_to_index(x, y)]
+        circuit_SE.append("CNOT", cnot_indices)
+        if gate2_error_rate is not None:
+            circuit_SE.append("DEPOLARIZE2", cnot_indices, gate2_error_rate)  # noqa: E501
+        circuit_SE.append("TICK")
+        # Apply CNOT gates in the 2nd layer.
+        cnot_indices = []
+        for x, y in self.xstab_coords:
+            if x > 0 and y < self.width - 1:
+                cnot_indices += [self._coord_to_index(x, y),
+                                 self._coord_to_index(x - 1, y + 1)]
+        for x, y in self.zstab_coords:
+            if x < self.width - 1 and y > 0:
+                cnot_indices += [self._coord_to_index(x + 1, y - 1),
+                                 self._coord_to_index(x, y)]
+        circuit_SE.append("CNOT", cnot_indices)
+        if gate2_error_rate is not None:
+            circuit_SE.append("DEPOLARIZE2", cnot_indices, gate2_error_rate)  # noqa: E501
+        circuit_SE.append("TICK")
+        # Apply CNOT gates in the 3rd layer.
+        cnot_indices = []
+        for x, y in self.xstab_coords:
+            if x < self.width - 1 and y > 0:
+                cnot_indices += [self._coord_to_index(x, y),
+                                 self._coord_to_index(x + 1, y - 1)]
+        for x, y in self.zstab_coords:
+            if x > 0 and y < self.width - 1:
+                cnot_indices += [self._coord_to_index(x - 1, y + 1),
+                                 self._coord_to_index(x, y)]
+        circuit_SE.append("CNOT", cnot_indices)
+        if gate2_error_rate is not None:
+            circuit_SE.append("DEPOLARIZE2", cnot_indices, gate2_error_rate)  # noqa: E501
+        circuit_SE.append("TICK")
+        # Apply CNOT gates in the 4th layer.
+        cnot_indices = []
+        for x, y in self.xstab_coords:
+            if x > 0 and y > 0:
+                cnot_indices += [self._coord_to_index(x, y),
+                                 self._coord_to_index(x - 1, y - 1)]
+        for x, y in self.zstab_coords:
+            if x > 0 and y > 0:
+                cnot_indices += [self._coord_to_index(x - 1, y - 1),
+                                 self._coord_to_index(x, y)]
+        circuit_SE.append("CNOT", cnot_indices)
+        if gate2_error_rate is not None:
+            circuit_SE.append("DEPOLARIZE2", cnot_indices, gate2_error_rate)  # noqa: E501
+        circuit_SE.append("TICK")
+        # Apply Hadamard gates to X-type ancilla qubits.
+        circuit_SE.append("H", self.xstab_indices)
+        if gate1_error_rate is not None:
+            circuit_SE.append("DEPOLARIZE1", self.xstab_indices, gate1_error_rate)  # noqa: E501
+        circuit_SE.append("TICK")
+        # Measure all ancilla qubits.
+        if meas_error_rate is not None:
+            circuit_SE.append("X_ERROR", self.stab_indices, meas_error_rate)  # noqa: E501
+        circuit_SE.append("M", self.stab_indices)
+        circuit_SE.append("TICK")
+
+        # ------------------------------------------------------------------------------------------------
+        # Build the circuit for the first round.
+        # ------------------------------------------------------------------------------------------------
+        circuit_first_round = stim.Circuit()
+        # Specify the coordinates of all qubits.
+        for i in self.all_indices:
+            circuit_first_round.append("QUBIT_COORDS", i, self._index_to_coord(i))  # noqa: E501
+        # Prepare all data qubits in the |0> state.
+        circuit_first_round.append("R", self.dq_indices)
+        if prep_error_rate is not None:
+            circuit_first_round.append("X_ERROR", self.dq_indices, prep_error_rate)  # noqa: E501
+        circuit_first_round.append("TICK")
+        # Data qubits suffer from noise.
+        if data_qubit_error_rate is not None:
+            circuit_first_round.append("DEPOLARIZE1", self.dq_indices, data_qubit_error_rate)  # noqa: E501
+        circuit_first_round.append("TICK")
+        # Syndrome extraction.
+        circuit_first_round += circuit_SE
+        # Specify Z-type detectors.
+        for k, i in enumerate(self.stab_indices):
+            x, y = self._index_to_coord(i)
+            if self._is_z_stabilizer_coord(x, y):
+                circuit_first_round.append("DETECTOR", [stim.target_rec(-self.m + k)], (x, y, 0))  # noqa: E501
+
+        # ------------------------------------------------------------------------------------------------
+        # Build the circuit for subsequent rounds.
+        # ------------------------------------------------------------------------------------------------
+        circuit_subsequent_round = stim.Circuit()
+        # Data qubits suffer from noise.
+        if data_qubit_error_rate is not None:
+            circuit_subsequent_round.append("DEPOLARIZE1", self.dq_indices, data_qubit_error_rate)  # noqa: E501
+        circuit_subsequent_round.append("TICK")
+        # Syndrome extraction.
+        circuit_subsequent_round += circuit_SE
+        # Specify detectors.
+        circuit_subsequent_round.append("SHIFT_COORDS", [], (0, 0, 1))
+        for k, i in enumerate(self.stab_indices):
+            x, y = self._index_to_coord(i)
+            if keep_z_detectors_only and self._is_x_stabilizer_coord(x, y):
+                continue
+            circuit_subsequent_round.append(
+                "DETECTOR",
+                [stim.target_rec(-self.m + k),
+                 stim.target_rec(-self.m * 2 + k)],
+                (x, y, 0)
+            )
+
+        # ------------------------------------------------------------------------------------------------
+        # Build the circuit for the final logical measurement.
+        # ------------------------------------------------------------------------------------------------
+        circuit_final_measurement = stim.Circuit()
+        # Measure all data qubits.
+        if meas_error_rate is not None:
+            circuit_final_measurement.append("X_ERROR", self.dq_indices, meas_error_rate)  # noqa: E501
+        circuit_final_measurement.append("M", self.dq_indices)
+        circuit_final_measurement.append("TICK")
+        # Specify Z-type detectors.
+        for k, i in enumerate(self.stab_indices):
+            x, y = self._index_to_coord(i)
+            if self._is_z_stabilizer_coord(x, y):
+                lookback_indices = []
+                if x < self.width - 1 and y < self.width - 1:
+                    lookback_indices.append(
+                        -self.n + self.dq_indices.index(self._coord_to_index(x + 1, y + 1)))
+                if x > 0 and y < self.width - 1:
+                    lookback_indices.append(
+                        -self.n + self.dq_indices.index(self._coord_to_index(x - 1, y + 1)))
+                if x < self.width - 1 and y > 0:
+                    lookback_indices.append(
+                        -self.n + self.dq_indices.index(self._coord_to_index(x + 1, y - 1)))
+                if x > 0 and y > 0:
+                    lookback_indices.append(
+                        -self.n + self.dq_indices.index(self._coord_to_index(x - 1, y - 1)))
+                lookback_indices.append(-self.n - self.m + k)
+                circuit_final_measurement.append(
+                    "DETECTOR",
+                    [stim.target_rec(l) for l in lookback_indices],
+                    (x, y, 1)
+                )
+        # Specify the logical measurement outcome.
+        circuit_final_measurement.append(
+            "OBSERVABLE_INCLUDE",
+            [stim.target_rec(-self.n + i) for i in reversed(range(self.d))],
+            0
+        )
+
+        # ------------------------------------------------------------------------------------------------
+        # Combine all the circuits.
+        # ------------------------------------------------------------------------------------------------
+        circuit = circuit_first_round + circuit_subsequent_round * \
+            (rounds - 1) + circuit_final_measurement
+
+        return circuit
