@@ -386,7 +386,7 @@ class RotatedSurfaceCode:
         self,
         rounds: int,
         *,
-        data_qubit_error_rate: float,
+        data_qubit_error_rate: float = None,
         prep_error_rate: float = None,
         meas_error_rate: float = None,
         gate1_error_rate: float = None,
@@ -400,8 +400,8 @@ class RotatedSurfaceCode:
         ----------
         rounds : int
             The number of rounds of stabilizer measurements.
-        data_qubit_error_rate : float
-            The error rate of data qubits before each round of syndrome extraction.
+        data_qubit_error_rate : float, optional
+            The error rate of data qubits before each round of syndrome extraction. If None, no data qubit error is included.
         prep_error_rate : float, optional
             The error rate of state preparation. If None, no state preparation error is included.
         meas_error_rate : float, optional
