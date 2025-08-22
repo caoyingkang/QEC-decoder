@@ -155,7 +155,7 @@ impl BPDecoder {
         self.prior_llr.clone()
     }
 
-    pub fn _decode(&mut self) {
+    fn _decode(&mut self) {
         let syndrome_sgn: Vec<f64> = self
             .syndrome
             .iter()
