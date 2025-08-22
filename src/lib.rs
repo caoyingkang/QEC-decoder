@@ -92,6 +92,8 @@ pub struct BPDecoder {
     base: DecoderBase,
     // maximum number of iterations
     max_iter: usize,
+    // scaling factor (a.k.a. normalization factor)
+    scaling_factor: f64,
     // chk_incoming_msgs[i] = list of incoming messages at CN i
     chk_incoming_msgs: Vec<Vec<f64>>,
     // var_incoming_msgs[j] = list of incoming messages at VN j
@@ -109,10 +111,12 @@ pub struct BPDecoder {
 #[pymethods]
 impl BPDecoder {
     #[new]
+    #[pyo3(signature = (pcm, prior, *, max_iter, scaling_factor=None))]
     pub fn new(
         pcm: PyReadonlyArray2<'_, u8>, // parity-check matrix (m x n, np.uint8)
         prior: PyReadonlyArray1<'_, f64>, // prior probabilities of errors (n, np.float64)
         max_iter: usize,               // maximum number of BP iterations
+        scaling_factor: Option<f64>,   // scaling factor (a.k.a. normalization factor)
     ) -> PyResult<Self> {
         let pcm_arr = pcm.as_array();
         let prior_arr = prior.as_array();
@@ -133,6 +137,7 @@ impl BPDecoder {
         Ok(Self {
             base: base,
             max_iter: max_iter,
+            scaling_factor: scaling_factor.unwrap_or(1.0), // default to 1.0 if not provided, meaning no scaling.
             chk_incoming_msgs: chk_incoming_msgs,
             var_incoming_msgs: var_incoming_msgs,
             prior_llr: prior_arr.iter().map(|&p| prob_to_llr(p)).collect(),
@@ -174,6 +179,10 @@ impl BPDecoder {
         PyArray1::from_array(py, &self.base.prior)
     }
 
+    pub fn get_scaling_factor(&self) -> f64 {
+        self.scaling_factor
+    }
+
     fn _decode(&mut self) {
         let syndrome_sgn: Vec<f64> = self
             .syndrome
@@ -212,7 +221,8 @@ impl BPDecoder {
                 for (k, &j) in self.base.chk_neighbors[i].iter().enumerate() {
                     let msg_sgn = sgnprod * incoming_msgs[k].signum() * syndrome_sgn[i];
                     let msg_abs = if k == minidx { minabs2 } else { minabs1 };
-                    self.var_incoming_msgs[j][self.base.chk_neighbor_pos[i][k]] = msg_sgn * msg_abs;
+                    self.var_incoming_msgs[j][self.base.chk_neighbor_pos[i][k]] =
+                        self.scaling_factor * msg_sgn * msg_abs;
                 }
             }
 
@@ -284,6 +294,8 @@ pub struct DMemBPDecoder {
     gamma: Array1<f64>,
     // maximum number of iterations
     max_iter: usize,
+    // scaling factor (a.k.a. normalization factor)
+    scaling_factor: f64,
     // chk_incoming_msgs[i] = list of incoming messages at CN i
     chk_incoming_msgs: Vec<Vec<f64>>,
     // var_incoming_msgs[j] = list of incoming messages at VN j
@@ -301,11 +313,13 @@ pub struct DMemBPDecoder {
 #[pymethods]
 impl DMemBPDecoder {
     #[new]
+    #[pyo3(signature = (pcm, prior, *, gamma, max_iter, scaling_factor=None))]
     pub fn new(
         pcm: PyReadonlyArray2<'_, u8>, // parity-check matrix (m x n, np.uint8)
         prior: PyReadonlyArray1<'_, f64>, // prior probabilities of errors (n, np.float64)
         gamma: PyReadonlyArray1<'_, f64>, // memory strength (n, np.float64)
         max_iter: usize,               // maximum number of BP iterations
+        scaling_factor: Option<f64>,   // scaling factor (a.k.a. normalization factor)
     ) -> PyResult<Self> {
         let pcm_arr = pcm.as_array();
         let prior_arr = prior.as_array();
@@ -328,6 +342,7 @@ impl DMemBPDecoder {
             base: base,
             gamma: gamma_arr.to_owned(),
             max_iter: max_iter,
+            scaling_factor: scaling_factor.unwrap_or(1.0), // default to 1.0 if not provided, meaning no scaling.
             chk_incoming_msgs: chk_incoming_msgs,
             var_incoming_msgs: var_incoming_msgs,
             prior_llr: prior_arr.iter().map(|&p| prob_to_llr(p)).collect(),
@@ -369,6 +384,10 @@ impl DMemBPDecoder {
         PyArray1::from_array(py, &self.base.prior)
     }
 
+    pub fn get_scaling_factor(&self) -> f64 {
+        self.scaling_factor
+    }
+
     fn _decode(&mut self) {
         let syndrome_sgn: Vec<f64> = self
             .syndrome
@@ -407,7 +426,8 @@ impl DMemBPDecoder {
                 for (k, &j) in self.base.chk_neighbors[i].iter().enumerate() {
                     let msg_sgn = sgnprod * incoming_msgs[k].signum() * syndrome_sgn[i];
                     let msg_abs = if k == minidx { minabs2 } else { minabs1 };
-                    self.var_incoming_msgs[j][self.base.chk_neighbor_pos[i][k]] = msg_sgn * msg_abs;
+                    self.var_incoming_msgs[j][self.base.chk_neighbor_pos[i][k]] =
+                        self.scaling_factor * msg_sgn * msg_abs;
                 }
             }
 
