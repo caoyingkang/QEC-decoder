@@ -4,7 +4,7 @@ from tqdm import tqdm
 from typing import Optional, Tuple, List
 
 
-class Decoder:
+class Decoder_Py:
     """Base class for decoders.
     """
 
@@ -73,7 +73,7 @@ class Decoder:
         pass
 
 
-class BPDecoder(Decoder):
+class BPDecoder_Py(Decoder_Py):
     """Belief Propagation decoder for syndrome-based LDPC decoding, min-sum variant.
     """
 
@@ -240,7 +240,7 @@ class BPDecoder(Decoder):
         return ehat
 
 
-class RelayBPDecoder(Decoder):
+class RelayBPDecoder_Py(Decoder_Py):
     """Relay Belief Propagation decoder proposed in the paper
     ["Improved belief propagation is sufficient for real-time decoding of quantum memory." arXiv:2506.01779 (2025)](https://arxiv.org/abs/2506.01779).
     """
