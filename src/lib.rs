@@ -18,14 +18,11 @@ fn prob_to_llr(p: f64) -> f64 {
     ((1.0 - pp) / pp).ln()
 }
 
-#[pyclass]
-pub struct BPDecoder {
+struct DecoderBase {
     // parity-check matrix
     pcm: Array2<u8>,
-    // prior LLR values
-    prior_llr: Vec<f64>,
-    // maximum number of iterations
-    max_iter: usize,
+    // prior probabilities of errors
+    prior: Array1<f64>,
     // number of rows of pcm (equivalently, number of CNs in Tanner graph)
     m: usize,
     // number of columns of pcm (equivalently, number of VNs in Tanner graph)
@@ -40,10 +37,20 @@ pub struct BPDecoder {
     // var_neighbor_pos[j][k] = position of VN j in the list of neighbors of the CN var_neighbors[j][k].
     // i.e., if var_neighbors[j][k] = i, then chk_neighbors[i][var_neighbor_pos[j][k]] = j.
     var_neighbor_pos: Vec<Vec<usize>>,
+}
+
+#[pyclass]
+pub struct BPDecoder {
+    // base struct for storing parity-check matrix and prior probabilities of errors
+    base: DecoderBase,
+    // maximum number of iterations
+    max_iter: usize,
     // chk_incoming_msgs[i] = list of incoming messages at CN i
     chk_incoming_msgs: Vec<Vec<f64>>,
     // var_incoming_msgs[j] = list of incoming messages at VN j
     var_incoming_msgs: Vec<Vec<f64>>,
+    // prior LLR values
+    prior_llr: Vec<f64>,
     // posterior LLR values
     llr: Vec<f64>,
     // estimated error vector
@@ -64,7 +71,7 @@ impl BPDecoder {
         let m: usize = pcm_arr.shape()[0];
         let n: usize = pcm_arr.shape()[1];
 
-        let prior_llr: Vec<f64> = prior.as_array().iter().map(|&p| prob_to_llr(p)).collect();
+        let prior_arr = prior.as_array();
 
         let mut chk_neighbors: Vec<Vec<usize>> = vec![Vec::new(); m];
         let mut var_neighbors: Vec<Vec<usize>> = vec![Vec::new(); n];
@@ -106,17 +113,20 @@ impl BPDecoder {
         }
 
         Ok(Self {
-            pcm: pcm_arr.to_owned(),
-            prior_llr: prior_llr,
+            base: DecoderBase {
+                pcm: pcm_arr.to_owned(),
+                prior: prior_arr.to_owned(),
+                m: m,
+                n: n,
+                chk_neighbors: chk_neighbors,
+                var_neighbors: var_neighbors,
+                chk_neighbor_pos: chk_neighbor_pos,
+                var_neighbor_pos: var_neighbor_pos,
+            },
             max_iter: max_iter,
-            m: m,
-            n: n,
-            chk_neighbors: chk_neighbors,
-            var_neighbors: var_neighbors,
-            chk_neighbor_pos: chk_neighbor_pos,
-            var_neighbor_pos: var_neighbor_pos,
             chk_incoming_msgs: chk_incoming_msgs,
             var_incoming_msgs: var_incoming_msgs,
+            prior_llr: prior_arr.iter().map(|&p| prob_to_llr(p)).collect(),
             llr: vec![0.0; n],
             ehat: Array1::zeros((n,)),
             syndrome: Array1::zeros((m,)),
@@ -124,35 +134,35 @@ impl BPDecoder {
     }
 
     pub fn get_num_checks(&self) -> usize {
-        self.m
+        self.base.m
     }
 
     pub fn get_num_variables(&self) -> usize {
-        self.n
+        self.base.n
     }
 
     pub fn get_chk_neighbors(&self) -> Vec<Vec<usize>> {
-        self.chk_neighbors.clone()
+        self.base.chk_neighbors.clone()
     }
 
     pub fn get_var_neighbors(&self) -> Vec<Vec<usize>> {
-        self.var_neighbors.clone()
+        self.base.var_neighbors.clone()
     }
 
     pub fn get_chk_neighbor_pos(&self) -> Vec<Vec<usize>> {
-        self.chk_neighbor_pos.clone()
+        self.base.chk_neighbor_pos.clone()
     }
 
     pub fn get_var_neighbor_pos(&self) -> Vec<Vec<usize>> {
-        self.var_neighbor_pos.clone()
+        self.base.var_neighbor_pos.clone()
     }
 
-    pub fn return_pcm_for_debug<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<u8>> {
-        PyArray2::from_owned_array(py, self.pcm.clone())
+    pub fn get_pcm<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<u8>> {
+        PyArray2::from_array(py, &self.base.pcm)
     }
 
-    pub fn return_prior_llr_for_debug(&self) -> Vec<f64> {
-        self.prior_llr.clone()
+    pub fn get_prior<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        PyArray1::from_array(py, &self.base.prior)
     }
 
     fn _decode(&mut self) {
@@ -163,17 +173,17 @@ impl BPDecoder {
             .collect();
 
         // Initialize messages from VNs to CNs
-        for j in 0..self.n {
+        for j in 0..self.base.n {
             let msg = self.prior_llr[j];
-            for (k, &i) in self.var_neighbors[j].iter().enumerate() {
-                self.chk_incoming_msgs[i][self.var_neighbor_pos[j][k]] = msg;
+            for (k, &i) in self.base.var_neighbors[j].iter().enumerate() {
+                self.chk_incoming_msgs[i][self.base.var_neighbor_pos[j][k]] = msg;
             }
         }
 
         // Main BP iteration loop
         for _iter in 0..self.max_iter {
             // Message processing at CNs
-            for i in 0..self.m {
+            for i in 0..self.base.m {
                 let incoming_msgs = &self.chk_incoming_msgs[i];
                 let mut sgnprod = 1.0; // product of signs of the incoming messages
                 let mut minabs1 = f64::MAX; // minimum absolute value of the incoming messages
@@ -190,33 +200,33 @@ impl BPDecoder {
                         minabs2 = val_abs;
                     }
                 }
-                for (k, &j) in self.chk_neighbors[i].iter().enumerate() {
+                for (k, &j) in self.base.chk_neighbors[i].iter().enumerate() {
                     let msg_sgn = sgnprod * incoming_msgs[k].signum() * syndrome_sgn[i];
                     let msg_abs = if k == minidx { minabs2 } else { minabs1 };
-                    self.var_incoming_msgs[j][self.chk_neighbor_pos[i][k]] = msg_sgn * msg_abs;
+                    self.var_incoming_msgs[j][self.base.chk_neighbor_pos[i][k]] = msg_sgn * msg_abs;
                 }
             }
 
             // Message processing at VNs
-            for j in 0..self.n {
+            for j in 0..self.base.n {
                 let incoming_msgs = &self.var_incoming_msgs[j];
                 let marginal = self.prior_llr[j] + incoming_msgs.iter().sum::<f64>();
-                for (k, &i) in self.var_neighbors[j].iter().enumerate() {
-                    self.chk_incoming_msgs[i][self.var_neighbor_pos[j][k]] =
+                for (k, &i) in self.base.var_neighbors[j].iter().enumerate() {
+                    self.chk_incoming_msgs[i][self.base.var_neighbor_pos[j][k]] =
                         marginal - incoming_msgs[k];
                 }
                 self.llr[j] = marginal;
             }
 
             // Hard decision
-            for j in 0..self.n {
+            for j in 0..self.base.n {
                 self.ehat[j] = if self.llr[j] < 0.0 { 1 } else { 0 };
             }
 
             // Check if the syndrome is satisfied
             let mut satisfied: bool = true;
-            for i in 0..self.m {
-                if self.pcm.row(i).dot(&self.ehat) % 2 != self.syndrome[i] {
+            for i in 0..self.base.m {
+                if self.base.pcm.row(i).dot(&self.ehat) % 2 != self.syndrome[i] {
                     satisfied = false;
                     break;
                 }
@@ -245,7 +255,7 @@ impl BPDecoder {
     ) -> Bound<'py, PyArray2<u8>> {
         let syndrome_batch_arr = syndrome_batch.as_array();
         let batch_size: usize = syndrome_batch_arr.shape()[0];
-        let mut ehat_batch: Array2<u8> = Array2::zeros((batch_size, self.n));
+        let mut ehat_batch: Array2<u8> = Array2::zeros((batch_size, self.base.n));
 
         for i in 0..batch_size {
             self.syndrome.assign(&syndrome_batch_arr.row(i));
