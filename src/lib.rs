@@ -1,6 +1,6 @@
 use std::f64;
 
-use numpy::ndarray::{Array1, Array2};
+use numpy::ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 
@@ -39,39 +39,10 @@ struct DecoderBase {
     var_neighbor_pos: Vec<Vec<usize>>,
 }
 
-#[pyclass]
-pub struct BPDecoder {
-    // base struct for storing parity-check matrix and prior probabilities of errors
-    base: DecoderBase,
-    // maximum number of iterations
-    max_iter: usize,
-    // chk_incoming_msgs[i] = list of incoming messages at CN i
-    chk_incoming_msgs: Vec<Vec<f64>>,
-    // var_incoming_msgs[j] = list of incoming messages at VN j
-    var_incoming_msgs: Vec<Vec<f64>>,
-    // prior LLR values
-    prior_llr: Vec<f64>,
-    // posterior LLR values
-    llr: Vec<f64>,
-    // estimated error vector
-    ehat: Array1<u8>,
-    // syndrome vector
-    syndrome: Array1<u8>,
-}
-
-#[pymethods]
-impl BPDecoder {
-    #[new]
-    pub fn new(
-        pcm: PyReadonlyArray2<'_, u8>, // parity-check matrix (m x n, np.uint8)
-        prior: PyReadonlyArray1<'_, f64>, // prior probabilities of errors (n, np.float64)
-        max_iter: usize,               // maximum number of BP iterations
-    ) -> PyResult<Self> {
-        let pcm_arr = pcm.as_array();
+impl DecoderBase {
+    fn new(pcm_arr: ArrayView2<u8>, prior_arr: ArrayView1<f64>) -> Self {
         let m: usize = pcm_arr.shape()[0];
         let n: usize = pcm_arr.shape()[1];
-
-        let prior_arr = prior.as_array();
 
         let mut chk_neighbors: Vec<Vec<usize>> = vec![Vec::new(); m];
         let mut var_neighbors: Vec<Vec<usize>> = vec![Vec::new(); n];
@@ -102,27 +73,65 @@ impl BPDecoder {
             );
         }
 
+        Self {
+            pcm: pcm_arr.to_owned(),
+            prior: prior_arr.to_owned(),
+            m: m,
+            n: n,
+            chk_neighbors: chk_neighbors,
+            var_neighbors: var_neighbors,
+            chk_neighbor_pos: chk_neighbor_pos,
+            var_neighbor_pos: var_neighbor_pos,
+        }
+    }
+}
+
+#[pyclass]
+pub struct BPDecoder {
+    // base struct for storing parity-check matrix and prior probabilities of errors
+    base: DecoderBase,
+    // maximum number of iterations
+    max_iter: usize,
+    // chk_incoming_msgs[i] = list of incoming messages at CN i
+    chk_incoming_msgs: Vec<Vec<f64>>,
+    // var_incoming_msgs[j] = list of incoming messages at VN j
+    var_incoming_msgs: Vec<Vec<f64>>,
+    // prior LLR values
+    prior_llr: Vec<f64>,
+    // posterior LLR values
+    llr: Vec<f64>,
+    // estimated error vector
+    ehat: Array1<u8>,
+    // syndrome vector
+    syndrome: Array1<u8>,
+}
+
+#[pymethods]
+impl BPDecoder {
+    #[new]
+    pub fn new(
+        pcm: PyReadonlyArray2<'_, u8>, // parity-check matrix (m x n, np.uint8)
+        prior: PyReadonlyArray1<'_, f64>, // prior probabilities of errors (n, np.float64)
+        max_iter: usize,               // maximum number of BP iterations
+    ) -> PyResult<Self> {
+        let pcm_arr = pcm.as_array();
+        let prior_arr = prior.as_array();
+        let base = DecoderBase::new(pcm_arr, prior_arr);
+        let n = base.n;
+        let m = base.m;
+
         let mut var_incoming_msgs: Vec<Vec<f64>> = Vec::new();
         for j in 0..n {
-            var_incoming_msgs.push(vec![0.0; var_neighbors[j].len()]);
+            var_incoming_msgs.push(vec![0.0; base.var_neighbors[j].len()]);
         }
 
         let mut chk_incoming_msgs: Vec<Vec<f64>> = Vec::new();
         for i in 0..m {
-            chk_incoming_msgs.push(vec![0.0; chk_neighbors[i].len()]);
+            chk_incoming_msgs.push(vec![0.0; base.chk_neighbors[i].len()]);
         }
 
         Ok(Self {
-            base: DecoderBase {
-                pcm: pcm_arr.to_owned(),
-                prior: prior_arr.to_owned(),
-                m: m,
-                n: n,
-                chk_neighbors: chk_neighbors,
-                var_neighbors: var_neighbors,
-                chk_neighbor_pos: chk_neighbor_pos,
-                var_neighbor_pos: var_neighbor_pos,
-            },
+            base: base,
             max_iter: max_iter,
             chk_incoming_msgs: chk_incoming_msgs,
             var_incoming_msgs: var_incoming_msgs,
