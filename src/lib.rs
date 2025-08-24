@@ -1,6 +1,6 @@
 use std::f64;
 
-use numpy::ndarray::{Array1, Array2, ArrayView1, ArrayView2, Zip};
+use numpy::ndarray::{s, Array1, Array2, ArrayView1, ArrayView2, Zip};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 
@@ -106,6 +106,8 @@ pub struct BPDecoder {
     ehat: Array1<u8>,
     // syndrome vector
     syndrome: Array1<u8>,
+    // llr_history[t] = LLR values after iteration t
+    llr_history: Array2<f64>,
 }
 
 #[pymethods]
@@ -144,6 +146,7 @@ impl BPDecoder {
             llr: Array1::zeros(n),
             ehat: Array1::zeros(n),
             syndrome: Array1::zeros(m),
+            llr_history: Array2::zeros((0, 0)), // empty array
         })
     }
 
@@ -183,7 +186,15 @@ impl BPDecoder {
         self.scaling_factor
     }
 
-    fn _decode(&mut self) {
+    pub fn get_llr_history<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        PyArray2::from_array(py, &self.llr_history)
+    }
+
+    fn _decode(&mut self, record_llr_history: bool) {
+        if record_llr_history {
+            self.llr_history = Array2::zeros((self.max_iter, self.base.n));
+        }
+
         let syndrome_sgn: Vec<f64> = self
             .syndrome
             .iter()
@@ -199,7 +210,7 @@ impl BPDecoder {
         }
 
         // Main BP iteration loop
-        for _iter in 0..self.max_iter {
+        for t in 0..self.max_iter {
             // Message processing at CNs
             for i in 0..self.base.m {
                 let incoming_msgs = &self.chk_incoming_msgs[i];
@@ -237,6 +248,11 @@ impl BPDecoder {
                 self.llr[j] = marginal;
             }
 
+            // Record LLR values if requested
+            if record_llr_history {
+                self.llr_history.row_mut(t).assign(&self.llr);
+            }
+
             // Hard decision
             Zip::from(&mut self.ehat).and(&self.llr).for_each(|y, &x| {
                 *y = (x < 0.0) as u8;
@@ -257,6 +273,10 @@ impl BPDecoder {
                 }
             }
             if satisfied {
+                if record_llr_history {
+                    // Chop the llr_history array to the actual number of iterations
+                    self.llr_history = self.llr_history.slice(s![0..t + 1, ..]).to_owned();
+                }
                 // early stopping
                 break;
             }
@@ -268,13 +288,15 @@ impl BPDecoder {
         }
     }
 
+    #[pyo3(signature = (syndrome, record_llr_history=false))]
     pub fn decode<'py>(
         &mut self,
         syndrome: PyReadonlyArray1<'_, u8>,
+        record_llr_history: bool,
         py: Python<'py>,
     ) -> Bound<'py, PyArray1<u8>> {
         self.syndrome = syndrome.as_array().to_owned();
-        self._decode();
+        self._decode(record_llr_history);
         PyArray1::from_array(py, &self.ehat)
     }
 
@@ -289,7 +311,7 @@ impl BPDecoder {
 
         for i in 0..batch_size {
             self.syndrome.assign(&syndrome_batch_arr.row(i));
-            self._decode();
+            self._decode(false);
             ehat_batch.row_mut(i).assign(&self.ehat);
         }
 
