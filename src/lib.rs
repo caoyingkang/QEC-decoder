@@ -1,6 +1,6 @@
 use std::f64;
 
-use numpy::ndarray::{Array1, Array2, ArrayView1, ArrayView2};
+use numpy::ndarray::{Array1, Array2, ArrayView1, ArrayView2, Zip};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 
@@ -99,9 +99,9 @@ pub struct BPDecoder {
     // var_incoming_msgs[j] = list of incoming messages at VN j
     var_incoming_msgs: Vec<Vec<f64>>,
     // prior LLR values
-    prior_llr: Vec<f64>,
+    prior_llr: Array1<f64>,
     // posterior LLR values
-    llr: Vec<f64>,
+    llr: Array1<f64>,
     // estimated error vector
     ehat: Array1<u8>,
     // syndrome vector
@@ -140,10 +140,10 @@ impl BPDecoder {
             scaling_factor: scaling_factor.unwrap_or(1.0), // default to 1.0 if not provided, meaning no scaling.
             chk_incoming_msgs: chk_incoming_msgs,
             var_incoming_msgs: var_incoming_msgs,
-            prior_llr: prior_arr.iter().map(|&p| prob_to_llr(p)).collect(),
-            llr: vec![0.0; n],
-            ehat: Array1::zeros((n,)),
-            syndrome: Array1::zeros((m,)),
+            prior_llr: prior_arr.mapv(prob_to_llr),
+            llr: Array1::zeros(n),
+            ehat: Array1::zeros(n),
+            syndrome: Array1::zeros(m),
         })
     }
 
@@ -238,14 +238,20 @@ impl BPDecoder {
             }
 
             // Hard decision
-            for j in 0..self.base.n {
-                self.ehat[j] = if self.llr[j] < 0.0 { 1 } else { 0 };
-            }
+            Zip::from(&mut self.ehat).and(&self.llr).for_each(|y, &x| {
+                *y = (x < 0.0) as u8;
+            });
+            // This is slower than the above. Don't use it.
+            // self.ehat = self.llr.mapv(|x| (x < 0.0) as u8);
 
             // Check if the syndrome is satisfied
             let mut satisfied: bool = true;
             for i in 0..self.base.m {
-                if self.base.pcm.row(i).dot(&self.ehat) % 2 != self.syndrome[i] {
+                let mut bit: u8 = 0;
+                for &j in self.base.chk_neighbors[i].iter() {
+                    bit ^= self.ehat[j];
+                }
+                if bit != self.syndrome[i] {
                     satisfied = false;
                     break;
                 }
@@ -254,6 +260,11 @@ impl BPDecoder {
                 // early stopping
                 break;
             }
+            // This is slower than the above. Don't use it.
+            // if self.base.pcm.dot(&self.ehat) % 2 == self.syndrome {
+            //     // early stopping
+            //     break;
+            // }
         }
     }
 
@@ -301,9 +312,9 @@ pub struct DMemBPDecoder {
     // var_incoming_msgs[j] = list of incoming messages at VN j
     var_incoming_msgs: Vec<Vec<f64>>,
     // prior LLR values
-    prior_llr: Vec<f64>,
+    prior_llr: Array1<f64>,
     // posterior LLR values
-    llr: Vec<f64>,
+    llr: Array1<f64>,
     // estimated error vector
     ehat: Array1<u8>,
     // syndrome vector
@@ -345,10 +356,10 @@ impl DMemBPDecoder {
             scaling_factor: scaling_factor.unwrap_or(1.0), // default to 1.0 if not provided, meaning no scaling.
             chk_incoming_msgs: chk_incoming_msgs,
             var_incoming_msgs: var_incoming_msgs,
-            prior_llr: prior_arr.iter().map(|&p| prob_to_llr(p)).collect(),
-            llr: vec![0.0; n],
-            ehat: Array1::zeros((n,)),
-            syndrome: Array1::zeros((m,)),
+            prior_llr: prior_arr.mapv(prob_to_llr),
+            llr: Array1::zeros(n),
+            ehat: Array1::zeros(n),
+            syndrome: Array1::zeros(m),
         })
     }
 
@@ -448,14 +459,18 @@ impl DMemBPDecoder {
             }
 
             // Hard decision
-            for j in 0..self.base.n {
-                self.ehat[j] = if self.llr[j] < 0.0 { 1 } else { 0 };
-            }
+            Zip::from(&mut self.ehat).and(&self.llr).for_each(|y, &x| {
+                *y = (x < 0.0) as u8;
+            });
 
             // Check if the syndrome is satisfied
             let mut satisfied: bool = true;
             for i in 0..self.base.m {
-                if self.base.pcm.row(i).dot(&self.ehat) % 2 != self.syndrome[i] {
+                let mut bit: u8 = 0;
+                for &j in self.base.chk_neighbors[i].iter() {
+                    bit ^= self.ehat[j];
+                }
+                if bit != self.syndrome[i] {
                     satisfied = false;
                     break;
                 }
