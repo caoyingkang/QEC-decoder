@@ -47,11 +47,16 @@ class Sinter_BPDecoder(sinter.Decoder):
 
 
 class Sinter_DMemBPDecoder(sinter.Decoder):
-    def __init__(self, *, max_iter: int, gamma_dist_interval: tuple[float, float], gamma_dist_seed: int, scaling_factor: float | None = None):
+    def __init__(
+        self,
+        *,
+        max_iter: int,
+        gamma: np.ndarray,
+        scaling_factor: float | None = None
+    ):
         self.max_iter = max_iter
         self.scaling_factor = scaling_factor
-        self.gamma_dist_interval = gamma_dist_interval
-        self.gamma_dist_seed = gamma_dist_seed
+        self.gamma = gamma
 
     def compile_decoder_for_dem(self, *, dem: stim.DetectorErrorModel) -> _Sinter_CompiledDecoder:
         matrices = detector_error_model_to_check_matrices(dem)
@@ -61,17 +66,11 @@ class Sinter_DMemBPDecoder(sinter.Decoder):
         pvec = pvec.astype(np.float64)
 
         num_detectors, num_error_mechanisms = chkmat.shape
-        np.random.seed(self.gamma_dist_seed)
-        gamma = np.random.uniform(
-            self.gamma_dist_interval[0],
-            self.gamma_dist_interval[1],
-            num_error_mechanisms
-        )
 
         return _Sinter_CompiledDecoder(
             decoder=DMemBPDecoder(
                 chkmat, pvec,
-                gamma=gamma,
+                gamma=self.gamma,
                 max_iter=self.max_iter,
                 scaling_factor=self.scaling_factor,
             ),
