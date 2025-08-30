@@ -137,21 +137,27 @@ class LearnedDMemBP(nn.Module):
 
     def forward(
         self,
-        syndromes: torch.Tensor
-    ) -> torch.Tensor:
+        syndromes: torch.Tensor,
+        *,
+        return_intmd_llrs: bool = False
+    ) -> torch.Tensor | list[torch.Tensor]:
         """
         Parameters
         ----------
             syndromes : torch.Tensor
                 Syndrome bits ∈ {0,1}, shape=(batch_size, m), float
 
+            return_intmd_llrs : bool
+                Whether to return intermediate LLRs. Default is False.
+
         Returns
         -------
-            llrs : torch.Tensor
-                Posterior LLRs, shape=(batch_size, n), float
+            llrs : torch.Tensor | list[torch.Tensor]
+                If `return_intmd_llrs` is False, then return a tensor of the final LLRs, shape=(batch_size, n).
+                If `return_intmd_llrs` is True, then return a list of tensors for LLRs at each BP iteration.
         """
-        # assert isinstance(syndromes, torch.Tensor)
-        # assert syndromes.dtype == dtype
+        if return_intmd_llrs:
+            all_llrs = []
 
         device = syndromes.device
         batch_size = syndromes.shape[0]
@@ -228,6 +234,9 @@ class LearnedDMemBP(nn.Module):
                     (1 - self.gamma.unsqueeze(dim=0)) * self.prior_llr.unsqueeze(dim=0) + \
                     self.gamma.unsqueeze(dim=0) * llrs  # (batch_size, n)
 
+            if return_intmd_llrs:
+                all_llrs.append(llrs)
+
             if it == self.num_iters - 1:  # no need to update v2c_msg in the last iteration
                 break
 
@@ -241,7 +250,10 @@ class LearnedDMemBP(nn.Module):
             # print("llrs:\n", llrs)  # DEBUG
             # print("v2c_msg:\n", v2c_msg)  # DEBUG
 
-        return llrs
+        if return_intmd_llrs:
+            return all_llrs
+        else:
+            return llrs
 
 
 class DecodingLoss_ParityBased(nn.Module):
@@ -433,7 +445,6 @@ class DecodingLoss_BCEBased(nn.Module):
             loss : torch.Tensor
                 Loss, shape=(), float
         """
-        device = llrs.device
         tanh_llrs_over_2 = torch.tanh(llrs / 2)  # (batch_size, n)
 
         syndromes_pred_llr = torch.zeros_like(syndromes)  # (batch_size, m)
@@ -472,6 +483,7 @@ def train_gamma(
     observables: np.ndarray,  # (num_shots, k)
     *,
     num_bp_iters: int,  # number of BP iterations
+    incl_intmd_llrs: bool = False,  # whether to include intermediate LLRs in the loss
     num_epochs: int = 10,
     batch_size: int = 64,
     learning_rate: float = 1e-3,
@@ -508,8 +520,14 @@ def train_gamma(
             observables_batch = observables_batch.to(device)
 
             # Forward pass
-            llrs = model(syndromes_batch)
-            loss = criterion(llrs, syndromes_batch, observables_batch)
+            if incl_intmd_llrs:
+                all_llrs = model(syndromes_batch, return_intmd_llrs=True)
+                all_losses = [criterion(llrs, syndromes_batch, observables_batch)
+                              for llrs in all_llrs]
+                loss = torch.stack(all_losses).mean()
+            else:
+                llrs = model(syndromes_batch, return_intmd_llrs=False)
+                loss = criterion(llrs, syndromes_batch, observables_batch)
 
             # Backpropagation
             loss.backward()
