@@ -1,8 +1,11 @@
+from itertools import combinations
 import numpy as np
+import stim
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
+from qecdec import detector_error_model_to_check_matrices
 
 dtype = torch.float32
 
@@ -134,6 +137,30 @@ class LearnedDMemBP(nn.Module):
 
         # Trainable parameter
         self.gamma = nn.Parameter(torch.zeros(self.n, dtype=dtype))  # (n,)
+
+    @classmethod
+    def from_dem(
+        cls,
+        dem: stim.DetectorErrorModel,
+        *,
+        num_iters: int
+    ) -> "LearnedDMemBP":
+        """
+        Alternative constructor that reads `pcm` and `prior` from a `stim.DetectorErrorModel`.
+
+        Parameters
+        ----------
+            dem : stim.DetectorErrorModel
+                Detector error model
+
+            num_iters : int
+                Number of BP iterations
+        """
+        matrices = detector_error_model_to_check_matrices(dem)
+        pcm = matrices.check_matrix.toarray().astype(np.uint8)
+        prior = matrices.priors.astype(np.float64)
+
+        return cls(pcm, prior, num_iters=num_iters)
 
     def forward(
         self,
@@ -319,6 +346,29 @@ class DecodingLoss_ParityBased(nn.Module):
 
         self.beta = beta
 
+    @classmethod
+    def from_dem(
+        cls,
+        dem: stim.DetectorErrorModel,
+        *,
+        beta: float = 0.5,
+    ) -> "DecodingLoss_ParityBased":
+        """
+        Alternative constructor that reads `chkmat` and `obsmat` from a `stim.DetectorErrorModel`.
+
+        Parameters
+        ----------
+            dem : stim.DetectorErrorModel
+                Detector error model
+
+            beta : float
+                Hyperparameter that balances the contribution of the two parts of the loss function
+        """
+        matrices = detector_error_model_to_check_matrices(dem)
+        chkmat = matrices.check_matrix.toarray().astype(np.uint8)
+        obsmat = matrices.observables_matrix.toarray().astype(np.uint8)
+        return cls(chkmat, obsmat, beta=beta)
+
     def forward(
         self,
         llrs: torch.Tensor,
@@ -422,6 +472,29 @@ class DecodingLoss_BCEBased(nn.Module):
 
         self.beta = beta
 
+    @classmethod
+    def from_dem(
+        cls,
+        dem: stim.DetectorErrorModel,
+        *,
+        beta: float = 0.5,
+    ) -> "DecodingLoss_BCEBased":
+        """
+        Alternative constructor that reads `chkmat` and `obsmat` from a `stim.DetectorErrorModel`.
+
+        Parameters
+        ----------
+            dem : stim.DetectorErrorModel
+                Detector error model
+
+            beta : float
+                Hyperparameter that balances the contribution of the two parts of the loss function
+        """
+        matrices = detector_error_model_to_check_matrices(dem)
+        chkmat = matrices.check_matrix.toarray().astype(np.uint8)
+        obsmat = matrices.observables_matrix.toarray().astype(np.uint8)
+        return cls(chkmat, obsmat, beta=beta)
+
     def forward(
         self,
         llrs: torch.Tensor,
@@ -475,20 +548,112 @@ class DecodingLoss_BCEBased(nn.Module):
         return loss.mean()
 
 
-def train_gamma(
-    chkmat: np.ndarray,  # (m, n)
-    obsmat: np.ndarray,  # (k, n)
-    prior: np.ndarray,  # (n,)
-    syndromes: np.ndarray,  # (num_shots, m)
-    observables: np.ndarray,  # (num_shots, k)
+def build_datasets(
+    dem: stim.DetectorErrorModel,
     *,
-    num_bp_iters: int,  # number of BP iterations
+    train_shots: int,
+    dev_shots: int,
+    seed: int | None = None,
+    train_all_wt1_errors: bool = True,
+    train_all_wt2_errors: bool = True,
+    remove_trivial_syndromes: bool = True,
+) -> tuple[DecodingDataset, DecodingDataset]:
+    """
+    Parameters
+    ----------
+        dem : stim.DetectorErrorModel
+            Detector error model of the sampling circuit
+
+        train_shots : int
+            Number of sampling shots for building `train_dataset`
+
+        dev_shots : int
+            Number of sampling shots for building `dev_dataset`
+
+        seed : int | None
+            Random seed used for sampling
+
+        train_all_wt1_errors : bool
+            Whether to include all weight-1 errors in `train_dataset`
+
+        train_all_wt2_errors : bool
+            Whether to include all weight-2 errors in `train_dataset`
+
+        remove_trivial_syndromes : bool
+            Whether to filter out trivial (i.e., all-zero) syndromes in `train_dataset` and `dev_dataset`
+
+    Returns
+    -------
+        train_dataset : DecodingDataset
+            Training dataset
+
+        dev_dataset : DecodingDataset
+            Development dataset
+    """
+    m, n, k = dem.num_detectors, dem.num_errors, dem.num_observables
+    matrices = detector_error_model_to_check_matrices(dem)
+    chkmat = matrices.check_matrix.toarray().astype(np.uint8)
+    obsmat = matrices.observables_matrix.toarray().astype(np.uint8)
+    assert chkmat.shape == (m, n)
+    assert obsmat.shape == (k, n)
+
+    sampler = dem.compile_sampler(seed=seed)
+    sampled_syndromes, sampled_observables, _ = sampler.sample(
+        train_shots + dev_shots)
+    sampled_syndromes = sampled_syndromes.astype(np.uint8)
+    sampled_observables = sampled_observables.astype(np.uint8)
+
+    train_syndromes_list = [sampled_syndromes[:train_shots]]
+    train_observables_list = [sampled_observables[:train_shots]]
+
+    if train_all_wt1_errors:
+        errors = np.eye(n, dtype=np.uint8)
+        syndromes = (errors @ chkmat.T) % 2
+        observables = (errors @ obsmat.T) % 2
+        train_syndromes_list.append(syndromes)
+        train_observables_list.append(observables)
+
+    if train_all_wt2_errors:
+        errors = np.zeros(((n * (n - 1)) // 2, n), dtype=np.uint8)
+        for row, cols in enumerate(combinations(range(n), 2)):
+            errors[row, cols] = 1
+        syndromes = (errors @ chkmat.T) % 2
+        observables = (errors @ obsmat.T) % 2
+        train_syndromes_list.append(syndromes)
+        train_observables_list.append(observables)
+
+    train_syndromes = np.concatenate(train_syndromes_list)
+    train_observables = np.concatenate(train_observables_list)
+    if remove_trivial_syndromes:
+        mask = np.any(train_syndromes != 0, axis=1)
+        train_syndromes = train_syndromes[mask]
+        train_observables = train_observables[mask]
+
+    train_dataset = DecodingDataset(train_syndromes, train_observables)
+
+    dev_syndromes = sampled_syndromes[train_shots:]
+    dev_observables = sampled_observables[train_shots:]
+    if remove_trivial_syndromes:
+        mask = np.any(dev_syndromes != 0, axis=1)
+        dev_syndromes = dev_syndromes[mask]
+        dev_observables = dev_observables[mask]
+
+    dev_dataset = DecodingDataset(dev_syndromes, dev_observables)
+
+    return train_dataset, dev_dataset
+
+
+def train_gamma(
+    model: LearnedDMemBP,  # the decoder to be trained
+    train_dataset: DecodingDataset,
+    dev_dataset: DecodingDataset,
+    loss_fn: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    *,
     incl_intmd_llrs: bool = False,  # whether to include intermediate LLRs in the loss
     num_epochs: int = 10,
     batch_size: int = 64,
-    learning_rate: float = 1e-3,
     device: str = None,
-    beta: float = 0.5,
 ) -> np.ndarray:
     if device is None:
         if torch.accelerator.is_available():
@@ -497,57 +662,76 @@ def train_gamma(
             device = "cpu"
     print(f"Using {device} device")
 
-    # Build dataset and dataloader
-    train_dataset = DecodingDataset(syndromes, observables)
+    model = model.to(device)
+    loss_fn = loss_fn.to(device)
+
+    # Build dataloaders
     train_dataloader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True)
-
-    # Build model
-    model = LearnedDMemBP(chkmat, prior, num_iters=num_bp_iters).to(device)
-
-    # Build loss function
-    criterion = DecodingLoss_BCEBased(chkmat, obsmat, beta=beta).to(device)
-
-    # Build optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    dev_dataloader = DataLoader(
+        dev_dataset, batch_size=batch_size, shuffle=False)
 
     # Train model
-    model.train()
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}\n-------------------------------")
-        for batch, (syndromes_batch, observables_batch) in enumerate(train_dataloader):
-            syndromes_batch = syndromes_batch.to(device)
-            observables_batch = observables_batch.to(device)
+
+        # Training phase
+        model.train()
+        train_losses = []
+        for batch, (syndromes, observables) in enumerate(train_dataloader):
+            syndromes = syndromes.to(device)
+            observables = observables.to(device)
+            optimizer.zero_grad()
 
             # Forward pass
             if incl_intmd_llrs:
-                all_llrs = model(syndromes_batch, return_intmd_llrs=True)
-                all_losses = [criterion(llrs, syndromes_batch, observables_batch)
+                all_llrs = model(syndromes, return_intmd_llrs=True)
+                all_losses = [loss_fn(llrs, syndromes, observables)
                               for llrs in all_llrs]
                 loss = torch.stack(all_losses).mean()
             else:
-                llrs = model(syndromes_batch, return_intmd_llrs=False)
-                loss = criterion(llrs, syndromes_batch, observables_batch)
+                llrs = model(syndromes, return_intmd_llrs=False)
+                loss = loss_fn(llrs, syndromes, observables)
+            train_losses.append(loss.item())
 
             # Backpropagation
             loss.backward()
+            if batch % 1 == 0:
+                grad_norm = nn.utils.clip_grad_norm_(
+                    model.parameters(), max_norm=float('inf'))
+                print(f"Gradient norm: {grad_norm:.6f}")
+                print("Loss: {:>8f}  [{:>5d}/{:>5d}]".format(
+                    loss.item(),
+                    batch * batch_size + len(syndromes),
+                    len(train_dataset)))
             optimizer.step()
 
-            if batch % 10 == 0:
-                print("loss: {:>8f}  [{:>5d}/{:>5d}]".format(
-                    loss.item(),
-                    batch * batch_size + len(syndromes_batch),
-                    len(train_dataset)))
-                # print("gamma:\n", model.gamma)
-                # print("gamma.grad:\n", model.gamma.grad)
+        # Evaluation phase on dev set
+        model.eval()
+        dev_losses = []
+        with torch.no_grad():
+            for syndromes, observables in dev_dataloader:
+                syndromes = syndromes.to(device)
+                observables = observables.to(device)
 
-            optimizer.zero_grad()
+                # Forward pass
+                if incl_intmd_llrs:
+                    all_llrs = model(syndromes, return_intmd_llrs=True)
+                    all_losses = [loss_fn(llrs, syndromes, observables)
+                                  for llrs in all_llrs]
+                    loss = torch.stack(all_losses).mean()
+                else:
+                    llrs = model(syndromes, return_intmd_llrs=False)
+                    loss = loss_fn(llrs, syndromes, observables)
+                dev_losses.append(loss.item())
 
-    print("loss: {:>8f}  [{:>5d}/{:>5d}]".format(
-        loss.item(),
-        len(train_dataset),
-        len(train_dataset)))
-    # print("gamma:\n", model.gamma)
-    # print("gamma.grad:\n", model.gamma.grad)
+        # Print epoch summary
+        avg_train_loss = np.mean(train_losses)
+        avg_dev_loss = np.mean(dev_losses)
+
+        print(f"Epoch {epoch+1} Summary:")
+        print(f"  Train Loss: {avg_train_loss:.6f}")
+        print(f"  Dev Loss: {avg_dev_loss:.6f}")
+        print()
 
     return model.gamma
