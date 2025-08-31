@@ -138,53 +138,22 @@ class LearnedDMemBP(nn.Module):
         # Trainable parameter
         self.gamma = nn.Parameter(torch.zeros(self.n, dtype=dtype))  # (n,)
 
-    @classmethod
-    def from_dem(
-        cls,
-        dem: stim.DetectorErrorModel,
-        *,
-        num_iters: int
-    ) -> "LearnedDMemBP":
-        """
-        Alternative constructor that reads `pcm` and `prior` from a `stim.DetectorErrorModel`.
-
-        Parameters
-        ----------
-            dem : stim.DetectorErrorModel
-                Detector error model
-
-            num_iters : int
-                Number of BP iterations
-        """
-        matrices = detector_error_model_to_check_matrices(dem)
-        pcm = matrices.check_matrix.toarray().astype(np.uint8)
-        prior = matrices.priors.astype(np.float64)
-
-        return cls(pcm, prior, num_iters=num_iters)
-
     def forward(
         self,
-        syndromes: torch.Tensor,
-        *,
-        return_intmd_llrs: bool = False
-    ) -> torch.Tensor | list[torch.Tensor]:
+        syndromes: torch.Tensor
+    ) -> torch.Tensor:
         """
         Parameters
         ----------
             syndromes : torch.Tensor
                 Syndrome bits ∈ {0,1}, shape=(batch_size, m), float
 
-            return_intmd_llrs : bool
-                Whether to return intermediate LLRs. Default is False.
-
         Returns
         -------
-            llrs : torch.Tensor | list[torch.Tensor]
-                If `return_intmd_llrs` is False, then return a tensor of the final LLRs, shape=(batch_size, n).
-                If `return_intmd_llrs` is True, then return a list of tensors for LLRs at each BP iteration.
+            all_llrs : torch.Tensor
+                LLRs output by the decoder at all BP iterations, shape=(batch_size, num_iters, n), float.
         """
-        if return_intmd_llrs:
-            all_llrs = []
+        all_llrs = []
 
         device = syndromes.device
         batch_size = syndromes.shape[0]
@@ -261,26 +230,21 @@ class LearnedDMemBP(nn.Module):
                     (1 - self.gamma.unsqueeze(dim=0)) * self.prior_llr.unsqueeze(dim=0) + \
                     self.gamma.unsqueeze(dim=0) * llrs  # (batch_size, n)
 
-            if return_intmd_llrs:
-                all_llrs.append(llrs)
+            all_llrs.append(llrs)
 
-            if it == self.num_iters - 1:  # no need to update v2c_msg in the last iteration
-                break
-
-            v2c_msg = torch.zeros_like(v2c_msg)
-            for j in range(self.n):
-                nbrs = self.var_nbrs[j]
-                v2c_msg[:, j, nbrs] = llrs[:, j].unsqueeze(dim=1) - \
-                    c2v_msg[:, nbrs, j]
+            if it < self.num_iters - 1:  # no need to update v2c_msg in the last iteration
+                v2c_msg = torch.zeros_like(v2c_msg)
+                for j in range(self.n):
+                    nbrs = self.var_nbrs[j]
+                    v2c_msg[:, j, nbrs] = llrs[:, j].unsqueeze(dim=1) - \
+                        c2v_msg[:, nbrs, j]
 
             # print("prior_llr:\n", self.prior_llr)  # DEBUG
             # print("llrs:\n", llrs)  # DEBUG
             # print("v2c_msg:\n", v2c_msg)  # DEBUG
 
-        if return_intmd_llrs:
-            return all_llrs
-        else:
-            return llrs
+        all_llrs = torch.stack(all_llrs, dim=1)
+        return all_llrs
 
 
 class DecodingLoss_ParityBased(nn.Module):
@@ -315,6 +279,7 @@ class DecodingLoss_ParityBased(nn.Module):
         obsmat: np.ndarray,
         *,
         beta: float = 0.5,
+        incl_intmd_llrs: bool = False,
     ):
         """
         Parameters
@@ -327,6 +292,9 @@ class DecodingLoss_ParityBased(nn.Module):
 
             beta : float
                 Hyperparameter that balances the contribution of the two parts of the loss function
+
+            incl_intmd_llrs : bool
+                Whether to include LLRs from intermediate BP iterations in the calculation of the loss
         """
         super().__init__()
         assert isinstance(chkmat, np.ndarray)
@@ -345,41 +313,19 @@ class DecodingLoss_ParityBased(nn.Module):
             "obsmat", torch.as_tensor(obsmat, dtype=dtype))
 
         self.beta = beta
-
-    @classmethod
-    def from_dem(
-        cls,
-        dem: stim.DetectorErrorModel,
-        *,
-        beta: float = 0.5,
-    ) -> "DecodingLoss_ParityBased":
-        """
-        Alternative constructor that reads `chkmat` and `obsmat` from a `stim.DetectorErrorModel`.
-
-        Parameters
-        ----------
-            dem : stim.DetectorErrorModel
-                Detector error model
-
-            beta : float
-                Hyperparameter that balances the contribution of the two parts of the loss function
-        """
-        matrices = detector_error_model_to_check_matrices(dem)
-        chkmat = matrices.check_matrix.toarray().astype(np.uint8)
-        obsmat = matrices.observables_matrix.toarray().astype(np.uint8)
-        return cls(chkmat, obsmat, beta=beta)
+        self.incl_intmd_llrs = incl_intmd_llrs
 
     def forward(
         self,
-        llrs: torch.Tensor,
+        all_llrs: torch.Tensor,
         syndromes: torch.Tensor,
         observables: torch.Tensor
     ) -> torch.Tensor:
         """
         Parameters
         ----------
-            llrs : torch.Tensor
-                LLRs output by the decoder, shape=(batch_size, n), float
+            all_llrs : torch.Tensor
+                LLRs output by the decoder at all BP iterations, shape=(batch_size, num_iters, n), float.
 
             syndromes : torch.Tensor
                 Syndrome bits ∈ {0,1}, shape=(batch_size, m), float
@@ -392,17 +338,26 @@ class DecodingLoss_ParityBased(nn.Module):
             loss : torch.Tensor
                 Loss, shape=(), float
         """
-        p = torch.sigmoid(-llrs)  # (batch_size, n)
+        if not self.incl_intmd_llrs:
+            all_llrs = all_llrs[:, [-1], :]  # view on the last BP iteration
 
+        p = torch.sigmoid(-all_llrs)  # (batch_size, num_iters, n)
+
+        # Compute loss from part 1
         loss_syn = self.__class__.parity_proxy(
-            syndromes + (p @ self.chkmat.T))  # (batch_size, m)
-        loss1 = loss_syn.sum(dim=1)  # (batch_size,)
+            syndromes.unsqueeze(dim=1) +
+            torch.matmul(p, self.chkmat.T))  # (batch_size, num_iters, m)
+        loss1 = loss_syn.sum(dim=2)  # (batch_size, num_iters)
 
+        # Compute loss from part 2
         loss_obs = self.__class__.parity_proxy(
-            observables + (p @ self.obsmat.T))  # (batch_size, k)
-        loss2 = loss_obs.sum(dim=1)  # (batch_size,)
+            observables.unsqueeze(dim=1) +
+            torch.matmul(p, self.obsmat.T))  # (batch_size, num_iters, k)
+        loss2 = loss_obs.sum(dim=2)  # (batch_size, num_iters)
 
-        loss = self.beta * loss1 + (1. - self.beta) * loss2  # (batch_size,)
+        # Compute total loss
+        loss = self.beta * loss1 + \
+            (1. - self.beta) * loss2  # (batch_size, num_iters)
         return loss.mean()
 
 
@@ -431,6 +386,7 @@ class DecodingLoss_BCEBased(nn.Module):
         obsmat: np.ndarray,
         *,
         beta: float = 0.5,
+        incl_intmd_llrs: bool = False,
     ):
         """
         Parameters
@@ -443,6 +399,9 @@ class DecodingLoss_BCEBased(nn.Module):
 
             beta : float
                 Hyperparameter that balances the contribution of the two parts of the loss function
+
+            incl_intmd_llrs : bool
+                Whether to include LLRs from intermediate BP iterations in the calculation of the loss
         """
         super().__init__()
         assert isinstance(chkmat, np.ndarray)
@@ -471,41 +430,19 @@ class DecodingLoss_BCEBased(nn.Module):
             "obsmat", torch.as_tensor(obsmat, dtype=dtype))
 
         self.beta = beta
-
-    @classmethod
-    def from_dem(
-        cls,
-        dem: stim.DetectorErrorModel,
-        *,
-        beta: float = 0.5,
-    ) -> "DecodingLoss_BCEBased":
-        """
-        Alternative constructor that reads `chkmat` and `obsmat` from a `stim.DetectorErrorModel`.
-
-        Parameters
-        ----------
-            dem : stim.DetectorErrorModel
-                Detector error model
-
-            beta : float
-                Hyperparameter that balances the contribution of the two parts of the loss function
-        """
-        matrices = detector_error_model_to_check_matrices(dem)
-        chkmat = matrices.check_matrix.toarray().astype(np.uint8)
-        obsmat = matrices.observables_matrix.toarray().astype(np.uint8)
-        return cls(chkmat, obsmat, beta=beta)
+        self.incl_intmd_llrs = incl_intmd_llrs
 
     def forward(
         self,
-        llrs: torch.Tensor,
+        all_llrs: torch.Tensor,
         syndromes: torch.Tensor,
         observables: torch.Tensor
     ) -> torch.Tensor:
         """
         Parameters
         ----------
-            llrs : torch.Tensor
-                LLRs output by the decoder, shape=(batch_size, n), float
+            all_llrs : torch.Tensor
+                LLRs output by the decoder at all BP iterations, shape=(batch_size, num_iters, n), float.
 
             syndromes : torch.Tensor
                 Syndrome bits ∈ {0,1}, shape=(batch_size, m), float
@@ -518,33 +455,55 @@ class DecodingLoss_BCEBased(nn.Module):
             loss : torch.Tensor
                 Loss, shape=(), float
         """
-        tanh_llrs_over_2 = torch.tanh(llrs / 2)  # (batch_size, n)
+        if not self.incl_intmd_llrs:
+            all_llrs = all_llrs[:, [-1], :]  # view on the last BP iteration
 
-        syndromes_pred_llr = torch.zeros_like(syndromes)  # (batch_size, m)
+        tanh_llrs_over_2 = torch.tanh(
+            all_llrs / 2)  # (batch_size, num_iters, n)
+
+        # Compute loss from part 1
+        syndromes_pred_llr = []
         for i in range(self.m):
             supp = self.chk_supp[i]
-            syndromes_pred_llr[:, i] = 2 * (
-                torch.prod(tanh_llrs_over_2[:, supp], dim=1)
+            syndrome_i_pred_llr = 2 * (
+                torch.prod(tanh_llrs_over_2[:, :, supp], dim=2)
                 .clamp(min=-1 + EPS, max=1 - EPS)
                 .atanh()
-            )
-        loss_syn = F.binary_cross_entropy_with_logits(
-            -syndromes_pred_llr, syndromes, reduction="none")  # (batch_size, m)
-        loss1 = loss_syn.sum(dim=1)  # (batch_size,)
+            )  # (batch_size, num_iters)
+            syndromes_pred_llr.append(syndrome_i_pred_llr)
+        syndromes_pred_llr = torch.stack(
+            syndromes_pred_llr, dim=2)  # (batch_size, num_iters, m)
 
-        observables_pred_llr = torch.zeros_like(observables)  # (batch_size, k)
+        loss_syn = F.binary_cross_entropy_with_logits(
+            -syndromes_pred_llr,
+            syndromes.unsqueeze(dim=1).expand_as(syndromes_pred_llr),
+            reduction="none"
+        )  # (batch_size, num_iters, m)
+        loss1 = loss_syn.sum(dim=2)  # (batch_size, num_iters)
+
+        # Compute loss from part 2
+        observables_pred_llr = []
         for i in range(self.k):
             supp = self.obs_supp[i]
-            observables_pred_llr[:, i] = 2 * (
-                torch.prod(tanh_llrs_over_2[:, supp], dim=1)
+            observable_i_pred_llr = 2 * (
+                torch.prod(tanh_llrs_over_2[:, :, supp], dim=2)
                 .clamp(min=-1 + EPS, max=1 - EPS)
                 .atanh()
-            )
-        loss_obs = F.binary_cross_entropy_with_logits(
-            -observables_pred_llr, observables, reduction="none")  # (batch_size, k)
-        loss2 = loss_obs.sum(dim=1)  # (batch_size,)
+            )  # (batch_size, num_iters)
+            observables_pred_llr.append(observable_i_pred_llr)
+        observables_pred_llr = torch.stack(
+            observables_pred_llr, dim=2)  # (batch_size, num_iters, k)
 
-        loss = self.beta * loss1 + (1. - self.beta) * loss2  # (batch_size,)
+        loss_obs = F.binary_cross_entropy_with_logits(
+            -observables_pred_llr,
+            observables.unsqueeze(dim=1).expand_as(observables_pred_llr),
+            reduction="none"
+        )  # (batch_size, num_iters, k)
+        loss2 = loss_obs.sum(dim=2)  # (batch_size, num_iters)
+
+        # Compute total loss
+        loss = self.beta * loss1 + \
+            (1. - self.beta) * loss2  # (batch_size, num_iters)
         return loss.mean()
 
 
@@ -644,17 +603,43 @@ def build_datasets(
 
 
 def train_gamma(
-    model: LearnedDMemBP,  # the decoder to be trained
+    model: LearnedDMemBP,
     train_dataset: DecodingDataset,
     dev_dataset: DecodingDataset,
     loss_fn: nn.Module,
     optimizer: torch.optim.Optimizer,
     *,
-    incl_intmd_llrs: bool = False,  # whether to include intermediate LLRs in the loss
     num_epochs: int = 10,
     batch_size: int = 64,
-    device: str = None,
-) -> np.ndarray:
+    device: str | None = None,
+):
+    """
+    Parameters
+    ----------
+        model : LearnedDMemBP
+            The decoder to be trained
+
+        train_dataset : DecodingDataset
+            The training dataset
+
+        dev_dataset : DecodingDataset
+            The development dataset
+
+        loss_fn : nn.Module
+            The loss function
+
+        optimizer : torch.optim.Optimizer
+            The optimizer
+
+        num_epochs : int
+            The number of epochs to train
+
+        batch_size : int
+            The batch size
+
+        device : str | None
+            The device to train on. If None, let PyTorch determine the device automatically.
+    """
     if device is None:
         if torch.accelerator.is_available():
             device = torch.accelerator.current_accelerator().type
@@ -684,14 +669,8 @@ def train_gamma(
             optimizer.zero_grad()
 
             # Forward pass
-            if incl_intmd_llrs:
-                all_llrs = model(syndromes, return_intmd_llrs=True)
-                all_losses = [loss_fn(llrs, syndromes, observables)
-                              for llrs in all_llrs]
-                loss = torch.stack(all_losses).mean()
-            else:
-                llrs = model(syndromes, return_intmd_llrs=False)
-                loss = loss_fn(llrs, syndromes, observables)
+            all_llrs = model(syndromes)
+            loss = loss_fn(all_llrs, syndromes, observables)
             train_losses.append(loss.item())
 
             # Backpropagation
@@ -715,14 +694,8 @@ def train_gamma(
                 observables = observables.to(device)
 
                 # Forward pass
-                if incl_intmd_llrs:
-                    all_llrs = model(syndromes, return_intmd_llrs=True)
-                    all_losses = [loss_fn(llrs, syndromes, observables)
-                                  for llrs in all_llrs]
-                    loss = torch.stack(all_losses).mean()
-                else:
-                    llrs = model(syndromes, return_intmd_llrs=False)
-                    loss = loss_fn(llrs, syndromes, observables)
+                all_llrs = model(syndromes)
+                loss = loss_fn(all_llrs, syndromes, observables)
                 dev_losses.append(loss.item())
 
         # Print epoch summary
@@ -733,5 +706,3 @@ def train_gamma(
         print(f"  Train Loss: {avg_train_loss:.6f}")
         print(f"  Dev Loss: {avg_dev_loss:.6f}")
         print()
-
-    return model.gamma
