@@ -5,29 +5,31 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
+from torchmetrics import Metric
 from qecdec import detector_error_model_to_check_matrices
 
-dtype = torch.float32
+INT_DTYPE = torch.int32
+FLOAT_DTYPE = torch.float32
 
 EPS = 1e-6
 BIG = 1e8
 
 
-def smooth_sign(x: torch.Tensor, *, alpha: float = 100.0) -> torch.Tensor:
+def _smooth_sign(x: torch.Tensor, *, alpha: float = 100.0) -> torch.Tensor:
     """
     Smooth version of sign function. Larger `alpha` => better approximation.
     """
     return torch.tanh(alpha * x)
 
 
-def smooth_min(x: torch.Tensor, *, dim: int, temp: float = 0.01) -> torch.Tensor:
+def _smooth_min(x: torch.Tensor, *, dim: int, temp: float = 0.01) -> torch.Tensor:
     """
     Smooth version of min function along a given dimension `dim`. Smaller `temp` => better approximation.
     """
     return torch.sum(x * F.softmin(x / temp, dim=dim), dim=dim)
 
 
-def build_tanner_graph(pcm: np.ndarray) -> tuple[tuple[tuple[int, ...], ...], tuple[tuple[int, ...], ...]]:
+def _build_tanner_graph(pcm: np.ndarray) -> tuple[tuple[tuple[int, ...], ...], tuple[tuple[int, ...], ...]]:
     """
     Build the Tanner graph of the parity-check matrix.
 
@@ -53,13 +55,13 @@ def build_tanner_graph(pcm: np.ndarray) -> tuple[tuple[tuple[int, ...], ...], tu
 
 class DecodingDataset(Dataset):
     """
-    A PyTorch Dataset. Each item is a (syndrome, observable) pair.
+    A PyTorch Dataset. Each item is a (syndrome, observable) pair with integer dtype.
     """
 
     def __init__(
         self,
-        syndromes: np.ndarray,  # (num_shots, m), ∈ {0,1}
-        observables: np.ndarray,  # (num_shots, k), ∈ {0,1}
+        syndromes: np.ndarray,
+        observables: np.ndarray,
     ):
         """
         Parameters
@@ -80,8 +82,8 @@ class DecodingDataset(Dataset):
         assert observables.ndim == 2
         assert syndromes.shape[0] == observables.shape[0]
 
-        self.syndromes = torch.as_tensor(syndromes, dtype=dtype)
-        self.observables = torch.as_tensor(observables, dtype=dtype)
+        self.syndromes = torch.as_tensor(syndromes, dtype=INT_DTYPE)
+        self.observables = torch.as_tensor(observables, dtype=INT_DTYPE)
 
     def __len__(self):
         return len(self.syndromes)
@@ -127,16 +129,17 @@ class LearnedDMemBP(nn.Module):
         self.m, self.n = m, n
         self.num_iters = num_iters
 
-        self.chk_nbrs, self.var_nbrs = build_tanner_graph(pcm)
+        self.chk_nbrs, self.var_nbrs = _build_tanner_graph(pcm)
 
         # Store prior LLRs
         prior = np.clip(prior, min=EPS, max=1-EPS)
         prior_llr = np.log((1 - prior) / prior)
-        self.register_buffer("prior_llr",
-                             torch.as_tensor(prior_llr, dtype=dtype))  # (n,)
+        self.register_buffer(
+            "prior_llr", torch.as_tensor(prior_llr, dtype=FLOAT_DTYPE))  # (n,)
 
         # Trainable parameter
-        self.gamma = nn.Parameter(torch.zeros(self.n, dtype=dtype))  # (n,)
+        self.gamma = nn.Parameter(
+            torch.zeros(self.n, dtype=FLOAT_DTYPE))  # (n,)
 
     def forward(
         self,
@@ -146,7 +149,7 @@ class LearnedDMemBP(nn.Module):
         Parameters
         ----------
             syndromes : torch.Tensor
-                Syndrome bits ∈ {0,1}, shape=(batch_size, m), float
+                Syndrome bits ∈ {0,1}, shape=(batch_size, m), int
 
         Returns
         -------
@@ -157,15 +160,16 @@ class LearnedDMemBP(nn.Module):
 
         device = syndromes.device
         batch_size = syndromes.shape[0]
+        syndromes = syndromes.to(FLOAT_DTYPE)
         syndromes_sgn = 1.0 - 2.0 * syndromes  # (batch_size, m) ∈ {+1,-1}
 
         # Initialize messages
         # c2v_msg[:, i, j] = messages from CN i to VN j
         c2v_msg = torch.zeros(batch_size, self.m, self.n,
-                              device=device, dtype=dtype)
+                              device=device, dtype=FLOAT_DTYPE)
         # v2c_msg[:, j, i] = messages from VN j to CN i
         v2c_msg = torch.zeros(batch_size, self.n, self.m,
-                              device=device, dtype=dtype)
+                              device=device, dtype=FLOAT_DTYPE)
         for j in range(self.n):
             v2c_msg[:, j, self.var_nbrs[j]] = self.prior_llr[j]
 
@@ -182,7 +186,7 @@ class LearnedDMemBP(nn.Module):
                 # Gather incoming messages at CN i
                 msgs = v2c_msg[:, nbrs, i]  # (batch_size, num_nbrs)
                 msgs_abs = msgs.abs()  # (batch_size, num_nbrs)
-                msgs_sgn = smooth_sign(msgs)  # (batch_size, num_nbrs)
+                msgs_sgn = _smooth_sign(msgs)  # (batch_size, num_nbrs)
 
                 # print(f"Incoming messages at CN {i}:\n", msgs)  # DEBUG
                 # print("msgs_sgn:", msgs_sgn)  # DEBUG
@@ -209,7 +213,7 @@ class LearnedDMemBP(nn.Module):
                     .repeat(1, num_nbrs, 1)  # (batch_size, num_nbrs, num_nbrs)
                 msgs_abs_masked = msgs_abs_repeated \
                     .masked_fill(mask, BIG)  # (batch_size, num_nbrs, num_nbrs)
-                msgs_abs_min_excl = smooth_min(
+                msgs_abs_min_excl = _smooth_min(
                     msgs_abs_masked, dim=2)  # (batch_size, num_nbrs)
 
                 # print("msgs_abs_min_excl:", msgs_abs_min_excl)  # DEBUG
@@ -308,9 +312,9 @@ class DecodingLoss_ParityBased(nn.Module):
         assert 0 <= beta <= 1
 
         self.register_buffer(
-            "chkmat", torch.as_tensor(chkmat, dtype=dtype))
+            "chkmat", torch.as_tensor(chkmat, dtype=FLOAT_DTYPE))
         self.register_buffer(
-            "obsmat", torch.as_tensor(obsmat, dtype=dtype))
+            "obsmat", torch.as_tensor(obsmat, dtype=FLOAT_DTYPE))
 
         self.beta = beta
         self.incl_intmd_llrs = incl_intmd_llrs
@@ -328,16 +332,19 @@ class DecodingLoss_ParityBased(nn.Module):
                 LLRs output by the decoder at all BP iterations, shape=(batch_size, num_iters, n), float.
 
             syndromes : torch.Tensor
-                Syndrome bits ∈ {0,1}, shape=(batch_size, m), float
+                Syndrome bits ∈ {0,1}, shape=(batch_size, m), int
 
             observables : torch.Tensor
-                Observable bits ∈ {0,1}, shape=(batch_size, k), float
+                Observable bits ∈ {0,1}, shape=(batch_size, k), int
 
         Returns
         -------
             loss : torch.Tensor
                 Loss, shape=(), float
         """
+        syndromes = syndromes.to(FLOAT_DTYPE)
+        observables = observables.to(FLOAT_DTYPE)
+
         if not self.incl_intmd_llrs:
             all_llrs = all_llrs[:, [-1], :]  # view on the last BP iteration
 
@@ -424,11 +431,6 @@ class DecodingLoss_BCEBased(nn.Module):
         self.obs_supp = tuple(tuple(j for j in range(n) if obsmat[i, j])
                               for i in range(k))
 
-        self.register_buffer(
-            "chkmat", torch.as_tensor(chkmat, dtype=dtype))
-        self.register_buffer(
-            "obsmat", torch.as_tensor(obsmat, dtype=dtype))
-
         self.beta = beta
         self.incl_intmd_llrs = incl_intmd_llrs
 
@@ -445,16 +447,19 @@ class DecodingLoss_BCEBased(nn.Module):
                 LLRs output by the decoder at all BP iterations, shape=(batch_size, num_iters, n), float.
 
             syndromes : torch.Tensor
-                Syndrome bits ∈ {0,1}, shape=(batch_size, m), float
+                Syndrome bits ∈ {0,1}, shape=(batch_size, m), int
 
             observables : torch.Tensor
-                Observable bits ∈ {0,1}, shape=(batch_size, k), float
+                Observable bits ∈ {0,1}, shape=(batch_size, k), int
 
         Returns
         -------
             loss : torch.Tensor
                 Loss, shape=(), float
         """
+        syndromes = syndromes.to(FLOAT_DTYPE)
+        observables = observables.to(FLOAT_DTYPE)
+
         if not self.incl_intmd_llrs:
             all_llrs = all_llrs[:, [-1], :]  # view on the last BP iteration
 
@@ -507,6 +512,115 @@ class DecodingLoss_BCEBased(nn.Module):
         return loss.mean()
 
 
+class DecodingMetric(Metric):
+    """
+    A PyTorch Metric that calculates the performance metrics of the decoder.
+    """
+
+    def __init__(
+        self,
+        chkmat: np.ndarray,
+        obsmat: np.ndarray,
+    ):
+        """
+        Parameters
+        ----------
+            chkmat : ndarray
+                Check matrix ∈ {0,1}, shape=(m, n), integer or bool
+
+            obsmat : ndarray
+                Observable matrix ∈ {0,1}, shape=(k, n), integer or bool
+        """
+        super().__init__()
+        assert isinstance(chkmat, np.ndarray)
+        assert isinstance(obsmat, np.ndarray)
+        assert np.issubdtype(chkmat.dtype, np.integer) or \
+            np.issubdtype(chkmat.dtype, np.bool_)
+        assert np.issubdtype(obsmat.dtype, np.integer) or \
+            np.issubdtype(obsmat.dtype, np.bool_)
+        assert chkmat.ndim == 2 and obsmat.ndim == 2
+        assert chkmat.shape[1] == obsmat.shape[1]
+
+        self.register_buffer(
+            "chkmat", torch.as_tensor(chkmat, dtype=INT_DTYPE))
+        self.register_buffer(
+            "obsmat", torch.as_tensor(obsmat, dtype=INT_DTYPE))
+
+        self.add_state("wrong_syndrome", default=torch.tensor(0),
+                       dist_reduce_fx="sum")
+        self.add_state("wrong_observable", default=torch.tensor(0),
+                       dist_reduce_fx="sum")
+        self.add_state("wrong_either", default=torch.tensor(0),
+                       dist_reduce_fx="sum")
+        self.add_state("total", default=torch.tensor(0),
+                       dist_reduce_fx="sum")
+
+    def update(
+        self,
+        all_llrs: torch.Tensor,
+        syndromes: torch.Tensor,
+        observables: torch.Tensor
+    ):
+        """
+        Parameters
+        ----------
+            all_llrs : torch.Tensor
+                LLRs output by the decoder at all BP iterations, shape=(batch_size, num_iters, n), float.
+
+            syndromes : torch.Tensor
+                Syndrome bits ∈ {0,1}, shape=(batch_size, m), int
+
+            observables : torch.Tensor
+                Observable bits ∈ {0,1}, shape=(batch_size, k), int
+        """
+        batch_size, num_iters, n = all_llrs.shape
+
+        # For each shot, check if the decoder converges, i.e., whether the syndrome is matched at any iteration
+        hard_decisions = (all_llrs < 0).to(
+            INT_DTYPE)  # (batch_size, num_iters, n), int, 0/1
+        syndromes_pred = torch.matmul(
+            hard_decisions, self.chkmat.T) % 2  # (batch_size, num_iters, m), int, 0/1
+        syndromes_matched_mask = torch.all(
+            syndromes_pred == syndromes.unsqueeze(dim=1), dim=2)  # (batch_size, num_iters), bool
+        converged_mask = torch.any(
+            syndromes_matched_mask, dim=1)  # (batch_size,), bool
+
+        # For each shot, find which iteration is the overall output of the decoder:
+        # If the decoder converges, this is the first iteration where the syndrome is matched;
+        # If the decoder does not converge, this is the last iteration.
+        output_iters = torch.where(
+            converged_mask,
+            syndromes_matched_mask.int().argmax(dim=1),
+            num_iters - 1
+        )  # (batch_size,), int
+
+        # Get the output error pattern for each shot
+        index = output_iters.reshape(batch_size, 1, 1).expand(batch_size, 1, n)
+        ehat = hard_decisions \
+            .gather(dim=1, index=index) \
+            .squeeze(1)  # (batch_size, n), int, 0/1
+
+        # For each shot, check if the decoder predicts the observables correctly
+        observables_pred = torch.matmul(
+            ehat, self.obsmat.T) % 2  # (batch_size, k), int, 0/1
+        observables_correct_mask = torch.all(
+            observables_pred == observables, dim=1)  # (batch_size,), bool
+
+        # Update states
+        self.wrong_syndrome += torch.sum(~converged_mask)
+        self.wrong_observable += torch.sum(~observables_correct_mask)
+        self.wrong_either += torch.sum(~converged_mask |
+                                       ~observables_correct_mask)
+        self.total += batch_size
+
+    def compute(self) -> dict[str, float]:
+        return {
+            "wrong_syndrome_rate": self.wrong_syndrome.float() / self.total.float(),
+            "wrong_observable_rate": self.wrong_observable.float() / self.total.float(),
+            "failure_rate": self.wrong_either.float() / self.total.float(),
+        }
+
+
 def build_datasets(
     dem: stim.DetectorErrorModel,
     *,
@@ -551,29 +665,29 @@ def build_datasets(
     """
     m, n, k = dem.num_detectors, dem.num_errors, dem.num_observables
     matrices = detector_error_model_to_check_matrices(dem)
-    chkmat = matrices.check_matrix.toarray().astype(np.uint8)
-    obsmat = matrices.observables_matrix.toarray().astype(np.uint8)
+    chkmat = matrices.check_matrix.toarray().astype(np.int32)
+    obsmat = matrices.observables_matrix.toarray().astype(np.int32)
     assert chkmat.shape == (m, n)
     assert obsmat.shape == (k, n)
 
     sampler = dem.compile_sampler(seed=seed)
     sampled_syndromes, sampled_observables, _ = sampler.sample(
         train_shots + dev_shots)
-    sampled_syndromes = sampled_syndromes.astype(np.uint8)
-    sampled_observables = sampled_observables.astype(np.uint8)
+    sampled_syndromes = sampled_syndromes.astype(np.int32)
+    sampled_observables = sampled_observables.astype(np.int32)
 
     train_syndromes_list = [sampled_syndromes[:train_shots]]
     train_observables_list = [sampled_observables[:train_shots]]
 
     if train_all_wt1_errors:
-        errors = np.eye(n, dtype=np.uint8)
+        errors = np.eye(n, dtype=np.int32)
         syndromes = (errors @ chkmat.T) % 2
         observables = (errors @ obsmat.T) % 2
         train_syndromes_list.append(syndromes)
         train_observables_list.append(observables)
 
     if train_all_wt2_errors:
-        errors = np.zeros(((n * (n - 1)) // 2, n), dtype=np.uint8)
+        errors = np.zeros(((n * (n - 1)) // 2, n), dtype=np.int32)
         for row, cols in enumerate(combinations(range(n), 2)):
             errors[row, cols] = 1
         syndromes = (errors @ chkmat.T) % 2
@@ -607,6 +721,7 @@ def train_gamma(
     train_dataset: DecodingDataset,
     dev_dataset: DecodingDataset,
     loss_fn: nn.Module,
+    metric: DecodingMetric,
     optimizer: torch.optim.Optimizer,
     *,
     num_epochs: int = 10,
@@ -627,6 +742,9 @@ def train_gamma(
 
         loss_fn : nn.Module
             The loss function
+
+        metric : DecodingMetric
+            The metric to be evaluated
 
         optimizer : torch.optim.Optimizer
             The optimizer
@@ -649,6 +767,7 @@ def train_gamma(
 
     model = model.to(device)
     loss_fn = loss_fn.to(device)
+    metric = metric.to(device)
 
     # Build dataloaders
     train_dataloader = DataLoader(
@@ -687,6 +806,7 @@ def train_gamma(
 
         # Evaluation phase on dev set
         model.eval()
+        metric.reset()
         dev_losses = []
         with torch.no_grad():
             for syndromes, observables in dev_dataloader:
@@ -696,13 +816,24 @@ def train_gamma(
                 # Forward pass
                 all_llrs = model(syndromes)
                 loss = loss_fn(all_llrs, syndromes, observables)
+                metric.update(all_llrs, syndromes, observables)
                 dev_losses.append(loss.item())
+        dev_metrics = metric.compute()
 
         # Print epoch summary
-        avg_train_loss = np.mean(train_losses)
-        avg_dev_loss = np.mean(dev_losses)
-
         print(f"Epoch {epoch+1} Summary:")
-        print(f"  Train Loss: {avg_train_loss:.6f}")
-        print(f"  Dev Loss: {avg_dev_loss:.6f}")
+        print(f"  Avg Train Loss: {np.mean(train_losses):.6f}")
+        print(f"  Avg Dev Loss: {np.mean(dev_losses):.6f}")
+        for key, value in dev_metrics.items():
+            print(f"  {key}: {value:.6f}")
         print()
+
+
+__all__ = [
+    "LearnedDMemBP",
+    "DecodingLoss_ParityBased",
+    "DecodingLoss_BCEBased",
+    "DecodingMetric",
+    "build_datasets",
+    "train_gamma",
+]
