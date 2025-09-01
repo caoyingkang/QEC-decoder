@@ -625,7 +625,7 @@ def build_datasets(
     dem: stim.DetectorErrorModel,
     *,
     train_shots: int,
-    dev_shots: int,
+    val_shots: int,
     seed: int | None = None,
     train_all_wt1_errors: bool = True,
     train_all_wt2_errors: bool = True,
@@ -640,8 +640,8 @@ def build_datasets(
         train_shots : int
             Number of sampling shots for building `train_dataset`
 
-        dev_shots : int
-            Number of sampling shots for building `dev_dataset`
+        val_shots : int
+            Number of sampling shots for building `val_dataset`
 
         seed : int | None
             Random seed used for sampling
@@ -653,15 +653,15 @@ def build_datasets(
             Whether to include all weight-2 errors in `train_dataset`
 
         remove_trivial_syndromes : bool
-            Whether to filter out trivial (i.e., all-zero) syndromes in `train_dataset` and `dev_dataset`
+            Whether to filter out trivial (i.e., all-zero) syndromes in `train_dataset` and `val_dataset`
 
     Returns
     -------
         train_dataset : DecodingDataset
             Training dataset
 
-        dev_dataset : DecodingDataset
-            Development dataset
+        val_dataset : DecodingDataset
+            Validation dataset
     """
     m, n, k = dem.num_detectors, dem.num_errors, dem.num_observables
     matrices = detector_error_model_to_check_matrices(dem)
@@ -672,7 +672,7 @@ def build_datasets(
 
     sampler = dem.compile_sampler(seed=seed)
     sampled_syndromes, sampled_observables, _ = sampler.sample(
-        train_shots + dev_shots)
+        train_shots + val_shots)
     sampled_syndromes = sampled_syndromes.astype(np.int32)
     sampled_observables = sampled_observables.astype(np.int32)
 
@@ -704,22 +704,22 @@ def build_datasets(
 
     train_dataset = DecodingDataset(train_syndromes, train_observables)
 
-    dev_syndromes = sampled_syndromes[train_shots:]
-    dev_observables = sampled_observables[train_shots:]
+    val_syndromes = sampled_syndromes[train_shots:]
+    val_observables = sampled_observables[train_shots:]
     if remove_trivial_syndromes:
-        mask = np.any(dev_syndromes != 0, axis=1)
-        dev_syndromes = dev_syndromes[mask]
-        dev_observables = dev_observables[mask]
+        mask = np.any(val_syndromes != 0, axis=1)
+        val_syndromes = val_syndromes[mask]
+        val_observables = val_observables[mask]
 
-    dev_dataset = DecodingDataset(dev_syndromes, dev_observables)
+    val_dataset = DecodingDataset(val_syndromes, val_observables)
 
-    return train_dataset, dev_dataset
+    return train_dataset, val_dataset
 
 
 def train_gamma(
     model: LearnedDMemBP,
     train_dataset: DecodingDataset,
-    dev_dataset: DecodingDataset,
+    val_dataset: DecodingDataset,
     loss_fn: nn.Module,
     metric: DecodingMetric,
     optimizer: torch.optim.Optimizer,
@@ -737,8 +737,8 @@ def train_gamma(
         train_dataset : DecodingDataset
             The training dataset
 
-        dev_dataset : DecodingDataset
-            The development dataset
+        val_dataset : DecodingDataset
+            The validation dataset
 
         loss_fn : nn.Module
             The loss function
@@ -750,7 +750,7 @@ def train_gamma(
             The optimizer
 
         num_epochs : int
-            The number of epochs to train
+            The number of epochs
 
         batch_size : int
             The batch size
@@ -772,8 +772,8 @@ def train_gamma(
     # Build dataloaders
     train_dataloader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True)
-    dev_dataloader = DataLoader(
-        dev_dataset, batch_size=batch_size, shuffle=False)
+    val_dataloader = DataLoader(
+        val_dataset, batch_size=batch_size, shuffle=False)
 
     # Train model
     for epoch in range(num_epochs):
@@ -807,9 +807,9 @@ def train_gamma(
         # Evaluation phase on dev set
         model.eval()
         metric.reset()
-        dev_losses = []
+        val_losses = []
         with torch.no_grad():
-            for syndromes, observables in dev_dataloader:
+            for syndromes, observables in val_dataloader:
                 syndromes = syndromes.to(device)
                 observables = observables.to(device)
 
@@ -817,14 +817,14 @@ def train_gamma(
                 all_llrs = model(syndromes)
                 loss = loss_fn(all_llrs, syndromes, observables)
                 metric.update(all_llrs, syndromes, observables)
-                dev_losses.append(loss.item())
-        dev_metrics = metric.compute()
+                val_losses.append(loss.item())
+        val_metrics = metric.compute()
 
         # Print epoch summary
         print(f"Epoch {epoch+1} Summary:")
         print(f"  Avg Train Loss: {np.mean(train_losses):.6f}")
-        print(f"  Avg Dev Loss: {np.mean(dev_losses):.6f}")
-        for key, value in dev_metrics.items():
+        print(f"  Avg Val Loss: {np.mean(val_losses):.6f}")
+        for key, value in val_metrics.items():
             print(f"  {key}: {value:.6f}")
         print()
 
