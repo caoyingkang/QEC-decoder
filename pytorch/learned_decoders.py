@@ -5,8 +5,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchmetrics import Metric
 from qecdec import detector_error_model_to_check_matrices
+from typing import Any
 
 INT_DTYPE = torch.int32
 FLOAT_DTYPE = torch.float32
@@ -621,6 +623,45 @@ class DecodingMetric(Metric):
         }
 
 
+class EarlyStopper:
+    """
+    A class that implements early stopping.
+    """
+
+    def __init__(
+        self,
+        *,
+        patience: int,
+        min_delta: float = 0.0,
+    ):
+        """
+        Parameters
+        ----------
+            patience : int
+                Number of epochs with no improvement after which training will be stopped
+
+            min_delta : float
+                Minimum change in the monitored quantity to qualify as an improvement
+        """
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.best_loss = float("inf")
+        self.early_stop = False
+
+    def update(self, val_loss: float):
+        if self.early_stop:
+            raise RuntimeError("Early stopping has been triggered")
+
+        if val_loss < self.best_loss - self.min_delta:
+            self.best_loss = val_loss
+            self.counter = 0
+        else:
+            self.counter += 1
+            if self.counter > self.patience:
+                self.early_stop = True
+
+
 def build_datasets(
     dem: stim.DetectorErrorModel,
     *,
@@ -727,6 +768,8 @@ def train_gamma(
     num_epochs: int = 10,
     batch_size: int = 64,
     device: str | None = None,
+    scheduler_kwargs: dict[str, Any] = dict(),
+    early_stopper: EarlyStopper | None = None,
 ):
     """
     Parameters
@@ -757,6 +800,13 @@ def train_gamma(
 
         device : str | None
             The device to train on. If None, let PyTorch determine the device automatically.
+
+        scheduler_kwargs : dict[str, Any]
+            The keyword arguments for the learning rate scheduler `torch.optim.lr_scheduler.ReduceLROnPlateau`.
+            If not provided, use default arguments.
+
+        early_stopper : EarlyStopper | None
+            The early stopper. If None, do not use early stopping.
     """
     if device is None:
         if torch.accelerator.is_available():
@@ -764,6 +814,8 @@ def train_gamma(
         else:
             device = "cpu"
     print(f"Using {device} device")
+
+    scheduler = ReduceLROnPlateau(optimizer, **scheduler_kwargs)
 
     model = model.to(device)
     loss_fn = loss_fn.to(device)
@@ -803,6 +855,7 @@ def train_gamma(
                     batch * batch_size + len(syndromes),
                     len(train_dataset)))
             optimizer.step()
+        avg_train_loss = np.mean(train_losses)
 
         # Evaluation phase on dev set
         model.eval()
@@ -816,17 +869,29 @@ def train_gamma(
                 # Forward pass
                 all_llrs = model(syndromes)
                 loss = loss_fn(all_llrs, syndromes, observables)
-                metric.update(all_llrs, syndromes, observables)
                 val_losses.append(loss.item())
+                metric.update(all_llrs, syndromes, observables)
+        avg_val_loss = np.mean(val_losses)
         val_metrics = metric.compute()
+
+        # Learning rate scheduler
+        scheduler.step(avg_val_loss)
 
         # Print epoch summary
         print(f"Epoch {epoch+1} Summary:")
-        print(f"  Avg Train Loss: {np.mean(train_losses):.6f}")
-        print(f"  Avg Val Loss: {np.mean(val_losses):.6f}")
+        print(f"  Avg Train Loss: {avg_train_loss:.6f}")
+        print(f"  Avg Val Loss: {avg_val_loss:.6f}")
         for key, value in val_metrics.items():
             print(f"  {key}: {value:.6f}")
+        print(f"  Learning Rate: {scheduler.get_last_lr()[0]:.6f}")
         print()
+
+        # Early stopper
+        if early_stopper is not None:
+            early_stopper.update(avg_val_loss)
+            if early_stopper.early_stop:
+                print("Early stopping triggered")
+                break
 
 
 __all__ = [
@@ -834,6 +899,7 @@ __all__ = [
     "DecodingLoss_ParityBased",
     "DecodingLoss_BCEBased",
     "DecodingMetric",
+    "EarlyStopper",
     "build_datasets",
     "train_gamma",
 ]
