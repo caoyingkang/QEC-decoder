@@ -1,4 +1,5 @@
 from itertools import combinations
+from tqdm import tqdm
 import numpy as np
 import stim
 import torch
@@ -829,12 +830,13 @@ def train_gamma(
 
     # Train model
     for epoch in range(num_epochs):
-        print(f"Epoch {epoch+1}\n-------------------------------")
-
         # Training phase
         model.train()
-        train_losses = []
-        for batch, (syndromes, observables) in enumerate(train_dataloader):
+        running_loss = 0.0
+        pbar = tqdm(train_dataloader,
+                    desc=f"Epoch {epoch+1}/{num_epochs}",
+                    total=len(train_dataloader))
+        for syndromes, observables in pbar:
             syndromes = syndromes.to(device)
             observables = observables.to(device)
             optimizer.zero_grad()
@@ -842,25 +844,23 @@ def train_gamma(
             # Forward pass
             all_llrs = model(syndromes)
             loss = loss_fn(all_llrs, syndromes, observables)
-            train_losses.append(loss.item())
+            running_loss += loss.item()
 
             # Backpropagation
             loss.backward()
-            if batch % 1 == 0:
-                grad_norm = nn.utils.clip_grad_norm_(
-                    model.parameters(), max_norm=float('inf'))
-                print(f"Gradient norm: {grad_norm:.6f}")
-                print("Loss: {:>8f}  [{:>5d}/{:>5d}]".format(
-                    loss.item(),
-                    batch * batch_size + len(syndromes),
-                    len(train_dataset)))
+            grad_norm = nn.utils.clip_grad_norm_(
+                model.parameters(), max_norm=float('inf'))
+            pbar.set_postfix({
+                "avg_loss": f"{running_loss / (pbar.n + 1):.6f}",
+                "grad_norm": f"{grad_norm:.6f}"
+            })
             optimizer.step()
-        avg_train_loss = np.mean(train_losses)
+        avg_train_loss = running_loss / len(train_dataloader)
 
-        # Evaluation phase on dev set
+        # Validation phase
         model.eval()
         metric.reset()
-        val_losses = []
+        running_loss = 0.0
         with torch.no_grad():
             for syndromes, observables in val_dataloader:
                 syndromes = syndromes.to(device)
@@ -869,9 +869,9 @@ def train_gamma(
                 # Forward pass
                 all_llrs = model(syndromes)
                 loss = loss_fn(all_llrs, syndromes, observables)
-                val_losses.append(loss.item())
+                running_loss += loss.item()
                 metric.update(all_llrs, syndromes, observables)
-        avg_val_loss = np.mean(val_losses)
+        avg_val_loss = running_loss / len(val_dataloader)
         val_metrics = metric.compute()
 
         # Learning rate scheduler
