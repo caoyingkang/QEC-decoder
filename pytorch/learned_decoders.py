@@ -25,6 +25,20 @@ def _smooth_sign(x: torch.Tensor, *, alpha: float = 100.0) -> torch.Tensor:
     return torch.tanh(alpha * x)
 
 
+class Sign_STE(torch.autograd.Function):
+    """
+    Straight-through estimator (STE) implementation of the sign function: calles `torch.sign` in the forward direction; 
+    clamps the gradients to [-1, 1] and passes them through directly in the backward direction.
+    """
+    @staticmethod
+    def forward(ctx, input):
+        return torch.sign(input)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return torch.clamp(grad_output, min=-1, max=1)
+
+
 def _smooth_min(x: torch.Tensor, *, dim: int, temp: float = 0.01) -> torch.Tensor:
     """
     Smooth version of min function along a given dimension `dim`. Smaller `temp` => better approximation.
@@ -105,7 +119,9 @@ class LearnedDMemBP(nn.Module):
         pcm: np.ndarray,
         prior: np.ndarray,
         *,
-        num_iters: int
+        num_iters: int,
+        min_impl_method: str = "smooth",
+        sign_impl_method: str = "smooth",
     ):
         """
         Parameters
@@ -118,6 +134,12 @@ class LearnedDMemBP(nn.Module):
 
             num_iters : int
                 Number of BP iterations
+
+            min_impl_method : str
+                Implementation method of the min function. Can be "smooth" (based on softmin) or "hard" (using torch.amin).
+
+            sign_impl_method : str
+                Implementation method of the sign function. Can be "smooth" (based on tanh), "hard" (using torch.sign), or "ste" (straight-through estimator).
         """
         super().__init__()
         assert isinstance(pcm, np.ndarray) and isinstance(prior, np.ndarray)
@@ -131,6 +153,22 @@ class LearnedDMemBP(nn.Module):
 
         self.m, self.n = m, n
         self.num_iters = num_iters
+
+        if min_impl_method == "smooth":
+            self.min_func = _smooth_min
+        elif min_impl_method == "hard":
+            self.min_func = torch.amin
+        else:
+            raise ValueError(f"Invalid min_impl_method: {min_impl_method}")
+
+        if sign_impl_method == "smooth":
+            self.sign_func = _smooth_sign
+        elif sign_impl_method == "hard":
+            self.sign_func = torch.sign
+        elif sign_impl_method == "ste":
+            self.sign_func = Sign_STE.apply
+        else:
+            raise ValueError(f"Invalid sign_impl_method: {sign_impl_method}")
 
         self.chk_nbrs, self.var_nbrs = _build_tanner_graph(pcm)
 
@@ -189,7 +227,7 @@ class LearnedDMemBP(nn.Module):
                 # Gather incoming messages at CN i
                 msgs = v2c_msg[:, nbrs, i]  # (batch_size, num_nbrs)
                 msgs_abs = msgs.abs()  # (batch_size, num_nbrs)
-                msgs_sgn = _smooth_sign(msgs)  # (batch_size, num_nbrs)
+                msgs_sgn = self.sign_func(msgs)  # (batch_size, num_nbrs)
 
                 # print(f"Incoming messages at CN {i}:\n", msgs)  # DEBUG
                 # print("msgs_sgn:", msgs_sgn)  # DEBUG
@@ -216,10 +254,8 @@ class LearnedDMemBP(nn.Module):
                     .repeat(1, num_nbrs, 1)  # (batch_size, num_nbrs, num_nbrs)
                 msgs_abs_masked = msgs_abs_repeated \
                     .masked_fill(mask, BIG)  # (batch_size, num_nbrs, num_nbrs)
-                msgs_abs_min_excl = _smooth_min(
+                msgs_abs_min_excl = self.min_func(
                     msgs_abs_masked, dim=2)  # (batch_size, num_nbrs)
-
-                # print("msgs_abs_min_excl:", msgs_abs_min_excl)  # DEBUG
 
                 # Populate c2v_msg
                 c2v_msg[:, i, nbrs] = syndromes_sgn[:, i].unsqueeze(dim=1) * \
