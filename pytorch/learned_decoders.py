@@ -258,9 +258,9 @@ class LearnedDMemBP(_LearnedBPBase):
         return all_llrs
 
 
-class LearnedDOffBP(_LearnedBPBase):
+class LearnedDMemOffBP(_LearnedBPBase):
     """
-    A PyTorch Module that implements a Disordered Offset BP decoder with trainable offset parameters.
+    A PyTorch Module that implements a Disordered Memory Offset BP decoder with trainable memory strength and offset parameters.
     """
 
     def __init__(
@@ -293,6 +293,8 @@ class LearnedDOffBP(_LearnedBPBase):
         super().__init__(pcm, prior, num_iters, min_impl_method, sign_impl_method)
 
         # Trainable parameter
+        self.gamma = nn.Parameter(
+            torch.zeros(self.n, dtype=FLOAT_DTYPE))
         self.offset = nn.ParameterList([
             nn.Parameter(torch.zeros(len(self.chk_nbrs[i]), dtype=FLOAT_DTYPE))
             for i in range(self.m)
@@ -380,8 +382,13 @@ class LearnedDOffBP(_LearnedBPBase):
 
             # ------------------ VN update ------------------
             incoming_sum = c2v_msg.sum(dim=1)  # (batch_size, n)
-            llrs = incoming_sum + \
-                self.prior_llr.unsqueeze(dim=0)  # (batch_size, n)
+            if it == 0:
+                llrs = incoming_sum + \
+                    self.prior_llr.unsqueeze(dim=0)  # (batch_size, n)
+            else:
+                llrs = incoming_sum + \
+                    (1 - self.gamma.unsqueeze(dim=0)) * self.prior_llr.unsqueeze(dim=0) + \
+                    self.gamma.unsqueeze(dim=0) * llrs  # (batch_size, n)
 
             all_llrs.append(llrs)
 
@@ -772,7 +779,7 @@ class DecodingMetric(Metric):
 
 __all__ = [
     "LearnedDMemBP",
-    "LearnedDOffBP",
+    "LearnedDMemOffBP",
     "DecodingLoss_ParityBased",
     "DecodingLoss_BCEBased",
     "DecodingMetric",

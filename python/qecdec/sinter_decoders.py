@@ -3,7 +3,7 @@ import stim
 import sinter
 
 from .dem_to_matrices import detector_error_model_to_check_matrices
-from .qecdec import BPDecoder, DMemBPDecoder
+from .qecdec import BPDecoder, DMemBPDecoder, DMemOffBPDecoder
 
 
 class _Sinter_CompiledDecoder(sinter.CompiledDecoder):
@@ -65,7 +65,7 @@ class Sinter_DMemBPDecoder(sinter.Decoder):
         obsmat = obsmat.toarray().astype(np.uint8)
         pvec = pvec.astype(np.float64)
 
-        num_detectors, num_error_mechanisms = chkmat.shape
+        num_detectors = chkmat.shape[0]
 
         return _Sinter_CompiledDecoder(
             decoder=DMemBPDecoder(
@@ -78,5 +78,40 @@ class Sinter_DMemBPDecoder(sinter.Decoder):
             obsmat=obsmat
         )
 
+class Sinter_DMemOffBPDecoder(sinter.Decoder):
+    def __init__(
+        self,
+        *,
+        max_iter: int,
+        gamma: np.ndarray,
+        offset: list[list[float]],
+        scaling_factor: float | None = None
+    ):
+        self.max_iter = max_iter
+        self.scaling_factor = scaling_factor
+        self.gamma = gamma
+        self.offset = offset
 
-__all__ = ["Sinter_BPDecoder", "Sinter_DMemBPDecoder"]
+    def compile_decoder_for_dem(self, *, dem: stim.DetectorErrorModel) -> _Sinter_CompiledDecoder:
+        matrices = detector_error_model_to_check_matrices(dem)
+        chkmat, obsmat, pvec = matrices.check_matrix, matrices.observables_matrix, matrices.priors
+        chkmat = chkmat.toarray().astype(np.uint8)
+        obsmat = obsmat.toarray().astype(np.uint8)
+        pvec = pvec.astype(np.float64)
+
+        num_detectors = chkmat.shape[0]
+
+        return _Sinter_CompiledDecoder(
+            decoder=DMemOffBPDecoder(
+                chkmat, pvec,
+                gamma=self.gamma,
+                offset=self.offset,
+                max_iter=self.max_iter,
+                scaling_factor=self.scaling_factor,
+            ),
+            num_detectors=num_detectors,
+            obsmat=obsmat
+        )
+
+
+__all__ = ["Sinter_BPDecoder", "Sinter_DMemBPDecoder", "Sinter_DMemOffBPDecoder"]
