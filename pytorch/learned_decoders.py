@@ -524,7 +524,7 @@ class DecodingLoss_ParityBased(nn.Module):
         return loss.mean()
 
 
-class DecodingLoss_BCEBased(nn.Module):
+class DecodingLoss(nn.Module):
     """
     A PyTorch Module that implements a loss function for training QEC decoders.
 
@@ -549,7 +549,7 @@ class DecodingLoss_BCEBased(nn.Module):
         obsmat: np.ndarray,
         *,
         beta: float = 0.5,
-        incl_intmd_llrs: bool = False,
+        loss_iters: list[int] | None = None,
     ):
         """
         Parameters
@@ -563,8 +563,8 @@ class DecodingLoss_BCEBased(nn.Module):
             beta : float
                 Hyperparameter that balances the contribution of the two parts of the loss function
 
-            incl_intmd_llrs : bool
-                Whether to include LLRs from intermediate BP iterations in the calculation of the loss
+            loss_iters : list[int] | None
+                Indicates which BP iterations are considered in the calculation of the loss. If None, all iterations are considered.
         """
         super().__init__()
         assert isinstance(chkmat, np.ndarray)
@@ -588,7 +588,7 @@ class DecodingLoss_BCEBased(nn.Module):
                               for i in range(k))
 
         self.beta = beta
-        self.incl_intmd_llrs = incl_intmd_llrs
+        self.loss_iters = loss_iters
 
     def forward(
         self,
@@ -616,8 +616,14 @@ class DecodingLoss_BCEBased(nn.Module):
         syndromes = syndromes.to(FLOAT_DTYPE)
         observables = observables.to(FLOAT_DTYPE)
 
-        if not self.incl_intmd_llrs:
-            all_llrs = all_llrs[:, [-1], :]  # view on the last BP iteration
+        if self.loss_iters is not None:
+            assert isinstance(self.loss_iters, list) and len(self.loss_iters) > 0, \
+                "loss_iters must be a non-empty list"
+            assert sorted(self.loss_iters) == self.loss_iters, \
+                "loss_iters must be a list of integers in ascending order"
+            assert self.loss_iters[0] >= 0 and self.loss_iters[-1] < all_llrs.shape[1], \
+                "loss_iters must be a list of integers in the range of [0, num_iters)"
+            all_llrs = all_llrs[:, self.loss_iters, :]
 
         tanh_llrs_over_2 = torch.tanh(
             all_llrs / 2)  # (batch_size, num_iters, n)
@@ -781,6 +787,6 @@ __all__ = [
     "LearnedDMemBP",
     "LearnedDMemOffBP",
     "DecodingLoss_ParityBased",
-    "DecodingLoss_BCEBased",
+    "DecodingLoss",
     "DecodingMetric",
 ]
