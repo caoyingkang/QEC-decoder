@@ -669,3 +669,9 @@ class RotatedSurfaceCode_Memory(MemoryExperiment):
         x = i % self.w
         y = 2 * (i // self.w) + (x % 2)
         return x, y
+
+
+__all__ = [
+    "RepetitionCode_Memory",
+    "RotatedSurfaceCode_Memory",
+]

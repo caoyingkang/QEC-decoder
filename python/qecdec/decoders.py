@@ -129,3 +129,9 @@ class BPDecoder(Decoder):
 
     def get_llr_history(self) -> np.ndarray:
         return self.bp.get_llr_history()
+
+
+__all__ = [
+    "MWPMDecoder",
+    "BPDecoder",
+]
