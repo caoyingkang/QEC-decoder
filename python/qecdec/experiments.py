@@ -1,4 +1,4 @@
-from .utils import extract_error_mechanisms_from_dem
+from .utils import extract_error_mechanisms_from_dem, extract_detector_coords_from_dem
 from functools import cached_property, total_ordering
 from dataclasses import dataclass
 import numpy as np
@@ -125,6 +125,21 @@ class MemoryExperiment:
         for j, e in self.eid2emech.items():
             prior[j] = e.p
         return prior
+
+    @cached_property
+    def detector_coords(self) -> np.ndarray:
+        """
+        Array of detector coordinates, shape=(#detectors, #coordinates), dtype=float. This can be used to visualize the decoding graph.
+        """
+        dem = self.circuit.detector_error_model()
+        return extract_detector_coords_from_dem(dem)
+
+    @cached_property
+    def error_coords(self) -> np.ndarray:
+        """
+        Array of error coordinates, shape=(#error_mechanisms, #coordinates), dtype=float. This can be used to visualize the decoding graph.
+        """
+        raise NotImplementedError
 
 
 class RepetitionCode_Memory(MemoryExperiment):
@@ -604,6 +619,32 @@ class RotatedSurfaceCode_Memory(MemoryExperiment):
         assert circuit.num_detectors == self.num_detectors
         assert circuit.num_observables == self.num_observables
         return circuit
+
+    @cached_property
+    def error_coords(self) -> np.ndarray:
+        error_coords = np.zeros((self.num_error_mechanisms,
+                                 self.detector_coords.shape[1]))
+        for i, e in self.eid2emech.items():
+            dets = e.dets
+            assert len(dets) > 0
+            if len(dets) == 1:
+                coo = self.detector_coords[dets[0]].tolist()
+                assert len(coo) == 3
+                x, y, t = coo
+                if self.basis == 'Z':
+                    if y < 2.001:
+                        error_coords[i] = np.array([x, y - 1, t])
+                    else:
+                        error_coords[i] = np.array([x, y + 1, t])
+                else:
+                    if x < 2.001:
+                        error_coords[i] = np.array([x - 1, y, t])
+                    else:
+                        error_coords[i] = np.array([x + 1, y, t])
+            else:
+                error_coords[i] = np.mean(
+                    self.detector_coords[dets, :], axis=0)
+        return error_coords
 
     def _is_data_qubit_coord(self, x: int, y: int) -> bool:
         """Check if (x, y) is the coordinate of a data qubit."""
