@@ -90,6 +90,82 @@ def extract_detector_coords_from_dem(dem: stim.DetectorErrorModel) -> np.ndarray
     return np.array(coords)
 
 
+def plot_tanner_graph_interactively(
+    chkmat: np.ndarray,
+    chk_coords: np.ndarray,
+    var_coords: np.ndarray,
+    *,
+    zaxis_stretch: float = 4,
+    html_filename: str = None,
+):
+    import plotly.graph_objects as go
+
+    fig = go.Figure()
+    marker_size = 5
+
+    # Check nodes
+    fig.add_trace(go.Scatter3d(
+        x=chk_coords[:, 0],
+        y=chk_coords[:, 1],
+        z=chk_coords[:, 2],
+        text=[str(i) for i in range(chkmat.shape[0])],
+        mode="markers",
+        marker=dict(size=marker_size, color="white", symbol="square",
+                    line=dict(color="black", width=1)),
+        name="Check Node",
+        hovertemplate="Check node index: %{text}<br>x, y, t: %{x}, %{y}, %{z}<extra></extra>",
+    ))
+
+    # Variable nodes
+    fig.add_trace(go.Scatter3d(
+        x=var_coords[:, 0],
+        y=var_coords[:, 1],
+        z=var_coords[:, 2],
+        text=[str(i) for i in range(chkmat.shape[1])],
+        mode="markers",
+        marker=dict(size=marker_size, color="orange", symbol="circle",
+                    line=dict(color="black", width=1)),
+        name="Variable Node",
+        hovertemplate="Variable node index: %{text}<br>x, y, t: %{x}, %{y}, %{z}<extra></extra>",
+    ))
+
+    # Edges
+    edge_x, edge_y, edge_z = [], [], []
+    for i in range(chkmat.shape[0]):
+        for j in range(chkmat.shape[1]):
+            if chkmat[i, j] == 1:
+                edge_x += [var_coords[j, 0], chk_coords[i, 0], None]
+                edge_y += [var_coords[j, 1], chk_coords[i, 1], None]
+                edge_z += [var_coords[j, 2], chk_coords[i, 2], None]
+
+    fig.add_trace(go.Scatter3d(
+        x=edge_x, y=edge_y, z=edge_z,
+        mode="lines",
+        line=dict(color="gray", width=2),
+        name="Edges",
+        hoverinfo="skip",
+        hovertemplate=None,
+    ))
+
+    # Set scene parameters
+    fig.update_scenes(
+        aspectmode="manual",
+        xaxis=dict(dtick=2, tick0=0),
+        yaxis=dict(dtick=2, tick0=0, range=[0, var_coords[:, 1].max() + 1]),
+        zaxis=dict(title="t", dtick=1, tick0=0),
+        aspectratio=dict(x=1, y=1, z=zaxis_stretch),
+        camera=dict(
+            up=dict(x=0, y=-1, z=0),
+            eye=dict(x=-2.5, y=0, z=0),
+        ),
+    )
+
+    if html_filename is None:
+        fig.show()
+    else:
+        fig.write_html(html_filename)
+
+
 def visualize_bp_decoding_process(
     chkmat: np.ndarray,
     chk_coords: np.ndarray,
