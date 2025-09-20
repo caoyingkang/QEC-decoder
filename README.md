@@ -20,6 +20,11 @@
   ```
   (.env) $ maturin develop --release
   ```
+  or
+  ```
+  (.env) $ maturin develop --release --extras=pytorch
+  ```
+  The latter build option also installs [PyTorch](https://pytorch.org/), which is used in the folder `/pytorch`.
 
 
 ### Notations and conventions
