@@ -10,18 +10,20 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
+dynamic = ["version"]
 dependencies = [
     "numpy",
     "matplotlib",
     "plotly",
+    "nbformat",
     "stim",
     "sinter",
     "pymatching",
-    "torch",
-    "torchmetrics",
     "tqdm"
 ]
-dynamic = ["version"]
+
+[project.optional-dependencies]
+pytorch = ["torch", "torchmetrics"]
 
 [tool.maturin]
 python-source = "python"
