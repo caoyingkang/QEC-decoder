@@ -10,6 +10,7 @@
   $ cd QEC-decoder
   $ python3 -m venv .env
   $ source .env/bin/activate
+  (.env) $ pip install --upgrade pip
   ```
 - Install maturin:
   ```
