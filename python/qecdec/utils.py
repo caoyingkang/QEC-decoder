@@ -153,6 +153,7 @@ def get_stats(
         "unmatched_syndrome_shots": np.sum(unmatched_syndrome_mask),
         "unmatched_observable_shots": np.sum(unmatched_observable_mask),
         "unmatched_syndrome_or_observable_shots": np.sum(unmatched_syndrome_mask | unmatched_observable_mask),
+        "unmatched_syndrome_and_observable_shots": np.sum(unmatched_syndrome_mask & unmatched_observable_mask),
         "matched_syndrome_but_unmatched_observable_shots": np.sum(~unmatched_syndrome_mask & unmatched_observable_mask),
         "unmatched_syndrome_but_matched_observable_shots": np.sum(unmatched_syndrome_mask & ~unmatched_observable_mask),
     }
@@ -254,6 +255,86 @@ def bar_plot_stats(
     ax2.set_xticklabels(categories)
     ax2.legend()
     ax2.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    plt.show()
+
+
+def stacked_bar_plot_stats(
+    category2label2stats: dict[str, dict[str, Stat]],
+    *,
+    colors: list[str] = ["skyblue", "lightgreen", "salmon",
+                         "khaki", "plum", "lightslategray"],
+):
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+
+    categories = list(category2label2stats.keys())
+    assert len(categories) > 0
+    labels = list(category2label2stats[categories[0]].keys())
+    assert len(labels) > 0
+    assert all(
+        set(category2label2stats[category].keys()) == set(labels)
+        for category in categories
+    )
+    shots = category2label2stats[categories[0]][labels[0]]["shots"]
+    assert all(category2label2stats[category][label]["shots"] == shots
+               for category in categories for label in labels)
+    if len(colors) < len(labels):
+        raise ValueError("Not enough colors")
+
+    # Construct data for plotting: label -> list of bar heights (one for each category)
+    data_unmatched_syndrome = {}
+    data_unmatched_observable = {}
+    data_unmatched_syndrome_or_observable = {}
+    data_unmatched_syndrome_but_matched_observable = {}
+    for label in labels:
+        data_unmatched_syndrome[label] = [category2label2stats[category][label]["unmatched_syndrome_shots"]
+                                          for category in categories]
+        data_unmatched_observable[label] = [category2label2stats[category][label]["unmatched_observable_shots"]
+                                            for category in categories]
+        data_unmatched_syndrome_or_observable[label] = [category2label2stats[category][label]["unmatched_syndrome_or_observable_shots"]
+                                                        for category in categories]
+        data_unmatched_syndrome_but_matched_observable[label] = [category2label2stats[category][label]["unmatched_syndrome_but_matched_observable_shots"]
+                                                                 for category in categories]
+    # Create figure and axes.
+    fig, ax = plt.subplots(figsize=(15, 6))
+
+    # Set up bar positions and width.
+    width = 0.25
+    stride = (len(labels) + 1) * width
+    x = stride * np.arange(len(categories))
+
+    # Plot.
+    for i, label in enumerate(labels):
+        ax.bar(x + i * width, data_unmatched_syndrome_or_observable[label], width,
+               label=label, align="edge", alpha=0.8, color=colors[i], edgecolor="black", linewidth=1)
+    for i, label in enumerate(labels):
+        ax.bar(x + i * width, data_unmatched_syndrome[label], width,
+               align="edge", color="none", hatch="\\\\\\", linewidth=1)
+        ax.bar(x + i * width, data_unmatched_observable[label], width,
+               bottom=data_unmatched_syndrome_but_matched_observable[label],
+               align="edge", color="none", hatch="///", linewidth=1)
+        for j in range(len(categories)):
+            y1 = data_unmatched_syndrome_but_matched_observable[label][j]
+            y2 = data_unmatched_syndrome[label][j]
+            y3 = data_unmatched_syndrome_or_observable[label][j]
+            y_list = list(set([y1, y2]) - set([0, y3]))
+            if len(y_list) > 0:
+                ax.hlines(y_list, j * stride + i * width, j * stride + i * width + width,
+                          colors="black", linewidth=1)
+
+    ax.set_title('Decoding performance (shots = {})'.format(shots))
+    ax.set_xticks(x + len(labels) * width / 2)
+    ax.set_xticklabels(categories)
+    ax.grid(True, alpha=0.3)
+
+    handles, labels = ax.get_legend_handles_labels()
+    handles.append(Patch(facecolor="none", edgecolor="black", hatch="\\\\\\"))
+    labels.append("unmatched syndrome")
+    handles.append(Patch(facecolor="none", edgecolor="black", hatch="///"))
+    labels.append("unmatched observable")
+    ax.legend(handles=handles, labels=labels)
 
     fig.tight_layout()
     plt.show()
