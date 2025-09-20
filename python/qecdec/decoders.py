@@ -49,7 +49,7 @@ class Decoder:
 
         Returns
         -------
-            ehat : ndarray
+            ehat_batch : ndarray
                 Array of decoded error vectors ∈ {0,1}, shape=(batch_size,n).
         """
         raise NotImplementedError
