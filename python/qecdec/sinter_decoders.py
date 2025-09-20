@@ -2,8 +2,8 @@ import numpy as np
 import stim
 import sinter
 
-from .dem_to_matrices import detector_error_model_to_check_matrices
-from .qecdec import BPDecoder, DMemBPDecoder, DMemOffBPDecoder
+from .decoders import BPDecoder
+from .qecdec import DMemBPDecoder, DMemOffBPDecoder
 
 
 class _Sinter_CompiledDecoder(sinter.CompiledDecoder):
@@ -78,6 +78,7 @@ class Sinter_DMemBPDecoder(sinter.Decoder):
             obsmat=obsmat
         )
 
+
 class Sinter_DMemOffBPDecoder(sinter.Decoder):
     def __init__(
         self,
@@ -114,4 +115,8 @@ class Sinter_DMemOffBPDecoder(sinter.Decoder):
         )
 
 
-__all__ = ["Sinter_BPDecoder", "Sinter_DMemBPDecoder", "Sinter_DMemOffBPDecoder"]
+__all__ = [
+    "Sinter_BPDecoder",
+    "Sinter_DMemBPDecoder",
+    "Sinter_DMemOffBPDecoder",
+]
