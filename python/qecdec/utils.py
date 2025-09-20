@@ -90,6 +90,175 @@ def extract_detector_coords_from_dem(dem: stim.DetectorErrorModel) -> np.ndarray
     return np.array(coords)
 
 
+Stat = dict[str, int | float]
+
+
+def get_stats(
+    chkmat: np.ndarray,
+    obsmat: np.ndarray,
+    syndromes: np.ndarray,
+    observables: np.ndarray,
+    ehats: np.ndarray,
+) -> Stat:
+    """
+    Calculate decoding performance statistics.
+
+    Parameters
+    ----------
+    chkmat : ndarray
+        Check matrix, shape=(m, n).
+
+    obsmat : ndarray
+        Observable matrix, shape=(k, n).
+
+    syndromes : ndarray
+        Array of syndromes, shape=(shots, m).
+
+    observables : ndarray
+        Array of observables, shape=(shots, k).
+
+    ehats : ndarray
+        Array of decoded errors, shape=(shots, n).
+
+    Returns
+    -------
+    Stat (alias for dict[str, int | float])
+    """
+    assert isinstance(chkmat, np.ndarray) and chkmat.ndim == 2
+    assert isinstance(obsmat, np.ndarray) and obsmat.ndim == 2
+    assert isinstance(syndromes, np.ndarray) and syndromes.ndim == 2
+    assert isinstance(observables, np.ndarray) and observables.ndim == 2
+    assert isinstance(ehats, np.ndarray) and ehats.ndim == 2
+    m, n = chkmat.shape
+    k = obsmat.shape[0]
+    shots = syndromes.shape[0]
+    assert obsmat.shape == (k, n)
+    assert syndromes.shape == (shots, m)
+    assert observables.shape == (shots, k)
+    assert ehats.shape == (shots, n)
+    chkmat = chkmat.astype(np.uint8)
+    obsmat = obsmat.astype(np.uint8)
+    syndromes = syndromes.astype(np.uint8)
+    observables = observables.astype(np.uint8)
+    ehats = ehats.astype(np.uint8)
+
+    syndrome_pred = (ehats @ chkmat.T) % 2
+    unmatched_syndrome_mask = np.any(syndrome_pred != syndromes, axis=1)
+
+    observable_pred = (ehats @ obsmat.T) % 2
+    unmatched_observable_mask = np.any(observable_pred != observables, axis=1)
+
+    return {
+        "shots": shots,
+        "unmatched_syndrome_shots": np.sum(unmatched_syndrome_mask),
+        "unmatched_observable_shots": np.sum(unmatched_observable_mask),
+        "unmatched_syndrome_or_observable_shots": np.sum(unmatched_syndrome_mask | unmatched_observable_mask),
+        "matched_syndrome_but_unmatched_observable_shots": np.sum(~unmatched_syndrome_mask & unmatched_observable_mask),
+        "unmatched_syndrome_but_matched_observable_shots": np.sum(unmatched_syndrome_mask & ~unmatched_observable_mask),
+    }
+
+
+def bar_plot_stats(
+    category2label2stats: dict[str, dict[str, Stat]],
+    *,
+    colors: list[str] = ["skyblue", "lightgreen", "salmon",
+                         "khaki", "plum", "lightslategray"],
+):
+    """Plot bar charts for (1) number of shots with unmatched syndrome, and (2) number of shots with unmatched observable.
+    Bars are grouped by category and displayed side by side. Within each category, bars are distinguished by label and are 
+    assigned different colors.
+
+    Parameters
+    ----------
+    category2label2stats : dict[str, dict[str, Stat]]
+        Nested dictionary of statistics for each category and label.
+
+    colors : list[str], optional
+        Available colors for the bars. Must have length at least the number of labels.
+    """
+    import matplotlib.pyplot as plt
+
+    categories = list(category2label2stats.keys())
+    assert len(categories) > 0
+    labels = list(category2label2stats[categories[0]].keys())
+    assert len(labels) > 0
+    assert all(
+        set(category2label2stats[category].keys()) == set(labels)
+        for category in categories
+    )
+    shots = category2label2stats[categories[0]][labels[0]]["shots"]
+    assert all(category2label2stats[category][label]["shots"] == shots
+               for category in categories for label in labels)
+    if len(colors) < len(labels):
+        raise ValueError("Not enough colors")
+
+    # Construct data for plotting: label -> list of bar heights (one for each category)
+    data_unmatched_syndrome = {}
+    data_unmatched_observable = {}
+    for label in labels:
+        data_unmatched_syndrome[label] = [category2label2stats[category][label]["unmatched_syndrome_shots"]
+                                          for category in categories]
+        data_unmatched_observable[label] = [category2label2stats[category][label]["unmatched_observable_shots"]
+                                            for category in categories]
+
+    # Create figure and axes.
+    ax1: plt.Axes
+    ax2: plt.Axes
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+
+    # Set up bar positions and width.
+    width = 0.25
+    stride = (len(labels) + 1) * width
+    x = stride * np.arange(len(categories))
+
+    # Plot 1: Unmatched Syndromes
+    for i, label in enumerate(labels):
+        bars = ax1.bar(x + i * width, data_unmatched_syndrome[label], width,
+                       align="edge", label=label, alpha=0.8, color=colors[i])
+        for bar in bars:
+            height = bar.get_height()
+            ax1.text(
+                bar.get_x() + bar.get_width() / 2,
+                height,
+                f"{height}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
+
+    ax1.set_title('Unmatched Syndrome (shots = {})'.format(shots))
+    ax1.set_ylabel('Number of shots with unmatched syndrome')
+    ax1.set_xticks(x + len(labels) * width / 2)
+    ax1.set_xticklabels(categories)
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+
+    # Plot 2: Unmatched Observables
+    for i, label in enumerate(labels):
+        bars = ax2.bar(x + i * width, data_unmatched_observable[label], width,
+                       align="edge", label=label, alpha=0.8, color=colors[i])
+        for bar in bars:
+            height = bar.get_height()
+            ax2.text(
+                bar.get_x() + bar.get_width() / 2,
+                height,
+                f"{height}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
+
+    ax2.set_title('Unmatched Observable (shots = {})'.format(shots))
+    ax2.set_ylabel('Number of shots with unmatched observable')
+    ax2.set_xticks(x + len(labels) * width / 2)
+    ax2.set_xticklabels(categories)
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    plt.show()
+
+
 def plot_tanner_graph_interactively(
     chkmat: np.ndarray,
     chk_coords: np.ndarray,
