@@ -67,12 +67,18 @@ class MemoryExperiment:
         raise NotImplementedError
 
     @cached_property
+    def dem(self) -> stim.DetectorErrorModel:
+        """
+        Detector error model representing the experiment.
+        """
+        return self.circuit.detector_error_model()
+
+    @cached_property
     def eid2emech(self) -> dict[int, ErrorMechanism]:
         """
         A dictionary mapping error ids to ErrorMechanism objects.
         """
-        dem = self.circuit.detector_error_model()
-        eff2prob = extract_error_mechanisms_from_dem(dem)
+        eff2prob = extract_error_mechanisms_from_dem(self.dem)
 
         emechs: list[ErrorMechanism] = []
         for (dets, obsers), p in eff2prob.items():
@@ -131,8 +137,7 @@ class MemoryExperiment:
         """
         Array of detector coordinates, shape=(#detectors, #coordinates), dtype=float. This can be used to visualize the decoding graph.
         """
-        dem = self.circuit.detector_error_model()
-        return extract_detector_coords_from_dem(dem)
+        return extract_detector_coords_from_dem(self.dem)
 
     @cached_property
     def error_coords(self) -> np.ndarray:
