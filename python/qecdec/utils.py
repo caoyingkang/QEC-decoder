@@ -287,7 +287,7 @@ def stacked_bar_plot_stats(
     data_unmatched_syndrome = {}
     data_unmatched_observable = {}
     data_unmatched_syndrome_or_observable = {}
-    data_unmatched_syndrome_but_matched_observable = {}
+    data_matched_syndrome_but_unmatched_observable = {}
     for label in labels:
         data_unmatched_syndrome[label] = [category2label2stats[category][label]["unmatched_syndrome_shots"]
                                           for category in categories]
@@ -295,7 +295,7 @@ def stacked_bar_plot_stats(
                                             for category in categories]
         data_unmatched_syndrome_or_observable[label] = [category2label2stats[category][label]["unmatched_syndrome_or_observable_shots"]
                                                         for category in categories]
-        data_unmatched_syndrome_but_matched_observable[label] = [category2label2stats[category][label]["unmatched_syndrome_but_matched_observable_shots"]
+        data_matched_syndrome_but_unmatched_observable[label] = [category2label2stats[category][label]["matched_syndrome_but_unmatched_observable_shots"]
                                                                  for category in categories]
     # Create figure and axes.
     fig, ax = plt.subplots(figsize=(15, 6))
@@ -310,14 +310,14 @@ def stacked_bar_plot_stats(
         ax.bar(x + i * width, data_unmatched_syndrome_or_observable[label], width,
                label=label, align="edge", alpha=0.8, color=colors[i], edgecolor="black", linewidth=1)
     for i, label in enumerate(labels):
-        ax.bar(x + i * width, data_unmatched_syndrome[label], width,
-               align="edge", color="none", hatch="\\\\\\", linewidth=1)
         ax.bar(x + i * width, data_unmatched_observable[label], width,
-               bottom=data_unmatched_syndrome_but_matched_observable[label],
                align="edge", color="none", hatch="///", linewidth=1)
+        ax.bar(x + i * width, data_unmatched_syndrome[label], width,
+               bottom=data_matched_syndrome_but_unmatched_observable[label],
+               align="edge", color="none", hatch="\\\\\\", linewidth=1)
         for j in range(len(categories)):
-            y1 = data_unmatched_syndrome_but_matched_observable[label][j]
-            y2 = data_unmatched_syndrome[label][j]
+            y1 = data_matched_syndrome_but_unmatched_observable[label][j]
+            y2 = data_unmatched_observable[label][j]
             y3 = data_unmatched_syndrome_or_observable[label][j]
             y_list = list(set([y1, y2]) - set([0, y3]))
             if len(y_list) > 0:
@@ -330,10 +330,10 @@ def stacked_bar_plot_stats(
     ax.grid(True, alpha=0.3)
 
     handles, labels = ax.get_legend_handles_labels()
-    handles.append(Patch(facecolor="none", edgecolor="black", hatch="\\\\\\"))
-    labels.append("unmatched syndrome")
     handles.append(Patch(facecolor="none", edgecolor="black", hatch="///"))
     labels.append("unmatched observable")
+    handles.append(Patch(facecolor="none", edgecolor="black", hatch="\\\\\\"))
+    labels.append("unmatched syndrome")
     ax.legend(handles=handles, labels=labels)
 
     fig.tight_layout()
