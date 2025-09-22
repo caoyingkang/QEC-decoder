@@ -9,11 +9,12 @@
 
 - `chkmat.npy`: numpy array of parity-check matrix, shape=(num_detectors, num_error_mechanisms), dtype=np.uint8. The entry at row $i$ and column $j$ is 1 if the $i$-th detector is flipped by the $j$-th error mechanism (i.e., the $i$-th check node is connected to the $j$-th variable node in the Tanner graph). Otherwise that entry is 0.
 - `prior.npy`: numpy array of prior probabilities, shape=(num_error_mechanisms,), dtype=np.float64. The $j$-th entry is the prior probability that the $j$-th error mechanism occurs.
+- `gamma.npy`: numpy array of memory strength parameters, shape=(num_error_mechanisms,), dtype=np.float64. This vector is used to construct the DMemBP decoder.
 - `syndromes.npy`: numpy array of input syndromes, shape=(num_shots, num_detectors), dtype=np.uint8. The $i$-th row is the syndrome vector for the $i$-th sample.
 - `ehat_bp.npy`: numpy array of estimated error vectors output by the vanilla BP decoder, shape=(num_shots, num_error_mechanisms), dtype=np.uint8. The $i$-th row is the estimated error vector for the $i$-th sample.
-- `ehat_dmembp.npy`: Not here yet. Will be uploaded later.
+- `ehat_dmembp.npy`: numpy array of estimated error vectors output by the DMemBP decoder (i.e., a single relay instance of IBM's relayBP decoder), shape=(num_shots, num_error_mechanisms), dtype=np.uint8. The $i$-th row is the estimated error vector for the $i$-th sample.
 - `decoding_graph.html`: Interactive picture of the decoding Tanner graph. To view it, open the html file in your browser. Hover over a node in the graph to see the index of that node. You can zoom, drag, and rotate the picture.
-- `notebook.ipynb`: the notebook used to generate the above files.
+- `notebook.ipynb`: the notebook used to generate the above files (except for `gamma.py`, which is trained using pytorch elsewhere).
 
 
 ## Other
