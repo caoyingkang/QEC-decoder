@@ -407,123 +407,6 @@ class LearnedDMemOffBP(_LearnedBPBase):
         return all_llrs
 
 
-class DecodingLoss_ParityBased(nn.Module):
-    """
-    A PyTorch Module that implements a loss function for training QEC decoders.
-
-    Given a check matrix `chkmat` and an observable matrix `obsmat`, the loss function consists of two parts:
-    1. The first part quantifies how the estimated error pattern recovers the syndrome (i.e., are we back to the code space?).
-    2. The second part quantifies how the estimated error pattern predicts the observable (i.e., is there a logical error?).
-
-    More specifically, to calculate the loss for a single shot (`llr`, `syndrome`, `observable`), we first compute the estimated probability 
-    that each error bit is 1 from the LLRs: `p[j] = sigmoid(-llr[j])`. Then, we compute the loss from part 1 as `loss1 = sum(loss_syn)`, 
-    where `loss_syn[i] = parity_proxy(syndrome[i] + (chkmat @ p)[i])`, where `parity_proxy` is a function that is differentiable almost everywhere, 
-    reduces to the parity function for integer inputs, and attains global minimum at even integers. Similarly, we compute the loss from part 2 as 
-    `loss2 = sum(loss_obs)`, where `loss_obs[i] = parity_proxy(observable[i] + (obsmat @ p)[i])`. Finally, the total loss is 
-    `loss = ß * loss1 + (1-ß) * loss2`, where `ß` ∈ [0,1] is a hyperparameter that controls the relative importance of the two parts.
-
-    To calculate the loss for a batch of shots, we average the loss of each shot over the batch.
-    """
-
-    @staticmethod
-    def parity_proxy(x: torch.Tensor) -> torch.Tensor:
-        """
-        Here we choose `parity_proxy(x) = abs(sin(πx/2))` as was used in 
-        [Liu and Poulin, Phys. Rev. Lett. 122, 200501 (2019)](https://doi.org/10.1103/PhysRevLett.122.200501).
-        """
-        return torch.abs(torch.sin(torch.pi * x / 2))
-
-    def __init__(
-        self,
-        chkmat: np.ndarray,
-        obsmat: np.ndarray,
-        *,
-        beta: float = 0.5,
-        incl_intmd_llrs: bool = False,
-    ):
-        """
-        Parameters
-        ----------
-            chkmat : ndarray
-                Check matrix ∈ {0,1}, shape=(m, n), integer or bool
-
-            obsmat : ndarray
-                Observable matrix ∈ {0,1}, shape=(k, n), integer or bool
-
-            beta : float
-                Hyperparameter that balances the contribution of the two parts of the loss function
-
-            incl_intmd_llrs : bool
-                Whether to include LLRs from intermediate BP iterations in the calculation of the loss
-        """
-        super().__init__()
-        assert isinstance(chkmat, np.ndarray)
-        assert isinstance(obsmat, np.ndarray)
-        assert np.issubdtype(chkmat.dtype, np.integer) or \
-            np.issubdtype(chkmat.dtype, np.bool_)
-        assert np.issubdtype(obsmat.dtype, np.integer) or \
-            np.issubdtype(obsmat.dtype, np.bool_)
-        assert chkmat.ndim == 2 and obsmat.ndim == 2
-        assert chkmat.shape[1] == obsmat.shape[1]
-        assert 0 <= beta <= 1
-
-        self.register_buffer(
-            "chkmat", torch.as_tensor(chkmat, dtype=FLOAT_DTYPE))
-        self.register_buffer(
-            "obsmat", torch.as_tensor(obsmat, dtype=FLOAT_DTYPE))
-
-        self.beta = beta
-        self.incl_intmd_llrs = incl_intmd_llrs
-
-    def forward(
-        self,
-        all_llrs: torch.Tensor,
-        syndromes: torch.Tensor,
-        observables: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Parameters
-        ----------
-            all_llrs : torch.Tensor
-                LLRs output by the decoder at all BP iterations, shape=(batch_size, num_iters, n), float.
-
-            syndromes : torch.Tensor
-                Syndrome bits ∈ {0,1}, shape=(batch_size, m), int
-
-            observables : torch.Tensor
-                Observable bits ∈ {0,1}, shape=(batch_size, k), int
-
-        Returns
-        -------
-            loss : torch.Tensor
-                Loss, shape=(), float
-        """
-        syndromes = syndromes.to(FLOAT_DTYPE)
-        observables = observables.to(FLOAT_DTYPE)
-
-        if not self.incl_intmd_llrs:
-            all_llrs = all_llrs[:, [-1], :]  # view on the last BP iteration
-
-        p = torch.sigmoid(-all_llrs)  # (batch_size, num_iters, n)
-
-        # Compute loss from part 1
-        loss_syn = self.__class__.parity_proxy(
-            syndromes.unsqueeze(dim=1) +
-            torch.matmul(p, self.chkmat.T))  # (batch_size, num_iters, m)
-        loss1 = loss_syn.sum(dim=2)  # (batch_size, num_iters)
-
-        # Compute loss from part 2
-        loss_obs = self.__class__.parity_proxy(
-            observables.unsqueeze(dim=1) +
-            torch.matmul(p, self.obsmat.T))  # (batch_size, num_iters, k)
-        loss2 = loss_obs.sum(dim=2)  # (batch_size, num_iters)
-
-        # Compute total loss
-        loss = self.beta * loss1 + \
-            (1. - self.beta) * loss2  # (batch_size, num_iters)
-        return loss.mean()
-
-
 class DecodingLoss(nn.Module):
     """
     A PyTorch Module that implements a loss function for training QEC decoders.
@@ -786,7 +669,6 @@ class DecodingMetric(Metric):
 __all__ = [
     "LearnedDMemBP",
     "LearnedDMemOffBP",
-    "DecodingLoss_ParityBased",
     "DecodingLoss",
     "DecodingMetric",
 ]

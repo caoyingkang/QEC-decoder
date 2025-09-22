@@ -7,8 +7,8 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchmetrics import Metric
-from qecdec import detector_error_model_to_check_matrices
 from typing import Any
+from qecdec.experiments import MemoryExperiment
 
 INT_DTYPE = torch.int32
 FLOAT_DTYPE = torch.float32
@@ -96,7 +96,7 @@ class EarlyStopper:
 
 
 def build_datasets(
-    dem: stim.DetectorErrorModel,
+    expmt: MemoryExperiment,
     *,
     train_shots: int,
     val_shots: int,
@@ -108,8 +108,8 @@ def build_datasets(
     """
     Parameters
     ----------
-        dem : stim.DetectorErrorModel
-            Detector error model of the sampling circuit
+        expmt : MemoryExperiment
+            The MemoryExperiment object from which to sample data
 
         train_shots : int
             Number of sampling shots for building `train_dataset`
@@ -137,14 +137,9 @@ def build_datasets(
         val_dataset : DecodingDataset
             Validation dataset
     """
-    m, n, k = dem.num_detectors, dem.num_errors, dem.num_observables
-    matrices = detector_error_model_to_check_matrices(dem)
-    chkmat = matrices.check_matrix.toarray().astype(np.int32)
-    obsmat = matrices.observables_matrix.toarray().astype(np.int32)
-    assert chkmat.shape == (m, n)
-    assert obsmat.shape == (k, n)
+    n = expmt.num_error_mechanisms
 
-    sampler = dem.compile_sampler(seed=seed)
+    sampler = expmt.dem.compile_sampler(seed=seed)
     sampled_syndromes, sampled_observables, _ = sampler.sample(
         train_shots + val_shots)
     sampled_syndromes = sampled_syndromes.astype(np.int32)
@@ -155,8 +150,8 @@ def build_datasets(
 
     if train_all_wt1_errors:
         errors = np.eye(n, dtype=np.int32)
-        syndromes = (errors @ chkmat.T) % 2
-        observables = (errors @ obsmat.T) % 2
+        syndromes = (errors @ expmt.chkmat.T) % 2
+        observables = (errors @ expmt.obsmat.T) % 2
         train_syndromes_list.append(syndromes)
         train_observables_list.append(observables)
 
@@ -164,8 +159,8 @@ def build_datasets(
         errors = np.zeros(((n * (n - 1)) // 2, n), dtype=np.int32)
         for row, cols in enumerate(combinations(range(n), 2)):
             errors[row, cols] = 1
-        syndromes = (errors @ chkmat.T) % 2
-        observables = (errors @ obsmat.T) % 2
+        syndromes = (errors @ expmt.chkmat.T) % 2
+        observables = (errors @ expmt.obsmat.T) % 2
         train_syndromes_list.append(syndromes)
         train_observables_list.append(observables)
 
