@@ -1,6 +1,7 @@
 from .qecdec import BPDecoder as BPDecoder_Rust
 from .qecdec import DMemBPDecoder as DMemBPDecoder_Rust
-from .qecdec import DMemOffBPDecoder as DMemOffBPDecoder_Rust
+from .qecdec import DMemOffNormBPDecoder as DMemOffNormBPDecoder_Rust
+from .utils import build_tanner_graph
 import numpy as np
 import pymatching
 
@@ -25,6 +26,7 @@ class Decoder:
 
         self.pcm = pcm.astype(np.uint8)
         self.prior = prior.astype(np.float64)
+        self.chk_nbrs, self.var_nbrs = build_tanner_graph(pcm)
 
     @property
     def num_checks(self) -> int:
@@ -178,7 +180,7 @@ class BPDecoder(Decoder):
 
 
 class DMemBPDecoder(Decoder):
-    """Distributed Memory Belief Propagation decoder. This class is a wrapper for the Rust implementation.
+    """Disordered Memory min-sum Belief Propagation decoder. This class is a wrapper for the Rust implementation.
     """
 
     def __init__(
@@ -210,6 +212,8 @@ class DMemBPDecoder(Decoder):
                 no scaling is applied.
         """
         super().__init__(pcm, prior)
+
+        assert gamma.shape == (self.num_variables,)
         self.gamma = gamma
         self.max_iter = max_iter
         self.scaling_factor = scaling_factor
@@ -242,8 +246,8 @@ class DMemBPDecoder(Decoder):
         return self.decoder.decode_batch(syndrome_batch.astype(np.uint8))
 
 
-class DMemOffBPDecoder(Decoder):
-    """Distributed Memory Offset Belief Propagation decoder. This class is a wrapper for the Rust implementation.
+class DMemOffNormBPDecoder(Decoder):
+    """Disordered Memory Offset Normalized min-sum Belief Propagation decoder. This class is a wrapper for the Rust implementation.
     """
 
     def __init__(
@@ -252,9 +256,9 @@ class DMemOffBPDecoder(Decoder):
         prior: np.ndarray,
         *,
         gamma: np.ndarray,
-        offset: list[list[float]],
+        offset: list[list[float]] | float = 0.0,
+        nf: list[list[float]] | float = 1.0,
         max_iter: int,
-        scaling_factor: float | None = None,
     ):
         """
         Parameters
@@ -269,23 +273,49 @@ class DMemOffBPDecoder(Decoder):
                 Memory strength for each variable node, shape=(#variables,).
 
             offset : list[list[float]]
-                Offset parameters.
+                Offset parameters. `offset[i][k]` is the offset parameter for the edge connecting CN `i` to its `k`-th VN neighbor. 
+                If a float is provided, the same value is used for all offset parameters. Default is 0.0, meaning no offset.
+
+            nf : list[list[float]]
+                Normalization factors. `nf[i][k]` is the normalization factor for the edge connecting CN `i` to its `k`-th VN neighbor. 
+                If a float is provided, the same value is used for all normalization factors. Default is 1.0, meaning no normalization.
 
             max_iter : int
                 Max number of BP iterations.
-
-            scaling_factor : float or None
-                Scaling factor (a.k.a. normalization factor) for the BP messages. If None, 
-                no scaling is applied.
         """
         super().__init__(pcm, prior)
-        self.gamma = gamma
-        self.offset = offset
-        self.max_iter = max_iter
-        self.scaling_factor = scaling_factor
 
-        self.decoder = DMemOffBPDecoder_Rust(
-            self.pcm, self.prior, gamma=gamma, offset=offset, max_iter=max_iter, scaling_factor=scaling_factor)
+        assert gamma.shape == (self.num_variables,)
+        self.gamma = gamma
+
+        if isinstance(offset, list):
+            assert len(offset) == self.num_checks
+            assert all(isinstance(x, list) for x in offset)
+            assert all(len(offset[i]) == len(self.chk_nbrs[i])
+                       for i in range(self.num_checks))
+        elif isinstance(offset, (float, int)):
+            offset = [[offset for _ in range(len(self.chk_nbrs[i]))]
+                      for i in range(self.num_checks)]
+        else:
+            raise ValueError("Invalid data type for `offset`")
+        self.offset = offset
+
+        if isinstance(nf, list):
+            assert len(nf) == self.num_checks
+            assert all(isinstance(x, list) for x in nf)
+            assert all(len(nf[i]) == len(self.chk_nbrs[i])
+                       for i in range(self.num_checks))
+        elif isinstance(nf, (float, int)):
+            nf = [[nf for _ in range(len(self.chk_nbrs[i]))]
+                  for i in range(self.num_checks)]
+        else:
+            raise ValueError("Invalid data type for `nf`")
+        self.nf = nf
+
+        self.max_iter = max_iter
+
+        self.decoder = DMemOffNormBPDecoder_Rust(
+            self.pcm, self.prior, gamma=gamma, offset=offset, nf=nf, max_iter=max_iter)
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -294,8 +324,8 @@ class DMemOffBPDecoder(Decoder):
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self.decoder = DMemOffBPDecoder_Rust(
-            self.pcm, self.prior, gamma=self.gamma, offset=self.offset, max_iter=self.max_iter, scaling_factor=self.scaling_factor)
+        self.decoder = DMemOffNormBPDecoder_Rust(
+            self.pcm, self.prior, gamma=self.gamma, offset=self.offset, nf=self.nf, max_iter=self.max_iter)
 
     def decode(self, syndrome: np.ndarray) -> np.ndarray:
         assert isinstance(syndrome, np.ndarray)
@@ -316,5 +346,5 @@ __all__ = [
     "MWPMDecoder",
     "BPDecoder",
     "DMemBPDecoder",
-    "DMemOffBPDecoder",
+    "DMemOffNormBPDecoder",
 ]

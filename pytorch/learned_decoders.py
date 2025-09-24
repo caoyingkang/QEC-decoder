@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchmetrics import Metric
+from typing import Literal
+from qecdec.utils import build_tanner_graph
 
 INT_DTYPE = torch.int32
 FLOAT_DTYPE = torch.float32
@@ -39,30 +41,6 @@ def _smooth_min(x: torch.Tensor, *, dim: int, temp: float = 0.01) -> torch.Tenso
     return torch.sum(x * F.softmin(x / temp, dim=dim), dim=dim)
 
 
-def _build_tanner_graph(pcm: np.ndarray) -> tuple[tuple[tuple[int, ...], ...], tuple[tuple[int, ...], ...]]:
-    """
-    Build the Tanner graph of the parity-check matrix.
-
-    Parameters
-    ----------
-        pcm : ndarray
-            Parity-check matrix ∈ {0,1}, shape=(m, n), integer or bool
-
-    Returns
-    -------
-        chk_nbrs : tuple[tuple[int, ...], ...]
-            chk_nbrs[i] = all VNs connected to CN i
-        var_nbrs : tuple[tuple[int, ...], ...]
-            var_nbrs[j] = all CNs connected to VN j
-    """
-    m, n = pcm.shape
-    chk_nbrs = tuple(tuple(np.nonzero(pcm[i])[0].tolist())
-                     for i in range(m))
-    var_nbrs = tuple(tuple(np.nonzero(pcm[:, j])[0].tolist())
-                     for j in range(n))
-    return chk_nbrs, var_nbrs
-
-
 class _LearnedBPBase(nn.Module):
     """
     Base class for all trainable BP decoders.
@@ -73,8 +51,8 @@ class _LearnedBPBase(nn.Module):
         pcm: np.ndarray,
         prior: np.ndarray,
         num_iters: int,
-        min_impl_method: str = "smooth",
-        sign_impl_method: str = "smooth",
+        min_impl_method: Literal["smooth", "hard"],
+        sign_impl_method: Literal["smooth", "hard", "ste"],
     ):
         super().__init__()
         assert isinstance(pcm, np.ndarray) and isinstance(prior, np.ndarray)
@@ -105,7 +83,7 @@ class _LearnedBPBase(nn.Module):
         else:
             raise ValueError(f"Invalid sign_impl_method: {sign_impl_method}")
 
-        self.chk_nbrs, self.var_nbrs = _build_tanner_graph(pcm)
+        self.chk_nbrs, self.var_nbrs = build_tanner_graph(pcm)
 
         # Store prior LLRs
         prior = np.clip(prior, min=EPS, max=1-EPS)
@@ -125,8 +103,8 @@ class LearnedDMemBP(_LearnedBPBase):
         prior: np.ndarray,
         *,
         num_iters: int,
-        min_impl_method: str = "smooth",
-        sign_impl_method: str = "smooth",
+        min_impl_method: Literal["smooth", "hard"] = "smooth",
+        sign_impl_method: Literal["smooth", "hard", "ste"] = "smooth",
     ):
         """
         Parameters
@@ -140,10 +118,10 @@ class LearnedDMemBP(_LearnedBPBase):
             num_iters : int
                 Number of BP iterations
 
-            min_impl_method : str
+            min_impl_method : Literal["smooth", "hard"]
                 Implementation method of the min function. Can be "smooth" (based on softmin) or "hard" (using torch.amin).
 
-            sign_impl_method : str
+            sign_impl_method : Literal["smooth", "hard", "ste"]
                 Implementation method of the sign function. Can be "smooth" (based on tanh), "hard" (using torch.sign), or "ste" (straight-through estimator).
         """
         super().__init__(pcm, prior, num_iters, min_impl_method, sign_impl_method)
@@ -258,9 +236,10 @@ class LearnedDMemBP(_LearnedBPBase):
         return all_llrs
 
 
-class LearnedDMemOffBP(_LearnedBPBase):
+class LearnedDMemOffNormBP(_LearnedBPBase):
     """
-    A PyTorch Module that implements a Disordered Memory Offset BP decoder with trainable memory strength and offset parameters.
+    A PyTorch Module that implements a Disordered Memory Offset Normalized min-sum BP decoder with 
+    trainable memory strength, offset parameters, and normalization factors.
     """
 
     def __init__(
@@ -269,8 +248,10 @@ class LearnedDMemOffBP(_LearnedBPBase):
         prior: np.ndarray,
         *,
         num_iters: int,
-        min_impl_method: str = "smooth",
-        sign_impl_method: str = "smooth",
+        min_impl_method: Literal["smooth", "hard"] = "smooth",
+        sign_impl_method: Literal["smooth", "hard", "ste"] = "smooth",
+        train_offset: bool = True,
+        train_nf: bool = True,
     ):
         """
         Parameters
@@ -284,21 +265,37 @@ class LearnedDMemOffBP(_LearnedBPBase):
             num_iters : int
                 Number of BP iterations
 
-            min_impl_method : str
+            min_impl_method : Literal["smooth", "hard"]
                 Implementation method of the min function. Can be "smooth" (based on softmin) or "hard" (using torch.amin).
 
-            sign_impl_method : str
+            sign_impl_method : Literal["smooth", "hard", "ste"]
                 Implementation method of the sign function. Can be "smooth" (based on tanh), "hard" (using torch.sign), or "ste" (straight-through estimator).
+
+            train_offset : bool
+                Whether to train the offset parameters. If False, the offset parameters are fixed to 0.
+
+            train_nf : bool
+                Whether to train the normalization factors. If False, the normalization factors are fixed to 1.
         """
         super().__init__(pcm, prior, num_iters, min_impl_method, sign_impl_method)
+        self.train_offset = train_offset
+        self.train_nf = train_nf
 
-        # Trainable parameter
+        # Trainable parameters
         self.gamma = nn.Parameter(
             torch.zeros(self.n, dtype=FLOAT_DTYPE))
-        self.offset = nn.ParameterList([
-            nn.Parameter(torch.zeros(len(self.chk_nbrs[i]), dtype=FLOAT_DTYPE))
-            for i in range(self.m)
-        ])
+        if train_offset:
+            self.offset = nn.ParameterList([
+                nn.Parameter(torch.zeros(
+                    len(self.chk_nbrs[i]), dtype=FLOAT_DTYPE))
+                for i in range(self.m)
+            ])
+        if train_nf:
+            self.nf = nn.ParameterList([
+                nn.Parameter(torch.ones(
+                    len(self.chk_nbrs[i]), dtype=FLOAT_DTYPE))
+                for i in range(self.m)
+            ])
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
         """
@@ -374,9 +371,13 @@ class LearnedDMemOffBP(_LearnedBPBase):
                     msgs_abs_masked, dim=2)  # (batch_size, num_nbrs)
 
                 # Populate c2v_msg
-                c2v_msg[:, i, nbrs] = syndromes_sgn[:, i].unsqueeze(dim=1) * \
-                    msgs_sgn_prod_excl * \
+                c2v_msg[:, i, nbrs] = syndromes_sgn[:, i].unsqueeze(dim=1) * msgs_sgn_prod_excl * (
                     F.relu(msgs_abs_min_excl - self.offset[i].unsqueeze(dim=0))
+                    if self.train_offset else msgs_abs_min_excl
+                ) * (
+                    self.nf[i].unsqueeze(dim=0)
+                    if self.train_nf else 1.0
+                )
 
             # print("c2v_msg:\n", c2v_msg)  # DEBUG
 
@@ -668,7 +669,7 @@ class DecodingMetric(Metric):
 
 __all__ = [
     "LearnedDMemBP",
-    "LearnedDMemOffBP",
+    "LearnedDMemOffNormBP",
     "DecodingLoss",
     "DecodingMetric",
 ]

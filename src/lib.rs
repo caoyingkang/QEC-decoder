@@ -498,17 +498,17 @@ impl DMemBPDecoder {
 }
 
 #[pyclass]
-pub struct DMemOffBPDecoder {
+pub struct DMemOffNormBPDecoder {
     // base struct for storing parity-check matrix and prior probabilities of errors
     base: DecoderBase,
     // memory strength
     gamma: Array1<f64>,
     // offset parameters
     offset: Vec<Vec<f64>>,
+    // normalization factors
+    nf: Vec<Vec<f64>>,
     // maximum number of iterations
     max_iter: usize,
-    // scaling factor (a.k.a. normalization factor)
-    scaling_factor: f64,
     // chk_incoming_msgs[i] = list of incoming messages at CN i
     chk_incoming_msgs: Vec<Vec<f64>>,
     // var_incoming_msgs[j] = list of incoming messages at VN j
@@ -524,16 +524,16 @@ pub struct DMemOffBPDecoder {
 }
 
 #[pymethods]
-impl DMemOffBPDecoder {
+impl DMemOffNormBPDecoder {
     #[new]
-    #[pyo3(signature = (pcm, prior, *, gamma, offset, max_iter, scaling_factor=None))]
+    #[pyo3(signature = (pcm, prior, *, gamma, offset, nf, max_iter))]
     pub fn new(
         pcm: PyReadonlyArray2<'_, u8>, // parity-check matrix (m x n, np.uint8)
         prior: PyReadonlyArray1<'_, f64>, // prior probabilities of errors (n, np.float64)
         gamma: PyReadonlyArray1<'_, f64>, // memory strength (n, np.float64)
         offset: Vec<Vec<f64>>,         // offset parameters
+        nf: Vec<Vec<f64>>,             // normalization factors
         max_iter: usize,               // maximum number of BP iterations
-        scaling_factor: Option<f64>,   // scaling factor (a.k.a. normalization factor)
     ) -> PyResult<Self> {
         let pcm_arr = pcm.as_array();
         let prior_arr = prior.as_array();
@@ -556,8 +556,8 @@ impl DMemOffBPDecoder {
             base: base,
             gamma: gamma_arr.to_owned(),
             offset: offset.to_owned(),
+            nf: nf.to_owned(),
             max_iter: max_iter,
-            scaling_factor: scaling_factor.unwrap_or(1.0), // default to 1.0 if not provided, meaning no scaling.
             chk_incoming_msgs: chk_incoming_msgs,
             var_incoming_msgs: var_incoming_msgs,
             prior_llr: prior_arr.mapv(prob_to_llr),
@@ -609,7 +609,7 @@ impl DMemOffBPDecoder {
                         if msg_abs < self.offset[i][k] {
                             0.0
                         } else {
-                            self.scaling_factor * msg_sgn * (msg_abs - self.offset[i][k])
+                            self.nf[i][k] * msg_sgn * (msg_abs - self.offset[i][k])
                         };
                 }
             }
@@ -687,6 +687,6 @@ impl DMemOffBPDecoder {
 fn qecdec(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<BPDecoder>()?;
     m.add_class::<DMemBPDecoder>()?;
-    m.add_class::<DMemOffBPDecoder>()?;
+    m.add_class::<DMemOffNormBPDecoder>()?;
     Ok(())
 }

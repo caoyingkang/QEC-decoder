@@ -2,6 +2,31 @@ import stim
 import numpy as np
 
 
+def build_tanner_graph(pcm: np.ndarray) -> tuple[tuple[tuple[int, ...], ...], tuple[tuple[int, ...], ...]]:
+    """
+    Build the Tanner graph of the parity-check matrix.
+
+    Parameters
+    ----------
+        pcm : ndarray
+            Parity-check matrix ∈ {0,1}, shape=(m, n), integer or bool
+
+    Returns
+    -------
+        chk_nbrs : tuple[tuple[int, ...], ...]
+            chk_nbrs[i] = all VNs connected to CN i, sorted in increasing order
+
+        var_nbrs : tuple[tuple[int, ...], ...]
+            var_nbrs[j] = all CNs connected to VN j, sorted in increasing order
+    """
+    m, n = pcm.shape
+    chk_nbrs = tuple(tuple(np.nonzero(pcm[i])[0].tolist())
+                     for i in range(m))
+    var_nbrs = tuple(tuple(np.nonzero(pcm[:, j])[0].tolist())
+                     for j in range(n))
+    return chk_nbrs, var_nbrs
+
+
 def ceil_div(a: int, b: int) -> int:
     """
     Compute the ceiling of the division `a/b`.
