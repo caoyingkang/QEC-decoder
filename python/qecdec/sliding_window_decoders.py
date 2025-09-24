@@ -1,4 +1,4 @@
-from .decoders import Decoder, MWPMDecoder, BPDecoder
+from .decoders import Decoder, MWPMDecoder, BPDecoder, DMemBPDecoder
 from .utils import ceil_div
 import numpy as np
 from functools import cached_property
@@ -222,14 +222,43 @@ class SlidingWindow_Decoder:
             self.last_inner_decoder = MWPMDecoder(
                 self.last_window_pcm, self.last_window_prior)
         elif name == "BP":
+            try:
+                max_iter: int = kwargs.pop("max_iter")
+            except KeyError:
+                print("Missing some of the required arguments for the decoder.")
+                return
             if self.num_windows > 2:
                 self.inner_decoder = BPDecoder(
-                    self.window_pcm, self.window_prior, **kwargs)
+                    self.window_pcm, self.window_prior, max_iter=max_iter, **kwargs)
             if self.num_windows > 1:
                 self.first_inner_decoder = BPDecoder(
-                    self.window_pcm, self.first_window_prior, **kwargs)
+                    self.window_pcm, self.first_window_prior, max_iter=max_iter, **kwargs)
             self.last_inner_decoder = BPDecoder(
-                self.last_window_pcm, self.last_window_prior, **kwargs)
+                self.last_window_pcm, self.last_window_prior, max_iter=max_iter, **kwargs)
+        elif name == "DMemBP":
+            try:
+                gamma: np.ndarray = kwargs.pop("gamma")
+                max_iter: int = kwargs.pop("max_iter")
+            except KeyError:
+                print("Missing some of the required arguments for the decoder.")
+                return
+            if self.num_windows > 2:
+                self.inner_decoder = DMemBPDecoder(
+                    self.window_pcm, self.window_prior,
+                    gamma=gamma[:self.window_pcm.shape[1]],
+                    max_iter=max_iter,
+                    **kwargs)
+            if self.num_windows > 1:
+                self.first_inner_decoder = DMemBPDecoder(
+                    self.window_pcm, self.first_window_prior,
+                    gamma=gamma[:self.window_pcm.shape[1]],
+                    max_iter=max_iter,
+                    **kwargs)
+            self.last_inner_decoder = DMemBPDecoder(
+                self.last_window_pcm, self.last_window_prior,
+                gamma=gamma[:self.last_window_pcm.shape[1]],
+                max_iter=max_iter,
+                **kwargs)
         else:
             raise ValueError(f"Invalid inner decoder name: {name}")
 
