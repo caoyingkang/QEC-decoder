@@ -1,13 +1,12 @@
 from itertools import combinations
 from tqdm import tqdm
 import numpy as np
-import stim
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchmetrics import Metric
-from typing import Any
+from typing import Any, Optional
 from qecdec.experiments import MemoryExperiment
 
 INT_DTYPE = torch.int32
@@ -100,7 +99,7 @@ def build_datasets(
     *,
     train_shots: int,
     val_shots: int,
-    seed: int | None = None,
+    seed: Optional[int] = None,
     train_all_wt1_errors: bool = True,
     train_all_wt2_errors: bool = True,
     remove_trivial_syndromes: bool = True,
@@ -195,9 +194,9 @@ def train_gamma(
     *,
     num_epochs: int = 10,
     batch_size: int = 64,
-    device: str | None = None,
+    device: Optional[str] = None,
     scheduler_kwargs: dict[str, Any] = dict(),
-    early_stopper: EarlyStopper | None = None,
+    early_stopper: Optional[EarlyStopper] = None,
 ):
     """
     Parameters

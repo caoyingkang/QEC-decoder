@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchmetrics import Metric
-from typing import Literal
+from typing import Literal, Optional
 from qecdec.utils import build_tanner_graph
 
 INT_DTYPE = torch.int32
@@ -433,7 +433,7 @@ class DecodingLoss(nn.Module):
         obsmat: np.ndarray,
         *,
         beta: float = 0.5,
-        loss_iters: list[int] | None = None,
+        loss_iters: Optional[list[int]] = None,
     ):
         """
         Parameters
