@@ -472,6 +472,8 @@ class DecodingLoss(nn.Module):
                               for i in range(k))
 
         self.beta = beta
+        self.loss1_only = beta > 0.9999
+        self.loss2_only = beta < 0.0001
         self.loss_iters = loss_iters
 
     def forward(
@@ -513,48 +515,55 @@ class DecodingLoss(nn.Module):
             all_llrs / 2)  # (batch_size, num_iters, n)
 
         # Compute loss from part 1
-        syndromes_pred_llr = []
-        for i in range(self.m):
-            supp = self.chk_supp[i]
-            syndrome_i_pred_llr = 2 * (
-                torch.prod(tanh_llrs_over_2[:, :, supp], dim=2)
-                .clamp(min=-1 + EPS, max=1 - EPS)
-                .atanh()
-            )  # (batch_size, num_iters)
-            syndromes_pred_llr.append(syndrome_i_pred_llr)
-        syndromes_pred_llr = torch.stack(
-            syndromes_pred_llr, dim=2)  # (batch_size, num_iters, m)
+        if not self.loss2_only:
+            syndromes_pred_llr = []
+            for i in range(self.m):
+                supp = self.chk_supp[i]
+                syndrome_i_pred_llr = 2 * (
+                    torch.prod(tanh_llrs_over_2[:, :, supp], dim=2)
+                    .clamp(min=-1 + EPS, max=1 - EPS)
+                    .atanh()
+                )  # (batch_size, num_iters)
+                syndromes_pred_llr.append(syndrome_i_pred_llr)
+            syndromes_pred_llr = torch.stack(
+                syndromes_pred_llr, dim=2)  # (batch_size, num_iters, m)
 
-        loss_syn = F.binary_cross_entropy_with_logits(
-            -syndromes_pred_llr,
-            syndromes.unsqueeze(dim=1).expand_as(syndromes_pred_llr),
-            reduction="none"
-        )  # (batch_size, num_iters, m)
-        loss1 = loss_syn.sum(dim=2)  # (batch_size, num_iters)
+            loss_syn = F.binary_cross_entropy_with_logits(
+                -syndromes_pred_llr,
+                syndromes.unsqueeze(dim=1).expand_as(syndromes_pred_llr),
+                reduction="none"
+            )  # (batch_size, num_iters, m)
+            loss1 = loss_syn.sum(dim=2)  # (batch_size, num_iters)
 
         # Compute loss from part 2
-        observables_pred_llr = []
-        for i in range(self.k):
-            supp = self.obs_supp[i]
-            observable_i_pred_llr = 2 * (
-                torch.prod(tanh_llrs_over_2[:, :, supp], dim=2)
-                .clamp(min=-1 + EPS, max=1 - EPS)
-                .atanh()
-            )  # (batch_size, num_iters)
-            observables_pred_llr.append(observable_i_pred_llr)
-        observables_pred_llr = torch.stack(
-            observables_pred_llr, dim=2)  # (batch_size, num_iters, k)
+        if not self.loss1_only:
+            observables_pred_llr = []
+            for i in range(self.k):
+                supp = self.obs_supp[i]
+                observable_i_pred_llr = 2 * (
+                    torch.prod(tanh_llrs_over_2[:, :, supp], dim=2)
+                    .clamp(min=-1 + EPS, max=1 - EPS)
+                    .atanh()
+                )  # (batch_size, num_iters)
+                observables_pred_llr.append(observable_i_pred_llr)
+            observables_pred_llr = torch.stack(
+                observables_pred_llr, dim=2)  # (batch_size, num_iters, k)
 
-        loss_obs = F.binary_cross_entropy_with_logits(
-            -observables_pred_llr,
-            observables.unsqueeze(dim=1).expand_as(observables_pred_llr),
-            reduction="none"
-        )  # (batch_size, num_iters, k)
-        loss2 = loss_obs.sum(dim=2)  # (batch_size, num_iters)
+            loss_obs = F.binary_cross_entropy_with_logits(
+                -observables_pred_llr,
+                observables.unsqueeze(dim=1).expand_as(observables_pred_llr),
+                reduction="none"
+            )  # (batch_size, num_iters, k)
+            loss2 = loss_obs.sum(dim=2)  # (batch_size, num_iters)
 
         # Compute total loss
-        loss = self.beta * loss1 + \
-            (1. - self.beta) * loss2  # (batch_size, num_iters)
+        if self.loss1_only:
+            loss = loss1
+        elif self.loss2_only:
+            loss = loss2
+        else:
+            loss = self.beta * loss1 + \
+                (1. - self.beta) * loss2  # (batch_size, num_iters)
         return loss.mean()
 
 
