@@ -142,12 +142,13 @@ class LearnedDMemBP(_LearnedBPBase):
             all_llrs : torch.Tensor
                 LLRs output by the decoder at all BP iterations, shape=(batch_size, num_iters, n), float.
         """
-        all_llrs = []
-
         device = syndromes.device
         batch_size = syndromes.shape[0]
         syndromes = syndromes.to(FLOAT_DTYPE)
         syndromes_sgn = 1.0 - 2.0 * syndromes  # (batch_size, m) ∈ {+1,-1}
+
+        all_llrs = torch.zeros(batch_size, self.num_iters, self.n,
+                               device=device, dtype=FLOAT_DTYPE)
 
         # Initialize messages
         # c2v_msg[:, i, j] = messages from CN i to VN j
@@ -219,7 +220,7 @@ class LearnedDMemBP(_LearnedBPBase):
                     (1 - self.gamma.unsqueeze(dim=0)) * self.prior_llr.unsqueeze(dim=0) + \
                     self.gamma.unsqueeze(dim=0) * llrs  # (batch_size, n)
 
-            all_llrs.append(llrs)
+            all_llrs[:, it, :] = llrs
 
             if it < self.num_iters - 1:  # no need to update v2c_msg in the last iteration
                 v2c_msg = torch.zeros_like(v2c_msg)
@@ -232,7 +233,6 @@ class LearnedDMemBP(_LearnedBPBase):
             # print("llrs:\n", llrs)  # DEBUG
             # print("v2c_msg:\n", v2c_msg)  # DEBUG
 
-        all_llrs = torch.stack(all_llrs, dim=1)
         return all_llrs
 
 
