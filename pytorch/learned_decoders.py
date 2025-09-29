@@ -20,20 +20,6 @@ def _smooth_sign(x: torch.Tensor, *, alpha: float = 100.0) -> torch.Tensor:
     return torch.tanh(alpha * x)
 
 
-class Sign_STE(torch.autograd.Function):
-    """
-    Straight-through estimator (STE) implementation of the sign function: calles `torch.sign` in the forward direction; 
-    clamps the gradients to [-1, 1] and passes them through directly in the backward direction.
-    """
-    @staticmethod
-    def forward(ctx, input):
-        return torch.sign(input)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        return torch.clamp(grad_output, min=-1, max=1)
-
-
 def _smooth_min(x: torch.Tensor, *, dim: int, temp: float = 0.01) -> torch.Tensor:
     """
     Smooth version of min function along a given dimension `dim`. Smaller `temp` => better approximation.
@@ -52,7 +38,7 @@ class _LearnedBPBase(nn.Module):
         prior: np.ndarray,
         num_iters: int,
         min_impl_method: Literal["smooth", "hard"],
-        sign_impl_method: Literal["smooth", "hard", "ste"],
+        sign_impl_method: Literal["smooth", "hard"],
     ):
         super().__init__()
         assert isinstance(pcm, np.ndarray) and isinstance(prior, np.ndarray)
@@ -78,8 +64,6 @@ class _LearnedBPBase(nn.Module):
             self.sign_func = _smooth_sign
         elif sign_impl_method == "hard":
             self.sign_func = torch.sign
-        elif sign_impl_method == "ste":
-            self.sign_func = Sign_STE.apply
         else:
             raise ValueError(f"Invalid sign_impl_method: {sign_impl_method}")
 
@@ -111,7 +95,7 @@ class LearnedDMemBP(_LearnedBPBase):
         *,
         num_iters: int,
         min_impl_method: Literal["smooth", "hard"] = "smooth",
-        sign_impl_method: Literal["smooth", "hard", "ste"] = "smooth",
+        sign_impl_method: Literal["smooth", "hard"] = "smooth",
     ):
         """
         Parameters
@@ -128,16 +112,18 @@ class LearnedDMemBP(_LearnedBPBase):
             min_impl_method : Literal["smooth", "hard"]
                 Implementation method of the min function. Can be "smooth" (based on softmin) or "hard" (using torch.amin).
 
-            sign_impl_method : Literal["smooth", "hard", "ste"]
-                Implementation method of the sign function. Can be "smooth" (based on tanh), "hard" (using torch.sign), or "ste" (straight-through estimator).
+            sign_impl_method : Literal["smooth", "hard"]
+                Implementation method of the sign function. Can be "smooth" (based on tanh) or "hard" (using torch.sign).
         """
         super().__init__(pcm, prior, num_iters, min_impl_method, sign_impl_method)
 
-        # Trainable parameter
-        self.gamma = nn.Parameter(
-            torch.zeros(self.n, dtype=FLOAT_DTYPE))
+        # Trainable parameters
+        self.gamma = nn.ParameterList([
+            nn.Parameter(torch.zeros((), dtype=FLOAT_DTYPE))
+            for _ in range(self.n)
+        ])  # (n,)
 
-    def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
+    def forward(self, syndromes: torch.Tensor) -> list[torch.Tensor]:
         """
         Parameters
         ----------
@@ -146,46 +132,59 @@ class LearnedDMemBP(_LearnedBPBase):
 
         Returns
         -------
-            all_llrs : torch.Tensor
-                LLRs output by the decoder at all BP iterations, shape=(batch_size, num_iters, n), float.
+            var2llrs : list[torch.Tensor]
+                A Python list of tensors, one for each VN, that stores the posterior LLRs at all BP iterations. More 
+                specifically, `var2llrs[j]` is a tensor of shape (batch_size, num_iters), such that `var2llrs[j][:, t]` 
+                is the batch of posterior LLRs for VN `j` at BP iteration `t`.
         """
         device = syndromes.device
         batch_size = syndromes.shape[0]
         syndromes = syndromes.to(FLOAT_DTYPE)
         syndromes_sgn = 1.0 - 2.0 * syndromes  # (batch_size, m) ∈ {+1,-1}
 
-        all_llrs = torch.zeros(batch_size, self.num_iters, self.n,
-                               device=device, dtype=FLOAT_DTYPE)
+        # A nested list that will store the posterior LLRs for each VN at each BP iteration.
+        # The outer list is indexed by VN, and the inner list is indexed by BP iteration.
+        # Each element will be a tensor of shape (batch_size,).
+        var2iter2llrs: list[list[torch.Tensor]] = [
+            [
+                None  # placeholder; will be a tensor of shape (batch_size,)
+                for _ in range(self.num_iters)
+            ]
+            for _ in range(self.n)
+        ]
 
-        # Initialize messages
-        # c2v_msg[:, i, j] = messages from CN i to VN j
-        c2v_msg = torch.zeros(batch_size, self.m, self.n,
-                              device=device, dtype=FLOAT_DTYPE)
-        # v2c_msg[:, j, i] = messages from VN j to CN i
-        v2c_msg = torch.zeros(batch_size, self.n, self.m,
-                              device=device, dtype=FLOAT_DTYPE)
-        for j in range(self.n):
-            v2c_msg[:, j, self.var_nbrs[j]] = self.prior_llr[j]
-
-        # print("Syndromes:", syndromes)  # DEBUG
+        # Initialize messages.
+        # chk_incoming_msgs[i][k] = incoming message at CN i from its k-th neighbor, shape=(batch_size,)
+        # var_incoming_msgs[j][k] = incoming message at VN j from its k-th neighbor, shape=(batch_size,)
+        chk_incoming_msgs: list[list[torch.Tensor]] = [
+            [
+                torch.full((batch_size,), self.prior_llr[j],
+                           device=device, dtype=FLOAT_DTYPE)
+                for j in self.chk_nbrs[i]
+            ]
+            for i in range(self.m)
+        ]
+        var_incoming_msgs: list[list[torch.Tensor]] = [
+            [
+                None  # placeholder; will be a tensor of shape (batch_size,)
+                for _ in self.var_nbrs[j]
+            ]
+            for j in range(self.n)
+        ]
 
         # Main BP iteration loop
-        for it in range(self.num_iters):
+        for t in range(self.num_iters):
             # ------------------ CN update ------------------
-            c2v_msg = torch.zeros_like(c2v_msg)
             for i in range(self.m):
                 nbrs = self.chk_nbrs[i]
+                nbr_pos = self.chk_nbr_pos[i]
                 num_nbrs = len(nbrs)
 
-                # Gather incoming messages at CN i
-                msgs = v2c_msg[:, nbrs, i]  # (batch_size, num_nbrs)
+                # Gather incoming messages at CN i.
+                msgs = torch.stack(chk_incoming_msgs[i],
+                                   dim=1)  # (batch_size, num_nbrs)
                 msgs_abs = msgs.abs()  # (batch_size, num_nbrs)
-                msgs_sgn: torch.Tensor = self.sign_func(
-                    msgs)  # (batch_size, num_nbrs)
-
-                # print(f"Incoming messages at CN {i}:\n", msgs)  # DEBUG
-                # print("msgs_sgn:", msgs_sgn)  # DEBUG
-                # print("msgs_abs:", msgs_abs)  # DEBUG
+                msgs_sgn = self.sign_func(msgs)  # (batch_size, num_nbrs)
 
                 # For each neighboring VN, compute product over msgs_sgn excluding that VN.
                 # We achieve leave-one-out by masking the corresponding entry with 1.0.
@@ -199,8 +198,6 @@ class LearnedDMemBP(_LearnedBPBase):
                 msgs_sgn_prod_excl = msgs_sgn_masked \
                     .prod(dim=2)  # (batch_size, num_nbrs)
 
-                # print("msgs_sgn_prod_excl:", msgs_sgn_prod_excl)  # DEBUG
-
                 # For each neighboring VN, compute min over msgs_abs excluding that VN.
                 # We achieve leave-one-out by masking the corresponding entry with a large number.
                 msgs_abs_repeated = msgs_abs \
@@ -211,36 +208,39 @@ class LearnedDMemBP(_LearnedBPBase):
                 msgs_abs_min_excl = self.min_func(
                     msgs_abs_masked, dim=2)  # (batch_size, num_nbrs)
 
-                # Populate c2v_msg
-                c2v_msg[:, i, nbrs] = syndromes_sgn[:, i].unsqueeze(dim=1) * \
-                    msgs_sgn_prod_excl * msgs_abs_min_excl
-
-            # print("c2v_msg:\n", c2v_msg)  # DEBUG
+                # Compute outgoing messages at CN i and update var_incoming_msgs.
+                out = torch.unbind(syndromes_sgn[:, i].unsqueeze(dim=1) * msgs_sgn_prod_excl * msgs_abs_min_excl,
+                                   dim=1)  # tuple of num_nbrs tensors, each of shape (batch_size,)
+                for k, (j, pos) in enumerate(zip(nbrs, nbr_pos)):
+                    var_incoming_msgs[j][pos] = out[k]
 
             # ------------------ VN update ------------------
-            incoming_sum = c2v_msg.sum(dim=1)  # (batch_size, n)
-            if it == 0:
-                llrs = incoming_sum + \
-                    self.prior_llr.unsqueeze(dim=0)  # (batch_size, n)
-            else:
-                llrs = incoming_sum + \
-                    (1 - self.gamma.unsqueeze(dim=0)) * self.prior_llr.unsqueeze(dim=0) + \
-                    self.gamma.unsqueeze(dim=0) * llrs  # (batch_size, n)
+            for j in range(self.n):
+                # Gather and sum incoming messages at VN j.
+                incoming_sum = torch.stack(var_incoming_msgs[j], dim=1) \
+                    .sum(dim=1)  # (batch_size,)
 
-            all_llrs[:, it, :] = llrs
+                # Calculate posterior LLR at VN j for the current BP iteration.
+                if t == 0:
+                    var2iter2llrs[j][t] = incoming_sum + self.prior_llr[j]
+                else:
+                    var2iter2llrs[j][t] = incoming_sum + \
+                        (1 - self.gamma[j]) * self.prior_llr[j] + \
+                        self.gamma[j] * var2iter2llrs[j][t - 1]
 
-            if it < self.num_iters - 1:  # no need to update v2c_msg in the last iteration
-                v2c_msg = torch.zeros_like(v2c_msg)
-                for j in range(self.n):
-                    nbrs = self.var_nbrs[j]
-                    v2c_msg[:, j, nbrs] = llrs[:, j].unsqueeze(dim=1) - \
-                        c2v_msg[:, nbrs, j]
+                # Compute outgoing messages at VN j and update chk_incoming_msgs.
+                if t < self.num_iters - 1:  # no need to update in the last iteration
+                    for k, (i, pos) in enumerate(zip(self.var_nbrs[j], self.var_nbr_pos[j])):
+                        chk_incoming_msgs[i][pos] = var2iter2llrs[j][t] - \
+                            var_incoming_msgs[j][k]
 
-            # print("prior_llr:\n", self.prior_llr)  # DEBUG
-            # print("llrs:\n", llrs)  # DEBUG
-            # print("v2c_msg:\n", v2c_msg)  # DEBUG
-
-        return all_llrs
+        # Convert the nested list var2iter2llrs into a list of n tensors, one for each VN.
+        # Each tensor has shape (batch_size, num_iters).
+        var2llrs = [
+            torch.stack(var2iter2llrs[j], dim=1)
+            for j in range(self.n)
+        ]
+        return var2llrs
 
 
 class LearnedDMemOffNormBP(_LearnedBPBase):
@@ -284,6 +284,7 @@ class LearnedDMemOffNormBP(_LearnedBPBase):
             train_nf : bool
                 Whether to train the normalization factors. If False, the normalization factors are fixed to 1.
         """
+        raise NotImplementedError("This decoder needs to be re-implemented.")
         super().__init__(pcm, prior, num_iters, min_impl_method, sign_impl_method)
         self.train_offset = train_offset
         self.train_nf = train_nf
@@ -316,6 +317,7 @@ class LearnedDMemOffNormBP(_LearnedBPBase):
             all_llrs : torch.Tensor
                 LLRs output by the decoder at all BP iterations, shape=(batch_size, num_iters, n), float.
         """
+        raise NotImplementedError("This decoder needs to be re-implemented.")
         all_llrs = []
 
         device = syndromes.device
@@ -439,8 +441,8 @@ class DecodingLoss(nn.Module):
         chkmat: np.ndarray,
         obsmat: np.ndarray,
         *,
-        beta: float = 0.5,
-        loss_iters: Optional[list[int]] = None,
+        beta: float = 1.0,
+        skip_iters: int = 0,
     ):
         """
         Parameters
@@ -452,10 +454,12 @@ class DecodingLoss(nn.Module):
                 Observable matrix ∈ {0,1}, shape=(k, n), integer or bool
 
             beta : float
-                Hyperparameter that balances the contribution of the two parts of the loss function
+                Hyperparameter that balances the contribution of the two parts of the loss function.
+                Default is 1.0, meaning only the first part (corresponding to the syndrome recovery) is considered.
 
-            loss_iters : list[int] | None
-                Indicates which BP iterations are considered in the calculation of the loss. If None, all iterations are considered.
+            skip_iters : int
+                The first `skip_iters` BP iterations are skipped in the calculation of the loss.
+                Default is 0, meaning all BP iterations contribute to the loss.
         """
         super().__init__()
         assert isinstance(chkmat, np.ndarray)
@@ -471,29 +475,37 @@ class DecodingLoss(nn.Module):
         m, n = chkmat.shape
         k = obsmat.shape[0]
         self.m, self.n, self.k = m, n, k
-        # chk_supp[i] = support of the i-th row of chkmat
-        self.chk_supp = tuple(tuple(j for j in range(n) if chkmat[i, j])
-                              for i in range(m))
-        # obs_supp[i] = support of the i-th row of obsmat
-        self.obs_supp = tuple(tuple(j for j in range(n) if obsmat[i, j])
-                              for i in range(k))
+
+        # self.chk_supp[i] = support of the i-th row of chkmat
+        self.chk_supp = [
+            [j for j in range(n) if chkmat[i, j]]
+            for i in range(m)
+        ]
+
+        # self.obs_supp[i] = support of the i-th row of obsmat
+        self.obs_supp = [
+            [j for j in range(n) if obsmat[i, j]]
+            for i in range(k)
+        ]
 
         self.beta = beta
-        self.loss1_only = beta > 0.9999
-        self.loss2_only = beta < 0.0001
-        self.loss_iters = loss_iters
+        self.syndrome_loss_only = beta > 0.9999
+        self.observable_loss_only = beta < 0.0001
+        self.skip_iters = skip_iters
 
     def forward(
         self,
-        all_llrs: torch.Tensor,
+        var2llrs: list[torch.Tensor],
         syndromes: torch.Tensor,
         observables: torch.Tensor
     ) -> torch.Tensor:
         """
         Parameters
         ----------
-            all_llrs : torch.Tensor
-                LLRs output by the decoder at all BP iterations, shape=(batch_size, num_iters, n), float.
+            var2llrs : list[torch.Tensor]
+                A Python list of tensors, one for each VN, that stores the posterior LLRs at all BP iterations. More 
+                specifically, `var2llrs[j]` is a tensor of shape (batch_size, num_iters), such that `var2llrs[j][:, t]` 
+                is the batch of posterior LLRs for VN `j` at BP iteration `t`.
 
             syndromes : torch.Tensor
                 Syndrome bits ∈ {0,1}, shape=(batch_size, m), int
@@ -506,72 +518,85 @@ class DecodingLoss(nn.Module):
             loss : torch.Tensor
                 Loss, shape=(), float
         """
+        if self.skip_iters > 0:
+            for j in range(self.n):
+                var2llrs[j] = var2llrs[j][:, self.skip_iters:]
+
+        var2tanhhalfllrs = [
+            torch.tanh(var2llrs[j] / 2)  # (batch_size, num_iters)
+            for j in range(self.n)
+        ]
+
+        # Compute loss from two parts.
+        if not self.observable_loss_only:
+            loss1 = self._get_syndrome_loss(
+                var2tanhhalfllrs, syndromes)  # (batch_size, num_iters)
+        if not self.syndrome_loss_only:
+            loss2 = self._get_observable_loss(
+                var2tanhhalfllrs, observables)  # (batch_size, num_iters)
+
+        # Compute total loss.
+        if self.syndrome_loss_only:
+            loss = loss1  # (batch_size, num_iters)
+        elif self.observable_loss_only:
+            loss = loss2  # (batch_size, num_iters)
+        else:
+            loss = self.beta * loss1 + (1 - self.beta) * loss2  # (batch_size, num_iters) # noqa: E501
+        return loss.mean()
+
+    def _get_syndrome_loss(
+        self,
+        var2tanhhalfllrs: list[torch.Tensor],  # list of n tensors, each of shape (batch_size, num_iters) # noqa: E501
+        syndromes: torch.Tensor  # (batch_size, m), int, values ∈ {0,1}
+    ) -> torch.Tensor:
         syndromes = syndromes.to(FLOAT_DTYPE)
+
+        syndromes_pred_llr = []
+        for i in range(self.m):
+            syndrome_i_pred_llr = 2 * (
+                torch.stack([var2tanhhalfllrs[j] for j in self.chk_supp[i]],
+                            dim=2)
+                .prod(dim=2)
+                .clamp(min=-1 + EPS, max=1 - EPS)
+                .atanh()
+            )  # (batch_size, num_iters)
+            syndromes_pred_llr.append(syndrome_i_pred_llr)
+        syndromes_pred_llr = torch.stack(
+            syndromes_pred_llr, dim=2)  # (batch_size, num_iters, m)
+
+        loss = F.binary_cross_entropy_with_logits(
+            -syndromes_pred_llr,
+            syndromes.unsqueeze(dim=1).expand_as(syndromes_pred_llr),
+            reduction="none"
+        ).sum(dim=2)  # (batch_size, num_iters)
+        return loss
+
+    def _get_observable_loss(
+        self,
+        var2tanhhalfllrs: list[torch.Tensor],  # list of n tensors, each of shape (batch_size, num_iters) # noqa: E501
+        observables: torch.Tensor  # (batch_size, k), int, values ∈ {0,1}
+    ) -> torch.Tensor:
         observables = observables.to(FLOAT_DTYPE)
 
-        if self.loss_iters is not None:
-            assert isinstance(self.loss_iters, list) and len(self.loss_iters) > 0, \
-                "loss_iters must be a non-empty list"
-            assert sorted(self.loss_iters) == self.loss_iters, \
-                "loss_iters must be a list of integers in ascending order"
-            assert self.loss_iters[0] >= 0 and self.loss_iters[-1] < all_llrs.shape[1], \
-                "loss_iters must be a list of integers in the range of [0, num_iters)"
-            all_llrs = all_llrs[:, self.loss_iters, :]
+        observables_pred_llr = []
+        for i in range(self.k):
+            observable_i_pred_llr = 2 * (
+                torch.stack([var2tanhhalfllrs[j] for j in self.obs_supp[i]],
+                            dim=2)
+                .prod(dim=2)
+                .clamp(min=-1 + EPS, max=1 - EPS)
+                .atanh()
+            )  # (batch_size, num_iters)
+            observables_pred_llr.append(observable_i_pred_llr)
+        observables_pred_llr = torch.stack(
+            observables_pred_llr, dim=2)  # (batch_size, num_iters, k)
 
-        tanh_llrs_over_2 = torch.tanh(
-            all_llrs / 2)  # (batch_size, num_iters, n)
-
-        # Compute loss from part 1
-        if not self.loss2_only:
-            syndromes_pred_llr = []
-            for i in range(self.m):
-                supp = self.chk_supp[i]
-                syndrome_i_pred_llr = 2 * (
-                    torch.prod(tanh_llrs_over_2[:, :, supp], dim=2)
-                    .clamp(min=-1 + EPS, max=1 - EPS)
-                    .atanh()
-                )  # (batch_size, num_iters)
-                syndromes_pred_llr.append(syndrome_i_pred_llr)
-            syndromes_pred_llr = torch.stack(
-                syndromes_pred_llr, dim=2)  # (batch_size, num_iters, m)
-
-            loss_syn = F.binary_cross_entropy_with_logits(
-                -syndromes_pred_llr,
-                syndromes.unsqueeze(dim=1).expand_as(syndromes_pred_llr),
-                reduction="none"
-            )  # (batch_size, num_iters, m)
-            loss1 = loss_syn.sum(dim=2)  # (batch_size, num_iters)
-
-        # Compute loss from part 2
-        if not self.loss1_only:
-            observables_pred_llr = []
-            for i in range(self.k):
-                supp = self.obs_supp[i]
-                observable_i_pred_llr = 2 * (
-                    torch.prod(tanh_llrs_over_2[:, :, supp], dim=2)
-                    .clamp(min=-1 + EPS, max=1 - EPS)
-                    .atanh()
-                )  # (batch_size, num_iters)
-                observables_pred_llr.append(observable_i_pred_llr)
-            observables_pred_llr = torch.stack(
-                observables_pred_llr, dim=2)  # (batch_size, num_iters, k)
-
-            loss_obs = F.binary_cross_entropy_with_logits(
-                -observables_pred_llr,
-                observables.unsqueeze(dim=1).expand_as(observables_pred_llr),
-                reduction="none"
-            )  # (batch_size, num_iters, k)
-            loss2 = loss_obs.sum(dim=2)  # (batch_size, num_iters)
-
-        # Compute total loss
-        if self.loss1_only:
-            loss = loss1
-        elif self.loss2_only:
-            loss = loss2
-        else:
-            loss = self.beta * loss1 + \
-                (1. - self.beta) * loss2  # (batch_size, num_iters)
-        return loss.mean()
+        loss = F.binary_cross_entropy_with_logits(
+            -observables_pred_llr,
+            observables.unsqueeze(dim=1).expand_as(observables_pred_llr),
+            reduction="none"
+        ).sum(dim=2)  # (batch_size, num_iters)
+        return loss
 
 
 class DecodingMetric(Metric):
@@ -593,6 +618,7 @@ class DecodingMetric(Metric):
             obsmat : ndarray
                 Observable matrix ∈ {0,1}, shape=(k, n), integer or bool
         """
+        raise NotImplementedError("This metric needs to be re-implemented.")
         super().__init__()
         assert isinstance(chkmat, np.ndarray)
         assert isinstance(obsmat, np.ndarray)
@@ -635,6 +661,7 @@ class DecodingMetric(Metric):
             observables : torch.Tensor
                 Observable bits ∈ {0,1}, shape=(batch_size, k), int
         """
+        raise NotImplementedError("This metric needs to be re-implemented.")
         batch_size, num_iters, n = all_llrs.shape
 
         # For each shot, check if the decoder converges, i.e., whether the syndrome is matched at any iteration
@@ -676,6 +703,7 @@ class DecodingMetric(Metric):
         self.total += batch_size
 
     def compute(self) -> dict[str, float]:
+        raise NotImplementedError("This metric needs to be re-implemented.")
         return {
             "wrong_syndrome_rate": self.wrong_syndrome.float() / self.total.float(),
             "wrong_observable_rate": self.wrong_observable.float() / self.total.float(),
