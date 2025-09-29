@@ -5,9 +5,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torchmetrics import Metric
-from typing import Any, Optional
+from typing import Optional
 from qecdec.experiments import MemoryExperiment
+from learned_decoders import LearnedBPBase, DecodingLoss, DecodingMetric
 
 INT_DTYPE = torch.int32
 FLOAT_DTYPE = torch.float32
@@ -103,6 +103,7 @@ def build_datasets(
     train_all_wt1_errors: bool = True,
     train_all_wt2_errors: bool = True,
     remove_trivial_syndromes: bool = True,
+    verbose: bool = True,
 ) -> tuple[DecodingDataset, DecodingDataset]:
     """
     Parameters
@@ -128,6 +129,9 @@ def build_datasets(
         remove_trivial_syndromes : bool
             Whether to filter out trivial (i.e., all-zero) syndromes in `train_dataset` and `val_dataset`
 
+        verbose : bool
+            Whether to print verbose output
+
     Returns
     -------
         train_dataset : DecodingDataset
@@ -136,72 +140,87 @@ def build_datasets(
         val_dataset : DecodingDataset
             Validation dataset
     """
+    def filter(syndromes, observables):
+        if remove_trivial_syndromes:
+            mask = np.any(syndromes != 0, axis=1)
+            syndromes = syndromes[mask]
+            observables = observables[mask]
+        return syndromes, observables
+
     n = expmt.num_error_mechanisms
 
+    if verbose:
+        print("Sampling shots from the noisy circuit...")
     sampler = expmt.dem.compile_sampler(seed=seed)
-    sampled_syndromes, sampled_observables, _ = sampler.sample(
-        train_shots + val_shots)
-    sampled_syndromes = sampled_syndromes.astype(np.int32)
-    sampled_observables = sampled_observables.astype(np.int32)
-
-    train_syndromes_list = [sampled_syndromes[:train_shots]]
-    train_observables_list = [sampled_observables[:train_shots]]
+    s, o, _ = sampler.sample(train_shots + val_shots)
+    s = s.astype(np.int32)
+    o = o.astype(np.int32)
+    train_syndromes_sampled, train_observables_sampled = filter(
+        s[:train_shots], o[:train_shots])
+    val_syndromes, val_observables = filter(
+        s[train_shots:], o[train_shots:])
+    if verbose:
+        print(
+            f"Added {len(train_syndromes_sampled)} samples to the training dataset.")
+        print(
+            f"Added {len(val_syndromes)} samples to the validation dataset.")
 
     if train_all_wt1_errors:
+        if verbose:
+            print("Generating all weight-1 errors...")
         errors = np.eye(n, dtype=np.int32)
-        syndromes = (errors @ expmt.chkmat.T) % 2
-        observables = (errors @ expmt.obsmat.T) % 2
-        train_syndromes_list.append(syndromes)
-        train_observables_list.append(observables)
+        train_syndromes_from_wt1_errors, train_observables_from_wt1_errors = filter(
+            (errors @ expmt.chkmat.T) % 2, (errors @ expmt.obsmat.T) % 2)
+        if verbose:
+            print(
+                f"Added {len(train_syndromes_from_wt1_errors)} samples to the training dataset.")
 
     if train_all_wt2_errors:
+        if verbose:
+            print("Generating all weight-2 errors...")
         errors = np.zeros(((n * (n - 1)) // 2, n), dtype=np.int32)
         for row, cols in enumerate(combinations(range(n), 2)):
             errors[row, cols] = 1
-        syndromes = (errors @ expmt.chkmat.T) % 2
-        observables = (errors @ expmt.obsmat.T) % 2
-        train_syndromes_list.append(syndromes)
-        train_observables_list.append(observables)
+        train_syndromes_from_wt2_errors, train_observables_from_wt2_errors = filter(
+            (errors @ expmt.chkmat.T) % 2, (errors @ expmt.obsmat.T) % 2)
+        if verbose:
+            print(
+                f"Added {len(train_syndromes_from_wt2_errors)} samples to the training dataset.")
 
-    train_syndromes = np.concatenate(train_syndromes_list)
-    train_observables = np.concatenate(train_observables_list)
-    if remove_trivial_syndromes:
-        mask = np.any(train_syndromes != 0, axis=1)
-        train_syndromes = train_syndromes[mask]
-        train_observables = train_observables[mask]
-
+    train_syndromes = np.concatenate([train_syndromes_sampled,
+                                      train_syndromes_from_wt1_errors,
+                                      train_syndromes_from_wt2_errors])
+    train_observables = np.concatenate([train_observables_sampled,
+                                        train_observables_from_wt1_errors,
+                                        train_observables_from_wt2_errors])
     train_dataset = DecodingDataset(train_syndromes, train_observables)
-
-    val_syndromes = sampled_syndromes[train_shots:]
-    val_observables = sampled_observables[train_shots:]
-    if remove_trivial_syndromes:
-        mask = np.any(val_syndromes != 0, axis=1)
-        val_syndromes = val_syndromes[mask]
-        val_observables = val_observables[mask]
-
     val_dataset = DecodingDataset(val_syndromes, val_observables)
+
+    if verbose:
+        print(f"Size of train_dataset: {len(train_dataset)}")
+        print(f"Size of val_dataset: {len(val_dataset)}")
 
     return train_dataset, val_dataset
 
 
-def train_gamma(
-    model: nn.Module,
+def train_decoder(
+    model: LearnedBPBase,
     train_dataset: DecodingDataset,
     val_dataset: DecodingDataset,
-    loss_fn: nn.Module,
-    metric: Metric,
+    loss_fn: DecodingLoss,
+    metric: DecodingMetric,
     optimizer: torch.optim.Optimizer,
     *,
-    num_epochs: int = 10,
-    batch_size: int = 64,
+    num_epochs: int,
+    batch_size: int,
     device: Optional[str] = None,
-    scheduler_kwargs: dict[str, Any] = dict(),
+    lr_scheduler: Optional[ReduceLROnPlateau] = None,
     early_stopper: Optional[EarlyStopper] = None,
 ):
     """
     Parameters
     ----------
-        model : nn.Module
+        model : LearnedBPBase
             The decoder to be trained
 
         train_dataset : DecodingDataset
@@ -210,10 +229,10 @@ def train_gamma(
         val_dataset : DecodingDataset
             The validation dataset
 
-        loss_fn : nn.Module
+        loss_fn : DecodingLoss
             The loss function
 
-        metric : Metric
+        metric : DecodingMetric
             The metric to be evaluated
 
         optimizer : torch.optim.Optimizer
@@ -228,9 +247,8 @@ def train_gamma(
         device : str | None
             The device to train on. If None, let PyTorch determine the device automatically.
 
-        scheduler_kwargs : dict[str, Any]
-            The keyword arguments for the learning rate scheduler `torch.optim.lr_scheduler.ReduceLROnPlateau`.
-            If not provided, use default arguments.
+        lr_scheduler : ReduceLROnPlateau | None
+            The learning rate scheduler. If None, do not use learning rate scheduler.
 
         early_stopper : EarlyStopper | None
             The early stopper. If None, do not use early stopping.
@@ -241,8 +259,6 @@ def train_gamma(
         else:
             device = "cpu"
     print(f"Using {device} device")
-
-    scheduler = ReduceLROnPlateau(optimizer, **scheduler_kwargs)
 
     model = model.to(device)
     loss_fn = loss_fn.to(device)
@@ -268,8 +284,8 @@ def train_gamma(
             optimizer.zero_grad()
 
             # Forward pass
-            all_llrs = model(syndromes)
-            loss = loss_fn(all_llrs, syndromes, observables)
+            var2llrs = model(syndromes)
+            loss = loss_fn(var2llrs, syndromes, observables)
             running_loss += loss.item()
 
             # Backpropagation
@@ -293,15 +309,16 @@ def train_gamma(
                 observables = observables.to(device)
 
                 # Forward pass
-                all_llrs = model(syndromes)
-                loss = loss_fn(all_llrs, syndromes, observables)
+                var2llrs = model(syndromes)
+                loss = loss_fn(var2llrs, syndromes, observables)
                 running_loss += loss.item()
-                metric.update(all_llrs, syndromes, observables)
+                metric.update(var2llrs, syndromes, observables)
         avg_val_loss = running_loss / len(val_dataloader)
         val_metrics = metric.compute()
 
         # Learning rate scheduler
-        scheduler.step(avg_val_loss)
+        if lr_scheduler is not None:
+            lr_scheduler.step(avg_val_loss)
 
         # Print epoch summary
         print(f"Epoch {epoch+1} Summary:")
@@ -309,7 +326,8 @@ def train_gamma(
         print(f"  Avg Val Loss: {avg_val_loss:.6f}")
         for key, value in val_metrics.items():
             print(f"  {key}: {value:.6f}")
-        print(f"  Learning Rate: {scheduler.get_last_lr()[0]:.6f}")
+        if lr_scheduler is not None:
+            print(f"  Learning Rate: {lr_scheduler.get_last_lr()[0]:.6f}")
         print()
 
         # Early stopper
@@ -324,5 +342,5 @@ __all__ = [
     "DecodingDataset",
     "EarlyStopper",
     "build_datasets",
-    "train_gamma",
+    "train_decoder",
 ]
