@@ -2,7 +2,7 @@ import stim
 import numpy as np
 
 
-def build_tanner_graph(pcm: np.ndarray) -> tuple[tuple[tuple[int, ...], ...], tuple[tuple[int, ...], ...]]:
+def build_tanner_graph(pcm: np.ndarray) -> tuple[list[list[int]], list[list[int]], list[list[int]], list[list[int]]]:
     """
     Build the Tanner graph of the parity-check matrix.
 
@@ -13,18 +13,36 @@ def build_tanner_graph(pcm: np.ndarray) -> tuple[tuple[tuple[int, ...], ...], tu
 
     Returns
     -------
-        chk_nbrs : tuple[tuple[int, ...], ...]
-            chk_nbrs[i] = all VNs connected to CN i, sorted in increasing order
+        chk_nbrs : list[list[int]]
+            chk_nbrs[i] = list of all VNs connected to CN i, sorted in increasing order.
 
-        var_nbrs : tuple[tuple[int, ...], ...]
-            var_nbrs[j] = all CNs connected to VN j, sorted in increasing order
+        var_nbrs : list[list[int]]
+            var_nbrs[j] = list of all CNs connected to VN j, sorted in increasing order.
+
+        chk_nbr_pos : list[list[int]]
+            chk_nbr_pos[i][k] = position of CN i in the list of neighbors of the VN chk_nbrs[i][k].
+            i.e., var_nbrs[chk_nbrs[i][k]][chk_nbr_pos[i][k]] = i.
+
+        var_nbr_pos : list[list[int]]
+            var_nbr_pos[j][k] = position of VN j in the list of neighbors of the CN var_nbrs[j][k].
+            i.e., chk_nbrs[var_nbrs[j][k]][var_nbr_pos[j][k]] = j.
     """
+    assert isinstance(pcm, np.ndarray) and pcm.ndim == 2
+    assert np.issubdtype(pcm.dtype, np.integer) or \
+        np.issubdtype(pcm.dtype, np.bool_)
     m, n = pcm.shape
-    chk_nbrs = tuple(tuple(np.nonzero(pcm[i])[0].tolist())
-                     for i in range(m))
-    var_nbrs = tuple(tuple(np.nonzero(pcm[:, j])[0].tolist())
-                     for j in range(n))
-    return chk_nbrs, var_nbrs
+    chk_nbrs = [[] for _ in range(m)]
+    var_nbrs = [[] for _ in range(n)]
+    chk_nbr_pos = [[] for _ in range(m)]
+    var_nbr_pos = [[] for _ in range(n)]
+    for i in range(m):
+        for j in range(n):
+            if pcm[i, j]:
+                chk_nbr_pos[i].append(len(var_nbrs[j]))
+                var_nbr_pos[j].append(len(chk_nbrs[i]))
+                chk_nbrs[i].append(j)
+                var_nbrs[j].append(i)
+    return chk_nbrs, var_nbrs, chk_nbr_pos, var_nbr_pos
 
 
 def ceil_div(a: int, b: int) -> int:

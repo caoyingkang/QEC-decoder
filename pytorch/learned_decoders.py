@@ -83,7 +83,14 @@ class _LearnedBPBase(nn.Module):
         else:
             raise ValueError(f"Invalid sign_impl_method: {sign_impl_method}")
 
-        self.chk_nbrs, self.var_nbrs = build_tanner_graph(pcm)
+        # self.chk_nbrs[i] = list of all VNs connected to CN i, sorted in increasing order.
+        # self.var_nbrs[j] = list of all CNs connected to VN j, sorted in increasing order.
+        # self.chk_nbr_pos[i][k] = position of CN i in the list of neighbors of the VN self.chk_nbrs[i][k].
+        #       i.e., self.var_nbrs[self.chk_nbrs[i][k]][self.chk_nbr_pos[i][k]] = i.
+        # self.var_nbr_pos[j][k] = position of VN j in the list of neighbors of the CN self.var_nbrs[j][k].
+        #       i.e., self.chk_nbrs[self.var_nbrs[j][k]][self.var_nbr_pos[j][k]] = j.
+        self.chk_nbrs, self.var_nbrs, self.chk_nbr_pos, self.var_nbr_pos = \
+            build_tanner_graph(pcm)
 
         # Store prior LLRs
         prior = np.clip(prior, min=EPS, max=1-EPS)
