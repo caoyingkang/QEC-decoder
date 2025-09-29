@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchmetrics import Metric
-from typing import Literal, Optional
+from typing import Literal
 from qecdec.utils import build_tanner_graph
 
 INT_DTYPE = torch.int32
@@ -27,7 +27,7 @@ def _smooth_min(x: torch.Tensor, *, dim: int, temp: float = 0.01) -> torch.Tenso
     return torch.sum(x * F.softmin(x / temp, dim=dim), dim=dim)
 
 
-class _LearnedBPBase(nn.Module):
+class LearnedBPBase(nn.Module):
     """
     Base class for all trainable BP decoders.
     """
@@ -82,8 +82,24 @@ class _LearnedBPBase(nn.Module):
         self.register_buffer(
             "prior_llr", torch.as_tensor(prior_llr, dtype=FLOAT_DTYPE))  # (n,)
 
+    def forward(self, syndromes: torch.Tensor) -> list[torch.Tensor]:
+        """
+        Parameters
+        ----------
+            syndromes : torch.Tensor
+                Syndrome bits ∈ {0,1}, shape=(batch_size, m), int
 
-class LearnedDMemBP(_LearnedBPBase):
+        Returns
+        -------
+            var2llrs : list[torch.Tensor]
+                A Python list of tensors, one for each VN, that stores the posterior LLRs at all BP iterations. More 
+                specifically, `var2llrs[j]` is a tensor of shape (batch_size, num_iters), such that `var2llrs[j][:, t]` 
+                is the batch of posterior LLRs for VN `j` at BP iteration `t`.
+        """
+        raise NotImplementedError
+
+
+class LearnedDMemBP(LearnedBPBase):
     """
     A PyTorch Module that implements a Disordered Memory BP decoder with trainable memory strength.
     """
@@ -124,19 +140,6 @@ class LearnedDMemBP(_LearnedBPBase):
         ])  # (n,)
 
     def forward(self, syndromes: torch.Tensor) -> list[torch.Tensor]:
-        """
-        Parameters
-        ----------
-            syndromes : torch.Tensor
-                Syndrome bits ∈ {0,1}, shape=(batch_size, m), int
-
-        Returns
-        -------
-            var2llrs : list[torch.Tensor]
-                A Python list of tensors, one for each VN, that stores the posterior LLRs at all BP iterations. More 
-                specifically, `var2llrs[j]` is a tensor of shape (batch_size, num_iters), such that `var2llrs[j][:, t]` 
-                is the batch of posterior LLRs for VN `j` at BP iteration `t`.
-        """
         device = syndromes.device
         batch_size = syndromes.shape[0]
         syndromes = syndromes.to(FLOAT_DTYPE)
@@ -243,7 +246,7 @@ class LearnedDMemBP(_LearnedBPBase):
         return var2llrs
 
 
-class LearnedDMemOffNormBP(_LearnedBPBase):
+class LearnedDMemOffNormBP(LearnedBPBase):
     """
     A PyTorch Module that implements a Disordered Memory Offset Normalized min-sum BP decoder with 
     trainable memory strength, offset parameters, and normalization factors.
@@ -306,17 +309,6 @@ class LearnedDMemOffNormBP(_LearnedBPBase):
             ])
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
-        """
-        Parameters
-        ----------
-            syndromes : torch.Tensor
-                Syndrome bits ∈ {0,1}, shape=(batch_size, m), int
-
-        Returns
-        -------
-            all_llrs : torch.Tensor
-                LLRs output by the decoder at all BP iterations, shape=(batch_size, num_iters, n), float.
-        """
         raise NotImplementedError("This decoder needs to be re-implemented.")
         all_llrs = []
 
@@ -618,7 +610,6 @@ class DecodingMetric(Metric):
             obsmat : ndarray
                 Observable matrix ∈ {0,1}, shape=(k, n), integer or bool
         """
-        raise NotImplementedError("This metric needs to be re-implemented.")
         super().__init__()
         assert isinstance(chkmat, np.ndarray)
         assert isinstance(obsmat, np.ndarray)
@@ -645,15 +636,17 @@ class DecodingMetric(Metric):
 
     def update(
         self,
-        all_llrs: torch.Tensor,
+        var2llrs: list[torch.Tensor],
         syndromes: torch.Tensor,
         observables: torch.Tensor
     ):
         """
         Parameters
         ----------
-            all_llrs : torch.Tensor
-                LLRs output by the decoder at all BP iterations, shape=(batch_size, num_iters, n), float.
+            var2llrs : list[torch.Tensor]
+                A Python list of tensors, one for each VN, that stores the posterior LLRs at all BP iterations. More 
+                specifically, `var2llrs[j]` is a tensor of shape (batch_size, num_iters), such that `var2llrs[j][:, t]` 
+                is the batch of posterior LLRs for VN `j` at BP iteration `t`.
 
             syndromes : torch.Tensor
                 Syndrome bits ∈ {0,1}, shape=(batch_size, m), int
@@ -661,7 +654,7 @@ class DecodingMetric(Metric):
             observables : torch.Tensor
                 Observable bits ∈ {0,1}, shape=(batch_size, k), int
         """
-        raise NotImplementedError("This metric needs to be re-implemented.")
+        all_llrs = torch.stack(var2llrs, dim=2)  # (batch_size, num_iters, n)
         batch_size, num_iters, n = all_llrs.shape
 
         # For each shot, check if the decoder converges, i.e., whether the syndrome is matched at any iteration
@@ -703,7 +696,6 @@ class DecodingMetric(Metric):
         self.total += batch_size
 
     def compute(self) -> dict[str, float]:
-        raise NotImplementedError("This metric needs to be re-implemented.")
         return {
             "wrong_syndrome_rate": self.wrong_syndrome.float() / self.total.float(),
             "wrong_observable_rate": self.wrong_observable.float() / self.total.float(),
