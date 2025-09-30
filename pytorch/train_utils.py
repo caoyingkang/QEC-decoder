@@ -7,6 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from typing import Optional
 from qecdec.experiments import MemoryExperiment
+from qecdec.decoders import BPDecoder
 from learned_decoders import LearnedBPBase, DecodingLoss, DecodingMetric
 
 INT_DTYPE = torch.int32
@@ -94,7 +95,7 @@ class EarlyStopper:
                 self.early_stop = True
 
 
-def build_datasets(
+def build_datasets_version_1(
     expmt: MemoryExperiment,
     *,
     train_shots: int,
@@ -187,6 +188,117 @@ def build_datasets(
             print(
                 f"Added {len(train_syndromes_from_wt2_errors)} samples to the training dataset.")
 
+    train_syndromes = np.concatenate([train_syndromes_sampled,
+                                      train_syndromes_from_wt1_errors,
+                                      train_syndromes_from_wt2_errors])
+    train_observables = np.concatenate([train_observables_sampled,
+                                        train_observables_from_wt1_errors,
+                                        train_observables_from_wt2_errors])
+    train_dataset = DecodingDataset(train_syndromes, train_observables)
+    val_dataset = DecodingDataset(val_syndromes, val_observables)
+
+    if verbose:
+        print(f"Size of train_dataset: {len(train_dataset)}")
+        print(f"Size of val_dataset: {len(val_dataset)}")
+
+    return train_dataset, val_dataset
+
+
+def build_datasets_version_2(
+    expmt: MemoryExperiment,
+    *,
+    train_shots: int,
+    val_shots: int,
+    seed: Optional[int] = None,
+    verbose: bool = True,
+) -> tuple[DecodingDataset, DecodingDataset]:
+    """
+    Parameters
+    ----------
+        expmt : MemoryExperiment
+            The MemoryExperiment object from which to sample data
+
+        train_shots : int
+            Number of sampling shots for building `train_dataset`
+
+        val_shots : int
+            Number of sampling shots for building `val_dataset`
+
+        seed : int | None
+            Random seed used for sampling
+
+        verbose : bool
+            Whether to print verbose output
+
+    Returns
+    -------
+        train_dataset : DecodingDataset
+            Training dataset
+
+        val_dataset : DecodingDataset
+            Validation dataset
+    """
+    bp = BPDecoder(expmt.chkmat, expmt.prior, max_iter=10)
+
+    def filter(syn, obs, *, remove_easy_instances):
+        # Remove trivial syndromes.
+        mask = np.any(syn != 0, axis=1)
+        syn = syn[mask]
+        obs = obs[mask]
+
+        # Remove instances that can be decoded correctly by vanilla BP in 10 iterations.
+        if remove_easy_instances:
+            ehat = bp.decode_batch(syn)
+            mask = np.any(syn != (ehat @ expmt.chkmat.T) % 2, axis=1) \
+                | np.any(obs != (ehat @ expmt.obsmat.T) % 2, axis=1)
+            syn = syn[mask]
+            obs = obs[mask]
+
+        return syn, obs
+
+    n = expmt.num_error_mechanisms
+
+    # =============================== sample shots from noisy circuit ===============================
+    if verbose:
+        print("Sampling shots from the noisy circuit...")
+    sampler = expmt.dem.compile_sampler(seed=seed)
+    syn, obs, _ = sampler.sample(train_shots + val_shots)
+    syn, obs = syn.astype(np.int32), obs.astype(np.int32)
+    train_syndromes_sampled, train_observables_sampled = filter(
+        syn[:train_shots], obs[:train_shots], remove_easy_instances=True)
+    val_syndromes, val_observables = filter(
+        syn[train_shots:], obs[train_shots:], remove_easy_instances=True)
+    if verbose:
+        print(
+            f"Added {len(train_syndromes_sampled)} samples to the training dataset.")
+        print(
+            f"Added {len(val_syndromes)} samples to the validation dataset.")
+
+    # =============================== weight-1 errors ===============================
+    if verbose:
+        print("Generating all weight-1 errors...")
+    errors = np.eye(n, dtype=np.int32)
+    syn, obs = (errors @ expmt.chkmat.T) % 2, (errors @ expmt.obsmat.T) % 2
+    train_syndromes_from_wt1_errors, train_observables_from_wt1_errors = filter(
+        syn, obs, remove_easy_instances=False)
+    if verbose:
+        print(
+            f"Added {len(train_syndromes_from_wt1_errors)} samples to the training dataset.")
+
+    # =============================== weight-2 errors ===============================
+    if verbose:
+        print("Generating all weight-2 errors...")
+    errors = np.zeros(((n * (n - 1)) // 2, n), dtype=np.int32)
+    for row, cols in enumerate(combinations(range(n), 2)):
+        errors[row, cols] = 1
+    syn, obs = (errors @ expmt.chkmat.T) % 2, (errors @ expmt.obsmat.T) % 2
+    train_syndromes_from_wt2_errors, train_observables_from_wt2_errors = filter(
+        syn, obs, remove_easy_instances=True)
+    if verbose:
+        print(
+            f"Added {len(train_syndromes_from_wt2_errors)} samples to the training dataset.")
+
+    # =============================== collect all instances ===============================
     train_syndromes = np.concatenate([train_syndromes_sampled,
                                       train_syndromes_from_wt1_errors,
                                       train_syndromes_from_wt2_errors])
@@ -341,6 +453,7 @@ def train_decoder(
 __all__ = [
     "DecodingDataset",
     "EarlyStopper",
-    "build_datasets",
+    "build_datasets_version_1",
+    "build_datasets_version_2",
     "train_decoder",
 ]
