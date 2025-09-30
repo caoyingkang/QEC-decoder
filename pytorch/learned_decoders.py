@@ -259,7 +259,7 @@ class LearnedDMemOffNormBP(LearnedBPBase):
         *,
         num_iters: int,
         min_impl_method: Literal["smooth", "hard"] = "smooth",
-        sign_impl_method: Literal["smooth", "hard", "ste"] = "smooth",
+        sign_impl_method: Literal["smooth", "hard"] = "smooth",
         train_offset: bool = True,
         train_nf: bool = True,
     ):
@@ -278,8 +278,8 @@ class LearnedDMemOffNormBP(LearnedBPBase):
             min_impl_method : Literal["smooth", "hard"]
                 Implementation method of the min function. Can be "smooth" (based on softmin) or "hard" (using torch.amin).
 
-            sign_impl_method : Literal["smooth", "hard", "ste"]
-                Implementation method of the sign function. Can be "smooth" (based on tanh), "hard" (using torch.sign), or "ste" (straight-through estimator).
+            sign_impl_method : Literal["smooth", "hard"]
+                Implementation method of the sign function. Can be "smooth" (based on tanh) or "hard" (using torch.sign).
 
             train_offset : bool
                 Whether to train the offset parameters. If False, the offset parameters are fixed to 0.
@@ -287,65 +287,77 @@ class LearnedDMemOffNormBP(LearnedBPBase):
             train_nf : bool
                 Whether to train the normalization factors. If False, the normalization factors are fixed to 1.
         """
-        raise NotImplementedError("This decoder needs to be re-implemented.")
         super().__init__(pcm, prior, num_iters, min_impl_method, sign_impl_method)
         self.train_offset = train_offset
         self.train_nf = train_nf
 
         # Trainable parameters
-        self.gamma = nn.Parameter(
-            torch.zeros(self.n, dtype=FLOAT_DTYPE))
+        self.gamma = nn.ParameterList([
+            nn.Parameter(torch.zeros((), dtype=FLOAT_DTYPE))
+            for _ in range(self.n)
+        ])  # (n,)
         if train_offset:
             self.offset = nn.ParameterList([
-                nn.Parameter(torch.zeros(
-                    len(self.chk_nbrs[i]), dtype=FLOAT_DTYPE))
+                nn.Parameter(torch.zeros(len(self.chk_nbrs[i]),
+                                         dtype=FLOAT_DTYPE))
                 for i in range(self.m)
             ])
         if train_nf:
             self.nf = nn.ParameterList([
-                nn.Parameter(torch.ones(
-                    len(self.chk_nbrs[i]), dtype=FLOAT_DTYPE))
+                nn.Parameter(torch.ones(len(self.chk_nbrs[i]),
+                                        dtype=FLOAT_DTYPE))
                 for i in range(self.m)
             ])
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError("This decoder needs to be re-implemented.")
-        all_llrs = []
-
         device = syndromes.device
         batch_size = syndromes.shape[0]
         syndromes = syndromes.to(FLOAT_DTYPE)
         syndromes_sgn = 1.0 - 2.0 * syndromes  # (batch_size, m) ∈ {+1,-1}
 
-        # Initialize messages
-        # c2v_msg[:, i, j] = messages from CN i to VN j
-        c2v_msg = torch.zeros(batch_size, self.m, self.n,
-                              device=device, dtype=FLOAT_DTYPE)
-        # v2c_msg[:, j, i] = messages from VN j to CN i
-        v2c_msg = torch.zeros(batch_size, self.n, self.m,
-                              device=device, dtype=FLOAT_DTYPE)
-        for j in range(self.n):
-            v2c_msg[:, j, self.var_nbrs[j]] = self.prior_llr[j]
+        # A nested list that will store the posterior LLRs for each VN at each BP iteration.
+        # The outer list is indexed by VN, and the inner list is indexed by BP iteration.
+        # Each element will be a tensor of shape (batch_size,).
+        var2iter2llrs: list[list[torch.Tensor]] = [
+            [
+                None  # placeholder; will be a tensor of shape (batch_size,)
+                for _ in range(self.num_iters)
+            ]
+            for _ in range(self.n)
+        ]
 
-        # print("Syndromes:", syndromes)  # DEBUG
+        # Initialize messages.
+        # chk_incoming_msgs[i][k] = incoming message at CN i from its k-th neighbor, shape=(batch_size,)
+        # var_incoming_msgs[j][k] = incoming message at VN j from its k-th neighbor, shape=(batch_size,)
+        chk_incoming_msgs: list[list[torch.Tensor]] = [
+            [
+                torch.full((batch_size,), self.prior_llr[j],
+                           device=device, dtype=FLOAT_DTYPE)
+                for j in self.chk_nbrs[i]
+            ]
+            for i in range(self.m)
+        ]
+        var_incoming_msgs: list[list[torch.Tensor]] = [
+            [
+                None  # placeholder; will be a tensor of shape (batch_size,)
+                for _ in self.var_nbrs[j]
+            ]
+            for j in range(self.n)
+        ]
 
         # Main BP iteration loop
-        for it in range(self.num_iters):
+        for t in range(self.num_iters):
             # ------------------ CN update ------------------
-            c2v_msg = torch.zeros_like(c2v_msg)
             for i in range(self.m):
                 nbrs = self.chk_nbrs[i]
+                nbr_pos = self.chk_nbr_pos[i]
                 num_nbrs = len(nbrs)
 
-                # Gather incoming messages at CN i
-                msgs = v2c_msg[:, nbrs, i]  # (batch_size, num_nbrs)
+                # Gather incoming messages at CN i.
+                msgs = torch.stack(chk_incoming_msgs[i],
+                                   dim=1)  # (batch_size, num_nbrs)
                 msgs_abs = msgs.abs()  # (batch_size, num_nbrs)
-                msgs_sgn: torch.Tensor = self.sign_func(
-                    msgs)  # (batch_size, num_nbrs)
-
-                # print(f"Incoming messages at CN {i}:\n", msgs)  # DEBUG
-                # print("msgs_sgn:", msgs_sgn)  # DEBUG
-                # print("msgs_abs:", msgs_abs)  # DEBUG
+                msgs_sgn = self.sign_func(msgs)  # (batch_size, num_nbrs)
 
                 # For each neighboring VN, compute product over msgs_sgn excluding that VN.
                 # We achieve leave-one-out by masking the corresponding entry with 1.0.
@@ -359,8 +371,6 @@ class LearnedDMemOffNormBP(LearnedBPBase):
                 msgs_sgn_prod_excl = msgs_sgn_masked \
                     .prod(dim=2)  # (batch_size, num_nbrs)
 
-                # print("msgs_sgn_prod_excl:", msgs_sgn_prod_excl)  # DEBUG
-
                 # For each neighboring VN, compute min over msgs_abs excluding that VN.
                 # We achieve leave-one-out by masking the corresponding entry with a large number.
                 msgs_abs_repeated = msgs_abs \
@@ -371,42 +381,50 @@ class LearnedDMemOffNormBP(LearnedBPBase):
                 msgs_abs_min_excl = self.min_func(
                     msgs_abs_masked, dim=2)  # (batch_size, num_nbrs)
 
-                # Populate c2v_msg
-                c2v_msg[:, i, nbrs] = syndromes_sgn[:, i].unsqueeze(dim=1) * msgs_sgn_prod_excl * (
-                    F.relu(msgs_abs_min_excl - self.offset[i].unsqueeze(dim=0))
-                    if self.train_offset else msgs_abs_min_excl
-                ) * (
-                    self.nf[i].unsqueeze(dim=0)
-                    if self.train_nf else 1.0
-                )
-
-            # print("c2v_msg:\n", c2v_msg)  # DEBUG
+                # Compute outgoing messages at CN i and update var_incoming_msgs.
+                out = torch.unbind(
+                    syndromes_sgn[:, i].unsqueeze(dim=1)
+                    * msgs_sgn_prod_excl
+                    * (
+                        F.relu(msgs_abs_min_excl -
+                               self.offset[i].unsqueeze(dim=0))
+                        if self.train_offset else msgs_abs_min_excl
+                    ) * (
+                        self.nf[i].unsqueeze(dim=0)
+                        if self.train_nf else 1.0
+                    ),
+                    dim=1
+                )  # tuple of num_nbrs tensors, each of shape (batch_size,) # noqa: E501
+                for k, (j, pos) in enumerate(zip(nbrs, nbr_pos)):
+                    var_incoming_msgs[j][pos] = out[k]
 
             # ------------------ VN update ------------------
-            incoming_sum = c2v_msg.sum(dim=1)  # (batch_size, n)
-            if it == 0:
-                llrs = incoming_sum + \
-                    self.prior_llr.unsqueeze(dim=0)  # (batch_size, n)
-            else:
-                llrs = incoming_sum + \
-                    (1 - self.gamma.unsqueeze(dim=0)) * self.prior_llr.unsqueeze(dim=0) + \
-                    self.gamma.unsqueeze(dim=0) * llrs  # (batch_size, n)
+            for j in range(self.n):
+                # Gather and sum incoming messages at VN j.
+                incoming_sum = torch.stack(var_incoming_msgs[j], dim=1) \
+                    .sum(dim=1)  # (batch_size,)
 
-            all_llrs.append(llrs)
+                # Calculate posterior LLR at VN j for the current BP iteration.
+                if t == 0:
+                    var2iter2llrs[j][t] = incoming_sum + self.prior_llr[j]
+                else:
+                    var2iter2llrs[j][t] = incoming_sum + \
+                        (1 - self.gamma[j]) * self.prior_llr[j] + \
+                        self.gamma[j] * var2iter2llrs[j][t - 1]
 
-            if it < self.num_iters - 1:  # no need to update v2c_msg in the last iteration
-                v2c_msg = torch.zeros_like(v2c_msg)
-                for j in range(self.n):
-                    nbrs = self.var_nbrs[j]
-                    v2c_msg[:, j, nbrs] = llrs[:, j].unsqueeze(dim=1) - \
-                        c2v_msg[:, nbrs, j]
+                # Compute outgoing messages at VN j and update chk_incoming_msgs.
+                if t < self.num_iters - 1:  # no need to update in the last iteration
+                    for k, (i, pos) in enumerate(zip(self.var_nbrs[j], self.var_nbr_pos[j])):
+                        chk_incoming_msgs[i][pos] = var2iter2llrs[j][t] - \
+                            var_incoming_msgs[j][k]
 
-            # print("prior_llr:\n", self.prior_llr)  # DEBUG
-            # print("llrs:\n", llrs)  # DEBUG
-            # print("v2c_msg:\n", v2c_msg)  # DEBUG
-
-        all_llrs = torch.stack(all_llrs, dim=1)
-        return all_llrs
+        # Convert the nested list var2iter2llrs into a list of n tensors, one for each VN.
+        # Each tensor has shape (batch_size, num_iters).
+        var2llrs = [
+            torch.stack(var2iter2llrs[j], dim=1)
+            for j in range(self.n)
+        ]
+        return var2llrs
 
 
 class DecodingLoss(nn.Module):
