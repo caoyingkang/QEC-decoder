@@ -206,7 +206,8 @@ def bar_plot_stats(
     category2label2stats: dict[str, dict[str, Stat]],
     *,
     colors: list[str] = ["skyblue", "lightgreen", "salmon",
-                         "khaki", "plum", "lightslategray"],
+                         "khaki", "plum", "lightslategray",
+                         "gold", "orchid", "turquoise"],
 ):
     """Plot bar charts for (1) number of shots with unmatched syndrome, and (2) number of shots with unmatched observable.
     Bars are grouped by category and displayed side by side. Within each category, bars are distinguished by label and are 
@@ -307,7 +308,8 @@ def stacked_bar_plot_stats(
     category2label2stats: dict[str, dict[str, Stat]],
     *,
     colors: list[str] = ["skyblue", "lightgreen", "salmon",
-                         "khaki", "plum", "lightslategray"],
+                         "khaki", "plum", "lightslategray",
+                         "gold", "orchid", "turquoise"],
 ):
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
