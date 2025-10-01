@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchmetrics import Metric
-from typing import Literal
+from typing import Literal, Optional
 from qecdec.utils import build_tanner_graph
 
 INT_DTYPE = torch.int32
@@ -112,6 +112,7 @@ class LearnedDMemBP(LearnedBPBase):
         num_iters: int,
         min_impl_method: Literal["smooth", "hard"] = "smooth",
         sign_impl_method: Literal["smooth", "hard"] = "smooth",
+        gamma_init: Optional[np.ndarray] = None
     ):
         """
         Parameters
@@ -130,14 +131,24 @@ class LearnedDMemBP(LearnedBPBase):
 
             sign_impl_method : Literal["smooth", "hard"]
                 Implementation method of the sign function. Can be "smooth" (based on tanh) or "hard" (using torch.sign).
+
+            gamma_init : ndarray | None
+                Initial memory strength, shape=(n,), float. If None, the memory strength is initialized to 0.0.
         """
         super().__init__(pcm, prior, num_iters, min_impl_method, sign_impl_method)
 
         # Trainable parameters
-        self.gamma = nn.ParameterList([
-            nn.Parameter(torch.zeros((), dtype=FLOAT_DTYPE))
-            for _ in range(self.n)
-        ])  # (n,)
+        if gamma_init is None:
+            self.gamma = nn.ParameterList([
+                nn.Parameter(torch.zeros((), dtype=FLOAT_DTYPE))
+                for _ in range(self.n)
+            ])  # (n,)
+        else:
+            assert gamma_init.shape == (self.n,)
+            self.gamma = nn.ParameterList([
+                nn.Parameter(torch.as_tensor(gamma_init[i], dtype=FLOAT_DTYPE))
+                for i in range(self.n)
+            ])  # (n,)
 
     def forward(self, syndromes: torch.Tensor) -> list[torch.Tensor]:
         device = syndromes.device
