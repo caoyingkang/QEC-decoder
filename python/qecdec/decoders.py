@@ -239,12 +239,12 @@ class DMemBPDecoder(Decoder):
         self.decoder = DMemBPDecoder_Rust(
             self.pcm, self.prior, gamma=self.gamma, max_iter=self.max_iter, scaling_factor=self.scaling_factor)
 
-    def decode(self, syndrome: np.ndarray) -> np.ndarray:
+    def decode(self, syndrome: np.ndarray, record_llr_history: bool = False) -> np.ndarray:
         assert isinstance(syndrome, np.ndarray)
         assert syndrome.ndim == 1
         assert syndrome.shape[0] == self.num_checks
 
-        return self.decoder.decode(syndrome.astype(np.uint8))
+        return self.decoder.decode(syndrome.astype(np.uint8), record_llr_history)
 
     def decode_batch(self, syndrome_batch: np.ndarray) -> np.ndarray:
         assert isinstance(syndrome_batch, np.ndarray)
@@ -252,6 +252,9 @@ class DMemBPDecoder(Decoder):
         assert syndrome_batch.shape[1] == self.num_checks
 
         return self.decoder.decode_batch(syndrome_batch.astype(np.uint8))
+
+    def get_llr_history(self) -> np.ndarray:
+        return self.decoder.get_llr_history()
 
 
 class DMemOffNormBPDecoder(Decoder):

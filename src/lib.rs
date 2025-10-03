@@ -341,6 +341,8 @@ pub struct DMemBPDecoder {
     ehat: Array1<u8>,
     // syndrome vector
     syndrome: Array1<u8>,
+    // llr_history[t] = LLR values after iteration t
+    llr_history: Array2<f64>,
 }
 
 #[pymethods]
@@ -382,10 +384,19 @@ impl DMemBPDecoder {
             llr: Array1::zeros(n),
             ehat: Array1::zeros(n),
             syndrome: Array1::zeros(m),
+            llr_history: Array2::zeros((0, 0)), // empty array
         })
     }
 
-    fn _decode(&mut self) {
+    pub fn get_llr_history<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        PyArray2::from_array(py, &self.llr_history)
+    }
+
+    fn _decode(&mut self, record_llr_history: bool) {
+        if record_llr_history {
+            self.llr_history = Array2::zeros((self.max_iter, self.base.n));
+        }
+
         let syndrome_sgn: Vec<f64> = self
             .syndrome
             .iter()
@@ -444,6 +455,11 @@ impl DMemBPDecoder {
                 self.llr[j] = marginal;
             }
 
+            // Record LLR values if requested
+            if record_llr_history {
+                self.llr_history.row_mut(iter).assign(&self.llr);
+            }
+
             // Hard decision
             Zip::from(&mut self.ehat).and(&self.llr).for_each(|y, &x| {
                 *y = (x < 0.0) as u8;
@@ -462,19 +478,25 @@ impl DMemBPDecoder {
                 }
             }
             if satisfied {
+                if record_llr_history {
+                    // Chop the llr_history array to the actual number of iterations
+                    self.llr_history = self.llr_history.slice(s![0..iter + 1, ..]).to_owned();
+                }
                 // early stopping
                 break;
             }
         }
     }
 
+    #[pyo3(signature = (syndrome, record_llr_history=false))]
     pub fn decode<'py>(
         &mut self,
         syndrome: PyReadonlyArray1<'_, u8>,
+        record_llr_history: bool,
         py: Python<'py>,
     ) -> Bound<'py, PyArray1<u8>> {
         self.syndrome = syndrome.as_array().to_owned();
-        self._decode();
+        self._decode(record_llr_history);
         PyArray1::from_array(py, &self.ehat)
     }
 
@@ -489,7 +511,7 @@ impl DMemBPDecoder {
 
         for i in 0..batch_size {
             self.syndrome.assign(&syndrome_batch_arr.row(i));
-            self._decode();
+            self._decode(false);
             ehat_batch.row_mut(i).assign(&self.ehat);
         }
 
