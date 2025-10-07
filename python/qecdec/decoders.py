@@ -246,12 +246,21 @@ class DMemBPDecoder(Decoder):
 
         return self.decoder.decode(syndrome.astype(np.uint8), record_llr_history)
 
-    def decode_batch(self, syndrome_batch: np.ndarray) -> np.ndarray:
+    def decode_batch(
+        self,
+        syndrome_batch: np.ndarray,
+        return_num_iters: bool = False
+    ) -> np.ndarray:
         assert isinstance(syndrome_batch, np.ndarray)
         assert syndrome_batch.ndim == 2
         assert syndrome_batch.shape[1] == self.num_checks
 
-        return self.decoder.decode_batch(syndrome_batch.astype(np.uint8))
+        ehat_batch = self.decoder.decode_batch(
+            syndrome_batch.astype(np.uint8), return_num_iters)
+        if return_num_iters:
+            return ehat_batch, self.decoder.get_batch_num_iters()
+        else:
+            return ehat_batch
 
     def get_llr_history(self) -> np.ndarray:
         return self.decoder.get_llr_history()

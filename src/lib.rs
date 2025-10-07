@@ -341,6 +341,10 @@ pub struct DMemBPDecoder {
     ehat: Array1<u8>,
     // syndrome vector
     syndrome: Array1<u8>,
+    // number of executed iterations
+    num_iters: usize,
+    // number of executed iterations for each sample in a batch
+    batch_num_iters: Array1<u32>,
     // llr_history[t] = LLR values after iteration t
     llr_history: Array2<f64>,
 }
@@ -384,12 +388,18 @@ impl DMemBPDecoder {
             llr: Array1::zeros(n),
             ehat: Array1::zeros(n),
             syndrome: Array1::zeros(m),
+            num_iters: 0,
+            batch_num_iters: Array1::zeros(0), // empty array
             llr_history: Array2::zeros((0, 0)), // empty array
         })
     }
 
     pub fn get_llr_history<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
         PyArray2::from_array(py, &self.llr_history)
+    }
+
+    pub fn get_batch_num_iters<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u32>> {
+        PyArray1::from_array(py, &self.batch_num_iters)
     }
 
     fn _decode(&mut self, record_llr_history: bool) {
@@ -412,6 +422,7 @@ impl DMemBPDecoder {
         }
 
         // Main BP iteration loop
+        let mut early_stopped = false;
         for iter in 0..self.max_iter {
             // Message processing at CNs
             for i in 0..self.base.m {
@@ -482,9 +493,15 @@ impl DMemBPDecoder {
                     // Chop the llr_history array to the actual number of iterations
                     self.llr_history = self.llr_history.slice(s![0..iter + 1, ..]).to_owned();
                 }
+                self.num_iters = iter + 1; // record the number of executed iterations
                 // early stopping
+                early_stopped = true;
                 break;
             }
+        }
+
+        if !early_stopped {
+            self.num_iters = self.max_iter;
         }
     }
 
@@ -500,19 +517,27 @@ impl DMemBPDecoder {
         PyArray1::from_array(py, &self.ehat)
     }
 
+    #[pyo3(signature = (syndrome_batch, record_num_iters=false))]
     pub fn decode_batch<'py>(
         &mut self,
         syndrome_batch: PyReadonlyArray2<'_, u8>,
+        record_num_iters: bool,
         py: Python<'py>,
     ) -> Bound<'py, PyArray2<u8>> {
         let syndrome_batch_arr = syndrome_batch.as_array();
         let batch_size: usize = syndrome_batch_arr.shape()[0];
         let mut ehat_batch: Array2<u8> = Array2::zeros((batch_size, self.base.n));
+        if record_num_iters {
+            self.batch_num_iters = Array1::zeros(batch_size);
+        }
 
         for i in 0..batch_size {
             self.syndrome.assign(&syndrome_batch_arr.row(i));
             self._decode(false);
             ehat_batch.row_mut(i).assign(&self.ehat);
+            if record_num_iters {
+                self.batch_num_iters[i] = self.num_iters as u32;
+            }
         }
 
         PyArray2::from_owned_array(py, ehat_batch)
