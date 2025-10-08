@@ -9,7 +9,7 @@ A QEC decoding library that provides:
 - a [PyTorch](https://pytorch.org/)-based machine learning framework for training decoders with learnable parameters.
 
 This codebase was originally designed to facilitate the search for a lightweight variant of the [RelayBP](https://github.com/trmue/relay) decoder.
-The ultimate goal is a fast real-time decoder implementable on FPGA with latency around 1us (whose implentation is not in this repository).
+The ultimate goal is a fast real-time decoder implementable on FPGA with submicrosecond latency (whose implentation is not in this repository).
 
 ### Dependencies and installation
 
@@ -96,7 +96,8 @@ The ultimate goal is a fast real-time decoder implementable on FPGA with latency
       expmt.chkmat,
       expmt.prior,
       gamma=np.random.uniform(0, 1, size=(expmt.num_error_mechanisms,)),
-      max_iter=50)
+      max_iter=50
+  )
   sinter_decoder = SinterDecoderWrapper(decoder, expmt.obsmat)
   custom_decoders = {'dmembp': sinter_decoder}
 
