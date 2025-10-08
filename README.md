@@ -1,5 +1,16 @@
 # QEC-decoder
 
+A QEC decoding library that provides:
+- [stim](https://github.com/quantumlib/stim)-based syndrome sampling from noisy circuits of memory experiments;
+- implementation of different variants of the belief propagation decoder, written in Rust with Python bindings;
+- implementation of sliding window decoding with various choices of inner decoders;
+- a Python wrapper class that turns a `Decoder` object into a `sinter.Decoder` object for fast benchmarking via the [sinter](https://pypi.org/project/sinter/) package;
+- toolkits for interactive visualization of the belief propagation decoding process (via [plotly](https://github.com/plotly/plotly.py));
+- a [PyTorch](https://pytorch.org/)-based machine learning framework for training decoders with learnable parameters.
+
+This codebase was originally designed to facilitate the search for a lightweight variant of the [RelayBP](https://github.com/trmue/relay) decoder.
+The ultimate goal is a fast real-time decoder implementable on FPGA with latency around 1us (whose implentation is not in this repository).
+
 ### Dependencies and installation
 
 - Python >= 3.8.
@@ -19,7 +30,7 @@
 
 ### Usage examples
 
-- Sample syndrome-observable pairs from memory experiment for the repetition code under circuit-level noise, and decode the syndromes using BP decoder:
+- Sample syndrome-observable pairs from repetition code memory experiment under circuit-level noise, and decode the syndromes using BP decoder:
   ```python
   from qecdec import RepetitionCode_Memory
   from qecdec import BPDecoder
@@ -39,7 +50,7 @@
   decoded_errors = decoder.decode_batch(syndromes)
   ```
 
-- Sample syndrome-observable pairs from Z-basis memory experiment for the rotated surface code under phenomenological noise, and decode the syndromes using a sliding window decoder, whose inner decoder is chosen to be a MWPM decoder:
+- Sample syndrome-observable pairs from rotated surface code Z-basis memory experiment under phenomenological noise, and decode the syndromes using a sliding window decoder whose inner decoder is MWPM:
   ```python
   from qecdec import RotatedSurfaceCode_Memory
   from qecdec import SlidingWindow_Decoder
@@ -65,9 +76,42 @@
   decoded_errors = decoder.decode_batch(syndromes)
   ```
 
-### Notations and conventions
-The two figures below show the coordinates and indexing convention for the physical qubits (including data qubits and measure qubits) in a rotated surface code:
+- Use `sinter` to collect the decoding results of DMemBP decoder (with randomly selected memory parameters) for rotated surface code Z-basis memory experiment under phenomenological noise:
+  ```python
+  import numpy as np
+  from qecdec import RotatedSurfaceCode_Memory
+  from qecdec import DMemBPDecoder, SinterDecoderWrapper
+  import sinter
+  import os
 
-![Rotated Surface Code Coordinates](figs/rotated_surface_code_coords.png)
+  expmt = RotatedSurfaceCode_Memory(
+      d=5,
+      rounds=50,
+      basis='Z',
+      data_qubit_error_rate=0.01,
+      meas_error_rate=0.01,
+  )
 
-![Rotated Surface Code Indices](figs/rotated_surface_code_indices.png)
+  decoder = DMemBPDecoder(
+      expmt.chkmat,
+      expmt.prior,
+      gamma=np.random.uniform(0, 1, size=(expmt.num_error_mechanisms,)),
+      max_iter=50)
+  sinter_decoder = SinterDecoderWrapper(decoder, expmt.obsmat)
+  custom_decoders = {'dmembp': sinter_decoder}
+
+  tasks = [sinter.Task(
+      circuit=expmt.circuit,
+      decoder='dmembp',
+      json_metadata={'d': 5, 'rounds': 5, 'p': 0.01},
+  )]
+
+  stats = sinter.collect(
+      num_workers=os.cpu_count() - 1,
+      max_shots=10_000_000,
+      max_errors=100,
+      tasks=tasks,
+      custom_decoders=custom_decoders,
+      print_progress=True,
+  )
+  ```
