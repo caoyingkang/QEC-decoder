@@ -116,3 +116,5 @@ The ultimate goal is a fast real-time decoder implementable on FPGA with submicr
       print_progress=True,
   )
   ```
+
+- More examples can be found under the folder `/notebooks` and `/pytorch`.
