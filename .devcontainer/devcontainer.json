@@ -1,0 +1,17 @@
+{
+    "build": {"dockerfile": "Dockerfile"},
+    "hostRequirements": { "gpu": true },
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "python.defaultInterpreterPath": "/opt/venv/bin/python",
+                "python.terminal.activateEnvironment": true
+            },
+            "extensions": [
+                "ms-python.python"
+            ]
+        }
+    },
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+    "runArgs": ["--gpus", "all"]
+}
