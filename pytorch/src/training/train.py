@@ -110,8 +110,8 @@ def train_decoder(
             mininterval=1.0
         ) as pbar:
             for syndromes, observables in pbar:
-                syndromes = syndromes.to(device)
-                observables = observables.to(device)
+                syndromes = syndromes.to(device, non_blocking=True)
+                observables = observables.to(device, non_blocking=True)
                 optimizer.zero_grad()
 
                 # Forward pass.
@@ -136,8 +136,8 @@ def train_decoder(
         running_loss = 0.0
         with torch.no_grad():
             for syndromes, observables in val_dataloader:
-                syndromes = syndromes.to(device)
-                observables = observables.to(device)
+                syndromes = syndromes.to(device, non_blocking=True)
+                observables = observables.to(device, non_blocking=True)
 
                 # Forward pass
                 llrs = decoder(syndromes)

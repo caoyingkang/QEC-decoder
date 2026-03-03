@@ -1,5 +1,6 @@
 from datetime import datetime
 import sys
+import os
 from pathlib import Path
 import argparse
 
@@ -41,8 +42,22 @@ if __name__ == "__main__":
     val_dataset = DecodingDataset.load_from_file(dataset_dir / "val_dataset.pt")
     print(f"Size of train_dataset: {len(train_dataset)}")
     print(f"Size of val_dataset: {len(val_dataset)}")
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    num_available_cpus = len(os.sched_getaffinity(0))
+    print(f"Number of available CPUs: {num_available_cpus}")
+    train_dataloader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        pin_memory=True,
+        shuffle=True,
+        num_workers=num_available_cpus,
+    )
+    val_dataloader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        pin_memory=True,
+        shuffle=False,
+        num_workers=num_available_cpus,
+    )
 
     # Set up decoding task.
     expmt = RotatedSurfaceCode_Memory(
