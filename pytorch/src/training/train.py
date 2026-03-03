@@ -102,31 +102,32 @@ def train_decoder(
         # Training phase.
         decoder.train()
         running_loss = 0.0
-        pbar = tqdm(
+        with tqdm(
             train_dataloader,
             desc=f"Epoch {epoch+1}/{num_epochs}",
             total=len(train_dataloader),
-            disable=not progress_bar
-        )
-        for syndromes, observables in pbar:
-            syndromes = syndromes.to(device)
-            observables = observables.to(device)
-            optimizer.zero_grad()
+            disable=not progress_bar,
+            mininterval=1.0
+        ) as pbar:
+            for syndromes, observables in pbar:
+                syndromes = syndromes.to(device)
+                observables = observables.to(device)
+                optimizer.zero_grad()
 
-            # Forward pass.
-            llrs = decoder(syndromes)
-            loss = loss_fn(llrs, syndromes, observables)
-            running_loss += loss.item()
+                # Forward pass.
+                llrs = decoder(syndromes)
+                loss = loss_fn(llrs, syndromes, observables)
+                running_loss += loss.item()
 
-            # Backpropagation.
-            loss.backward()
-            if progress_bar:
-                grad_norm = nn.utils.clip_grad_norm_(decoder.parameters(), max_norm=float('inf'))
-                pbar.set_postfix({
-                    "avg_loss": f"{running_loss / (pbar.n + 1):.6f}",
-                    "grad_norm": f"{grad_norm:.6f}"
-                })
-            optimizer.step()
+                # Backpropagation.
+                loss.backward()
+                if progress_bar:
+                    grad_norm = nn.utils.clip_grad_norm_(decoder.parameters(), max_norm=float('inf'))
+                    pbar.set_postfix({
+                        "avg_loss": f"{running_loss / (pbar.n + 1):.6f}",
+                        "grad_norm": f"{grad_norm:.6f}"
+                    })
+                optimizer.step()
         avg_train_loss = running_loss / len(train_dataloader)
 
         # Validation phase.
