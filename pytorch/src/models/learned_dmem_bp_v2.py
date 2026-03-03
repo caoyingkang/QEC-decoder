@@ -1,0 +1,216 @@
+from typing import Literal, Optional
+
+import numpy as np
+import torch
+import torch.nn as nn
+
+EPS = 1e-6
+BIG = 1e8
+FLOAT_DTYPE = torch.float32
+
+
+class Learned_DMemBPDecoder_V2(nn.Module):
+    """
+    GPU-optimized Disordered Memory BP decoder with trainable memory strength.
+
+    Functionally equivalent to Learned_DMemBPDecoder but replaces per-node
+    Python loops with vectorized tensor operations via padded edge-based
+    message passing, dramatically reducing CUDA kernel launch overhead.
+    """
+
+    def __init__(
+        self,
+        pcm: np.ndarray,
+        prior: np.ndarray,
+        *,
+        num_iters: int,
+        min_impl_method: Literal["smooth", "hard"] = "smooth",
+        sign_impl_method: Literal["smooth", "hard"] = "smooth",
+        gamma_init: Optional[np.ndarray] = None
+    ):
+        """
+        Parameters
+        ----------
+            pcm : ndarray
+                Parity-check matrix ∈ {0,1}, shape=(num_chks, num_vars), integer or bool
+
+            prior : ndarray
+                Prior probabilities of errors, shape=(num_vars,), float
+
+            num_iters : int
+                Number of BP iterations.
+
+            min_impl_method : Literal["smooth", "hard"]
+                Implementation method of the min function. Can be "smooth" (based on softmin) or "hard" (using torch.amin).
+
+            sign_impl_method : Literal["smooth", "hard"]
+                Implementation method of the sign function. Can be "smooth" (based on tanh) or "hard" (using torch.sign).
+
+            gamma_init : ndarray | None
+                Initial memory strength, shape=(num_vars,), float. If None, the memory strength is initialized to 0.0.
+        """
+        super().__init__()
+        assert isinstance(pcm, np.ndarray) and isinstance(prior, np.ndarray)
+        assert np.issubdtype(pcm.dtype, np.integer) or np.issubdtype(pcm.dtype, np.bool_)
+        assert np.issubdtype(prior.dtype, np.floating)
+        assert pcm.ndim == 2
+        self.num_chks, self.num_vars = pcm.shape
+        assert prior.shape == (self.num_vars,)
+        self.num_iters = num_iters
+
+        if min_impl_method == "smooth":
+            from ..utils.tensor_utils import smooth_min
+            self.min_func = smooth_min
+        elif min_impl_method == "hard":
+            self.min_func = torch.amin
+        else:
+            raise ValueError(f"Invalid min_impl_method: {min_impl_method}")
+
+        if sign_impl_method == "smooth":
+            from ..utils.tensor_utils import smooth_sign
+            self.sign_func = smooth_sign
+        elif sign_impl_method == "hard":
+            self.sign_func = torch.sign
+        else:
+            raise ValueError(f"Invalid sign_impl_method: {sign_impl_method}")
+
+        # Build edge list from parity-check matrix.
+        edge_to_cn, edge_to_vn = np.nonzero(pcm)
+        num_edges = len(edge_to_cn)
+        self.num_edges = num_edges
+
+        # Build padded CN → edge table.
+        # cn_edge_idx[i, k] = edge index for CN i's k-th neighbor (padded with num_edges).
+        # cn_mask[i, k] = True if CN i has k-th neighbor, False otherwise.
+        cn_deg = pcm.sum(axis=1).astype(int)
+        self.max_cn_deg = int(cn_deg.max())
+        cn_edge_idx = np.full((self.num_chks, self.max_cn_deg), num_edges, dtype=np.int64)
+        cn_mask = np.zeros((self.num_chks, self.max_cn_deg), dtype=bool)
+        cn_cursor = np.zeros(self.num_chks, dtype=int)
+        for e in range(num_edges):
+            i = edge_to_cn[e]
+            k = cn_cursor[i]
+            cn_edge_idx[i, k] = e
+            cn_mask[i, k] = True
+            cn_cursor[i] += 1
+
+        # Build padded VN → edge table.
+        # vn_edge_idx[j, k] = edge index for VN j's k-th neighbor (padded with num_edges).
+        # vn_mask[j, k] = True if VN j has k-th neighbor, False otherwise.
+        vn_deg = pcm.sum(axis=0).astype(int)
+        self.max_vn_deg = int(vn_deg.max())
+        vn_edge_idx = np.full((self.num_vars, self.max_vn_deg), num_edges, dtype=np.int64)
+        vn_mask = np.zeros((self.num_vars, self.max_vn_deg), dtype=bool)
+        vn_cursor = np.zeros(self.num_vars, dtype=int)
+        for e in range(num_edges):
+            j = edge_to_vn[e]
+            k = vn_cursor[j]
+            vn_edge_idx[j, k] = e
+            vn_mask[j, k] = True
+            vn_cursor[j] += 1
+
+        # Register index buffers.
+        self.register_buffer("edge_to_vn", torch.tensor(edge_to_vn, dtype=torch.long)) # (num_edges,)
+        self.register_buffer("cn_edge_idx", torch.tensor(cn_edge_idx, dtype=torch.long)) # (num_chks, max_cn_deg)
+        self.register_buffer("cn_mask", torch.tensor(cn_mask, dtype=torch.bool)) # (num_chks, max_cn_deg)
+        self.register_buffer("vn_edge_idx", torch.tensor(vn_edge_idx, dtype=torch.long)) # (num_vars, max_vn_deg)
+        self.register_buffer("vn_mask", torch.tensor(vn_mask, dtype=torch.bool)) # (num_vars, max_vn_deg)
+        self.register_buffer("cn_diag_mask", torch.eye(self.max_cn_deg, dtype=torch.bool)) # (max_cn_deg, max_cn_deg)
+
+        # Register prior LLRs.
+        prior = np.clip(prior, min=EPS, max=1 - EPS)
+        prior_llr = np.log((1 - prior) / prior)
+        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=FLOAT_DTYPE))  # (num_vars,)
+
+        # Trainable memory strength as a single tensor (not ParameterList).
+        if gamma_init is None:
+            self.gamma = nn.Parameter(torch.zeros(self.num_vars, dtype=FLOAT_DTYPE))
+        else:
+            assert isinstance(gamma_init, np.ndarray)
+            assert np.issubdtype(gamma_init.dtype, np.floating)
+            assert gamma_init.shape == (self.num_vars,)
+            self.gamma = nn.Parameter(torch.tensor(gamma_init, dtype=FLOAT_DTYPE))
+
+    def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+            syndromes : torch.Tensor
+                Syndrome bits ∈ {0,1}, shape=(batch_size, num_chks), int
+
+        Returns
+        -------
+            llrs : torch.Tensor
+                LLR values at all BP iterations, shape=(num_iters, batch_size, num_vars), float
+        """
+        device = syndromes.device
+        batch_size = syndromes.shape[0]
+        synd_sgn = (1 - 2 * syndromes).to(FLOAT_DTYPE)  # (batch, num_chks) ∈ {+1,-1}
+
+        # Edge message arrays with a dummy slot at index num_edges for padding.
+        vn_to_cn = torch.zeros(batch_size, self.num_edges + 1, device=device, dtype=FLOAT_DTYPE)
+        cn_to_vn = torch.zeros(batch_size, self.num_edges + 1, device=device, dtype=FLOAT_DTYPE)
+
+        # Initialize VN→CN messages with prior LLRs.
+        vn_to_cn[:, :self.num_edges] = self.prior_llr[self.edge_to_vn]
+
+        # Pre-expand flattened index tensors for scatter.
+        cn_flat_idx = self.cn_edge_idx.reshape(1, -1).expand(batch_size, -1)
+        vn_flat_idx = self.vn_edge_idx.reshape(1, -1).expand(batch_size, -1)
+
+        cn_mask_3d = self.cn_mask.unsqueeze(0)   # (1, num_chks, max_cn_deg)
+        vn_mask_3d = self.vn_mask.unsqueeze(0)   # (1, num_vars, max_vn_deg)
+        D = self.max_cn_deg
+
+        llrs_list: list[torch.Tensor] = []
+        prev_llrs = None
+
+        for t in range(self.num_iters):
+            # ==================== CN update ====================
+            # Gather VN→CN messages for all CNs at once.
+            msgs = vn_to_cn[:, self.cn_edge_idx]            # (batch, num_chks, D)
+            msgs_sgn = self.sign_func(msgs).masked_fill(~cn_mask_3d, 1.0)
+            msgs_abs = msgs.abs().masked_fill(~cn_mask_3d, BIG)
+
+            # Leave-one-out sign product via 4D expansion + diagonal mask.
+            # (batch, num_chks, D, D) → prod along last dim → (batch, num_chks, D)
+            loo_sgn = msgs_sgn.unsqueeze(2).expand(-1, -1, D, -1) \
+                              .masked_fill(self.cn_diag_mask, 1.0) \
+                              .prod(dim=3)
+
+            # Leave-one-out min|abs| via 4D expansion + diagonal mask.
+            loo_abs = msgs_abs.unsqueeze(2).expand(-1, -1, D, -1) \
+                              .masked_fill(self.cn_diag_mask, BIG)
+            loo_abs = self.min_func(loo_abs, dim=3)
+
+            # CN output messages.
+            cn_out = synd_sgn.unsqueeze(2) * loo_sgn * loo_abs   # (batch, num_chks, D)
+
+            # Scatter CN outputs to edge array.
+            cn_to_vn.scatter_(1, cn_flat_idx, cn_out.reshape(batch_size, -1))
+
+            # ==================== VN update ====================
+            # Gather CN→VN messages for all VNs at once.
+            msgs_vn = cn_to_vn[:, self.vn_edge_idx]             # (batch, num_vars, max_vn_deg)
+            msgs_vn = msgs_vn.masked_fill(~vn_mask_3d, 0.0)
+
+            # Sum incoming messages per VN.
+            incoming_sum = msgs_vn.sum(dim=2)                    # (batch, num_vars)
+
+            # Posterior LLR with memory.
+            if t == 0:
+                llrs = incoming_sum + self.prior_llr
+            else:
+                llrs = incoming_sum + \
+                    (1 - self.gamma) * self.prior_llr + \
+                    self.gamma * prev_llrs
+
+            llrs_list.append(llrs)
+            prev_llrs = llrs
+
+            # Outgoing VN→CN messages (skip on last iteration).
+            if t < self.num_iters - 1:
+                outgoing = llrs.unsqueeze(2) - msgs_vn           # (batch, num_vars, max_vn_deg)
+                vn_to_cn.scatter_(1, vn_flat_idx, outgoing.reshape(batch_size, -1))
+
+        return torch.stack(llrs_list, dim=0)  # (num_iters, batch, num_vars)
