@@ -147,7 +147,11 @@ class Learned_DMemBPDecoder_V2(nn.Module):
         batch_size = syndromes.shape[0]
         synd_sgn = (1 - 2 * syndromes).to(FLOAT_DTYPE)  # (batch, num_chks) ∈ {+1,-1}
 
-        # Edge message arrays with a dummy slot at index num_edges for padding.
+        # Edge message arrays.
+        # vn_to_cn[:, e], 0 <= e < num_edges, is the message along edge e from VN to CN.
+        # cn_to_vn[:, e], 0 <= e < num_edges, is the message along edge e from CN to VN.
+        # vn_to_cn[:, num_edges] is a dummy slot, so that vn_to_cn[:, self.cn_edge_idx] will not raise out-of-bounds error.
+        # cn_to_vn[:, num_edges] is a dummy slot, so that cn_to_vn[:, self.vn_edge_idx] will not raise out-of-bounds error.
         vn_to_cn = torch.zeros(batch_size, self.num_edges + 1, device=device, dtype=FLOAT_DTYPE)
         cn_to_vn = torch.zeros(batch_size, self.num_edges + 1, device=device, dtype=FLOAT_DTYPE)
 
@@ -155,62 +159,61 @@ class Learned_DMemBPDecoder_V2(nn.Module):
         vn_to_cn[:, :self.num_edges] = self.prior_llr[self.edge_to_vn]
 
         # Pre-expand flattened index tensors for scatter.
-        cn_flat_idx = self.cn_edge_idx.reshape(1, -1).expand(batch_size, -1)
-        vn_flat_idx = self.vn_edge_idx.reshape(1, -1).expand(batch_size, -1)
+        cn_flat_idx = self.cn_edge_idx.reshape(1, -1).expand(batch_size, -1)  # (batch, num_chks * max_cn_deg)
+        vn_flat_idx = self.vn_edge_idx.reshape(1, -1).expand(batch_size, -1)  # (batch, num_vars * max_vn_deg)
 
-        cn_mask_3d = self.cn_mask.unsqueeze(0)   # (1, num_chks, max_cn_deg)
-        vn_mask_3d = self.vn_mask.unsqueeze(0)   # (1, num_vars, max_vn_deg)
-        D = self.max_cn_deg
+        cn_mask_3d = self.cn_mask.unsqueeze(0)  # (1, num_chks, max_cn_deg)
+        vn_mask_3d = self.vn_mask.unsqueeze(0)  # (1, num_vars, max_vn_deg)
 
         llrs_list: list[torch.Tensor] = []
         prev_llrs = None
 
         for t in range(self.num_iters):
             # ==================== CN update ====================
-            # Gather VN→CN messages for all CNs at once.
-            msgs = vn_to_cn[:, self.cn_edge_idx]            # (batch, num_chks, D)
-            msgs_sgn = self.sign_func(msgs).masked_fill(~cn_mask_3d, 1.0)
-            msgs_abs = msgs.abs().masked_fill(~cn_mask_3d, BIG)
+            # Gather incoming messages at all CNs.
+            msgs_cn = vn_to_cn[:, self.cn_edge_idx]  # (batch, num_chks, max_cn_deg)
+            msgs_sgn = self.sign_func(msgs_cn).masked_fill(~cn_mask_3d, 1.0)  # (batch, num_chks, max_cn_deg)
+            msgs_abs = msgs_cn.abs().masked_fill(~cn_mask_3d, BIG)  # (batch, num_chks, max_cn_deg)
 
             # Leave-one-out sign product via 4D expansion + diagonal mask.
-            # (batch, num_chks, D, D) → prod along last dim → (batch, num_chks, D)
-            loo_sgn = msgs_sgn.unsqueeze(2).expand(-1, -1, D, -1) \
-                              .masked_fill(self.cn_diag_mask, 1.0) \
-                              .prod(dim=3)
+            msgs_sgn_4d = msgs_sgn.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (batch, num_chks, max_cn_deg, max_cn_deg)
+            loo_sgn_prod = msgs_sgn_4d.masked_fill(self.cn_diag_mask, 1.0).prod(dim=3)  # (batch, num_chks, max_cn_deg)
 
-            # Leave-one-out min|abs| via 4D expansion + diagonal mask.
-            loo_abs = msgs_abs.unsqueeze(2).expand(-1, -1, D, -1) \
-                              .masked_fill(self.cn_diag_mask, BIG)
-            loo_abs = self.min_func(loo_abs, dim=3)
+            # Leave-one-out min abs via 4D expansion + diagonal mask.
+            msgs_abs_4d = msgs_abs.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (batch, num_chks, max_cn_deg, max_cn_deg)
+            loo_abs_min = self.min_func(msgs_abs_4d.masked_fill(self.cn_diag_mask, BIG), dim=3)  # (batch, num_chks, max_cn_deg)
 
             # CN output messages.
-            cn_out = synd_sgn.unsqueeze(2) * loo_sgn * loo_abs   # (batch, num_chks, D)
+            cn_out = synd_sgn.unsqueeze(2) * loo_sgn_prod * loo_abs_min   # (batch, num_chks, max_cn_deg)
 
             # Scatter CN outputs to edge array.
+            # The values in cn_to_vn[:, num_edges] will be non-deterministic, but it's okay because they will be masked out during VN update.
             cn_to_vn.scatter_(1, cn_flat_idx, cn_out.reshape(batch_size, -1))
 
             # ==================== VN update ====================
-            # Gather CN→VN messages for all VNs at once.
-            msgs_vn = cn_to_vn[:, self.vn_edge_idx]             # (batch, num_vars, max_vn_deg)
-            msgs_vn = msgs_vn.masked_fill(~vn_mask_3d, 0.0)
+            # Gather incoming messages at all VNs.
+            msgs_vn = cn_to_vn[:, self.vn_edge_idx]  # (batch, num_vars, max_vn_deg)
+            msgs_vn = msgs_vn.masked_fill(~vn_mask_3d, 0.0)  # (batch, num_vars, max_vn_deg)
 
             # Sum incoming messages per VN.
-            incoming_sum = msgs_vn.sum(dim=2)                    # (batch, num_vars)
+            incoming_sum = msgs_vn.sum(dim=2)  # (batch, num_vars)
 
             # Posterior LLR with memory.
             if t == 0:
-                llrs = incoming_sum + self.prior_llr
+                llrs = incoming_sum + self.prior_llr  # (batch, num_vars)
             else:
                 llrs = incoming_sum + \
-                    (1 - self.gamma) * self.prior_llr + \
-                    self.gamma * prev_llrs
+                    (1.0 - self.gamma) * self.prior_llr + \
+                    self.gamma * prev_llrs  # (batch, num_vars)
 
             llrs_list.append(llrs)
             prev_llrs = llrs
 
-            # Outgoing VN→CN messages (skip on last iteration).
-            if t < self.num_iters - 1:
-                outgoing = llrs.unsqueeze(2) - msgs_vn           # (batch, num_vars, max_vn_deg)
-                vn_to_cn.scatter_(1, vn_flat_idx, outgoing.reshape(batch_size, -1))
+            if t < self.num_iters - 1:  # skip VN→CN messages in the last iteration
+                # VN output messages.
+                vn_out = llrs.unsqueeze(2) - msgs_vn  # (batch, num_vars, max_vn_deg)
+                # Scatter VN outputs to edge array.
+                # The values in vn_to_cn[:, num_edges] will be non-deterministic, but it's okay because they will be masked out during CN update.
+                vn_to_cn.scatter_(1, vn_flat_idx, vn_out.reshape(batch_size, -1))
 
         return torch.stack(llrs_list, dim=0)  # (num_iters, batch, num_vars)
