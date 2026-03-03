@@ -42,21 +42,21 @@ if __name__ == "__main__":
     val_dataset = DecodingDataset.load_from_file(dataset_dir / "val_dataset.pt")
     print(f"Size of train_dataset: {len(train_dataset)}")
     print(f"Size of val_dataset: {len(val_dataset)}")
-    num_available_cpus = len(os.sched_getaffinity(0))
-    print(f"Number of available CPUs: {num_available_cpus}")
+    num_cpus = os.cpu_count()
+    print(f"Number of CPUs: {num_cpus}")
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         pin_memory=True,
         shuffle=True,
-        num_workers=num_available_cpus,
+        num_workers=num_cpus,
     )
     val_dataloader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         pin_memory=True,
         shuffle=False,
-        num_workers=num_available_cpus,
+        num_workers=num_cpus,
     )
 
     # Set up decoding task.
@@ -72,8 +72,8 @@ if __name__ == "__main__":
     print("Number of observables:", expmt.num_observables)
 
     # Set up training components.
-    decoder = Learned_DMemBPDecoder(expmt.chkmat, expmt.prior, **decoder_kwargs)
-    # decoder = Learned_DMemBPDecoder_V2(expmt.chkmat, expmt.prior, **decoder_kwargs)
+    # decoder = Learned_DMemBPDecoder(expmt.chkmat, expmt.prior, **decoder_kwargs)
+    decoder = Learned_DMemBPDecoder_V2(expmt.chkmat, expmt.prior, **decoder_kwargs)
     loss_fn = IterativeDecodingLoss(expmt.chkmat, expmt.obsmat, **loss_fn_kwargs)
     metric = DecodingMetric(expmt.chkmat, expmt.obsmat)
     optimizer = torch.optim.Adam(decoder.parameters(), **optimizer_kwargs)
