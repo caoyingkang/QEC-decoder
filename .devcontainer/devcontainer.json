@@ -13,5 +13,11 @@
         }
     },
     "postCreateCommand": "bash .devcontainer/post-create.sh",
-    "runArgs": ["--gpus", "all"]
+    "runArgs": [
+        "--gpus",
+        "all"
+    ],
+    "mounts": [
+        "source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind"
+    ]
 }
