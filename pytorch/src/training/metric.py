@@ -31,8 +31,8 @@ class DecodingMetric(Metric):
         assert chkmat.ndim == 2 and obsmat.ndim == 2
         assert chkmat.shape[1] == obsmat.shape[1]
 
-        self.register_buffer("chkmat", torch.as_tensor(chkmat, dtype=INT_DTYPE))
-        self.register_buffer("obsmat", torch.as_tensor(obsmat, dtype=INT_DTYPE))
+        self.chkmat = torch.as_tensor(chkmat, dtype=INT_DTYPE)
+        self.obsmat = torch.as_tensor(obsmat, dtype=INT_DTYPE)
 
         self.add_state("wrong_syndrome", default=torch.tensor(0), dist_reduce_fx="sum")
         self.add_state("wrong_observable", default=torch.tensor(0), dist_reduce_fx="sum")
@@ -41,26 +41,25 @@ class DecodingMetric(Metric):
 
     def update(
         self,
-        llrs: torch.Tensor,
+        hard_decisions: torch.Tensor,
         syndromes: torch.Tensor,
         observables: torch.Tensor
     ):
         """
         Parameters
         ----------
-            llrs : torch.Tensor
-                LLR values at all iterations, shape=(num_iters, batch_size, num_vars), float
+            hard_decisions : torch.Tensor
+                Hard decisions ∈ {0,1} at all iterations, shape=(num_iters, batch_size, num_vars), int, device=cpu
 
             syndromes : torch.Tensor
-                Syndrome bits ∈ {0,1}, shape=(batch_size, num_chks), int
+                Syndrome bits ∈ {0,1}, shape=(batch_size, num_chks), int, device=cpu
 
             observables : torch.Tensor
-                Observable bits ∈ {0,1}, shape=(batch_size, num_obsers), int
+                Observable bits ∈ {0,1}, shape=(batch_size, num_obsers), int, device=cpu
         """
-        num_iters, batch_size, num_vars = llrs.shape
+        num_iters, batch_size, num_vars = hard_decisions.shape
 
         # For each shot, check if the decoder converges, i.e., whether the syndrome is matched at any iteration
-        hard_decisions = (llrs < 0).to(INT_DTYPE)  # (num_iters, batch_size, num_vars), int, 0/1
         synd_pred = torch.matmul(hard_decisions, self.chkmat.T) % 2  # (num_iters, batch_size, num_chks), int, 0/1
         synd_matched_mask = torch.all(synd_pred == syndromes.unsqueeze(dim=0), dim=2)  # (num_iters, batch_size), bool
         converged_mask = torch.any(synd_matched_mask, dim=0)  # (batch_size,), bool

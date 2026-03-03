@@ -9,6 +9,8 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from ..training import IterativeDecodingLoss, DecodingMetric, EarlyStopper
 
+INT_DTYPE = torch.int32
+
 
 def train_decoder(
     decoder: nn.Module,
@@ -19,10 +21,10 @@ def train_decoder(
     optimizer: torch.optim.Optimizer,
     *,
     num_epochs: int,
+    checkpoint_dir: str | Path,
     device: Optional[str] = None,
     lr_scheduler: Optional[ReduceLROnPlateau] = None,
     early_stopper: Optional[EarlyStopper] = None,
-    checkpoint_dir: Optional[str | Path] = None,
     progress_bar: bool = True,
 ):
     """
@@ -51,6 +53,9 @@ def train_decoder(
         num_epochs : int
             The number of epochs.
 
+        checkpoint_dir : str | Path
+            The directory to save/load checkpoints.
+
         device : str | None
             The device to train on. If None, let PyTorch determine the device automatically.
 
@@ -59,9 +64,6 @@ def train_decoder(
 
         early_stopper : EarlyStopper | None
             The early stopper. If None, do not use early stopping.
-
-        checkpoint_dir : str | Path | None
-            The directory to save/load checkpoints. If None, do not save/load checkpoints.
 
         progress_bar : bool
             Whether to show a progress bar.
@@ -73,29 +75,27 @@ def train_decoder(
             device = "cpu"
     print(f"Using {device} device")
 
-    start_epoch = 0
-    if checkpoint_dir is not None:
-        if isinstance(checkpoint_dir, str):
-            checkpoint_dir = Path(checkpoint_dir)
-        checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        checkpoint_file = checkpoint_dir / "last_checkpoint.pt"
-        best_model_file = checkpoint_dir / "best_model.pt"
-        # Load last checkpoint if it exists.
-        if checkpoint_file.exists():
-            print(f"Loading last checkpoint from {checkpoint_file}...")
-            chkpt = torch.load(checkpoint_file)
-            decoder.load_state_dict(chkpt["model_state_dict"])
-            optimizer.load_state_dict(chkpt["optimizer_state_dict"])
-            if lr_scheduler is not None:
-                lr_scheduler.load_state_dict(chkpt["lr_scheduler_state_dict"])
-            start_epoch = chkpt["epoch"] + 1
-            best_val_loss = chkpt["best_val_loss"]
-        else:
-            print("No checkpoint found, starting from scratch...")
-            best_val_loss = float('inf')
+    if isinstance(checkpoint_dir, str):
+        checkpoint_dir = Path(checkpoint_dir)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_file = checkpoint_dir / "last_checkpoint.pt"
+    best_model_file = checkpoint_dir / "best_model.pt"
+    # Load last checkpoint if it exists.
+    if checkpoint_file.exists():
+        print(f"Loading last checkpoint from {checkpoint_file}...")
+        chkpt = torch.load(checkpoint_file)
+        decoder.load_state_dict(chkpt["model_state_dict"])
+        optimizer.load_state_dict(chkpt["optimizer_state_dict"])
+        if lr_scheduler is not None:
+            lr_scheduler.load_state_dict(chkpt["lr_scheduler_state_dict"])
+        start_epoch = chkpt["epoch"] + 1
+        best_val_loss = chkpt["best_val_loss"]
+    else:
+        print("No checkpoint found, starting from scratch...")
+        start_epoch = 0
+        best_val_loss = float('inf')
 
     decoder = decoder.to(device)
-    metric = metric.to(device)
 
     # Train model.
     for epoch in range(start_epoch, num_epochs):
@@ -143,7 +143,10 @@ def train_decoder(
                 llrs = decoder(syndromes)
                 loss = loss_fn(llrs, syndromes, observables)
                 running_loss += loss.item()
-                metric.update(llrs, syndromes, observables)
+
+                # Update metric
+                hard_decisions = (llrs < 0).to(INT_DTYPE)
+                metric.update(hard_decisions.cpu(), syndromes.cpu(), observables.cpu())
         avg_val_loss = running_loss / len(val_dataloader)
         val_metrics = metric.compute()
 
@@ -168,15 +171,14 @@ def train_decoder(
             print(f"New best model saved to {best_model_file}.")
 
         # Save checkpoint.
-        if checkpoint_dir is not None:
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': decoder.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'lr_scheduler_state_dict': lr_scheduler.state_dict() if lr_scheduler is not None else None,
-                'best_val_loss': best_val_loss
-            }, checkpoint_file)
-            print(f"Checkpoint saved to {checkpoint_file}.")
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': decoder.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'lr_scheduler_state_dict': lr_scheduler.state_dict() if lr_scheduler is not None else None,
+            'best_val_loss': best_val_loss
+        }, checkpoint_file)
+        print(f"Checkpoint saved to {checkpoint_file}.")
 
         # Update early stopper.
         if early_stopper is not None:

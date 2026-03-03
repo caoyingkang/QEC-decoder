@@ -64,6 +64,10 @@ if __name__ == "__main__":
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, **lr_scheduler_kwargs)
     early_stopper = EarlyStopper(**early_stopper_kwargs)
 
+    # Set checkpoint directory.
+    checkpoint_dir = Path(__file__).resolve().parent.parent / "checkpoints" / "dmembp" \
+        / "rotated_surface_code_memory_Z" / f"d={d}_rounds={rounds}_p={p}"
+
     # Train decoder.
     train_decoder(
         decoder,
@@ -73,6 +77,7 @@ if __name__ == "__main__":
         metric,
         optimizer,
         num_epochs=num_epochs,
+        checkpoint_dir=checkpoint_dir,
         # device="cpu",
         lr_scheduler=lr_scheduler,
         early_stopper=early_stopper,
