@@ -24,7 +24,7 @@ if __name__ == "__main__":
     # Import modules.
     sys.path.append(str(Path(__file__).resolve().parent.parent))
     from src.dataset import DecodingDataset
-    from src.models import Learned_DMemBPDecoder, Learned_DMemBPDecoder_V2
+    from src.models import LearnedDMemBPDecoder
     from src.training import *
 
     # Set training parameters. # TODO: make config file
@@ -72,8 +72,7 @@ if __name__ == "__main__":
     print("Number of observables:", expmt.num_observables)
 
     # Set up training components.
-    # decoder = Learned_DMemBPDecoder(expmt.chkmat, expmt.prior, **decoder_kwargs)
-    decoder = Learned_DMemBPDecoder_V2(expmt.chkmat, expmt.prior, **decoder_kwargs)
+    decoder = LearnedDMemBPDecoder(expmt.chkmat, expmt.prior, **decoder_kwargs)
     loss_fn = IterativeDecodingLoss(expmt.chkmat, expmt.obsmat, **loss_fn_kwargs)
     metric = DecodingMetric(expmt.chkmat, expmt.obsmat)
     optimizer = torch.optim.Adam(decoder.parameters(), **optimizer_kwargs)

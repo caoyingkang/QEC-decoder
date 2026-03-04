@@ -9,13 +9,9 @@ BIG = 1e8
 FLOAT_DTYPE = torch.float32
 
 
-class Learned_DMemBPDecoder_V2(nn.Module):
+class LearnedDMemBPDecoder(nn.Module):
     """
-    GPU-optimized Disordered Memory BP decoder with trainable memory strength.
-
-    Functionally equivalent to Learned_DMemBPDecoder but replaces per-node
-    Python loops with vectorized tensor operations via padded edge-based
-    message passing, dramatically reducing CUDA kernel launch overhead.
+    Disordered Memory BP decoder with trainable memory strength.
     """
 
     def __init__(
