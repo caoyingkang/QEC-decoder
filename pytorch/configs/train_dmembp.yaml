@@ -17,6 +17,11 @@ loss:
 
 optim:
   lr: 0.002
+  lr_scheduler:
+    factor: 0.2
+    patience: 3
+    threshold: 0.001
+    threshold_mode: abs
 
 early_stopping:
   min_delta: 0.0001

@@ -69,17 +69,17 @@ class DecodingModule(L.LightningModule):
         # Set example input array for tensorboard to log model graph.
         self.example_input_array = torch.randint(0, 2, (1, chkmat.shape[0]))
 
-    def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
+    def forward(self, syndromes: torch.Tensor):
         return self.decoder(syndromes)
 
-    def training_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
+    def training_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers)
         llrs = self(syndromes)  # (num_iters, batch_size, num_vars)
         loss = self.loss_fn(llrs, syndromes, observables)
         self.log('train_loss', loss, prog_bar=True)
         return loss
 
-    def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
+    def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers)
         llrs = self(syndromes)  # (num_iters, batch_size, num_vars)
         loss = self.loss_fn(llrs, syndromes, observables)
@@ -87,10 +87,28 @@ class DecodingModule(L.LightningModule):
         self.metric.update(llrs.cpu(), syndromes.cpu(), observables.cpu())
         return loss
 
-    def on_validation_epoch_end(self) -> None:
+    def on_validation_epoch_end(self):
         val_metrics = self.metric.compute()
         self.log_dict(val_metrics)
         self.metric.reset()
 
-    def configure_optimizers(self) -> torch.optim.Optimizer:
-        return torch.optim.Adam(self.decoder.parameters(), lr=self.hparams.optim_cfg.lr)
+    def configure_optimizers(self):
+        optcfg = self.hparams.optim_cfg
+        lrcfg = optcfg.lr_scheduler
+        optimizer = torch.optim.Adam(self.decoder.parameters(), lr=optcfg.lr)
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            factor=lrcfg.factor,
+            patience=lrcfg.patience,
+            threshold=lrcfg.threshold,
+            threshold_mode=lrcfg.threshold_mode,
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": lr_scheduler,
+                "monitor": "val_loss",
+                "interval": "epoch",
+                "frequency": 1,
+            }
+        }
