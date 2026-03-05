@@ -10,4 +10,5 @@ scratch.ipynb
 pytorch/datasets/
 pytorch/checkpoints/
 lightning_logs/
+uv.lock
 __hidden__*

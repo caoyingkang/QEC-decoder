@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import lightning as L
+from omegaconf import DictConfig
 
 from .models import build_decoder_model
 from .loss import IterativeDecodingLoss
@@ -18,9 +19,9 @@ class DecodingModule(L.LightningModule):
         obsmat: np.ndarray,
         prior: np.ndarray,
         *,
-        model_cfg: dict,
-        loss_cfg: dict,
-        optim_cfg: dict,
+        model_cfg: DictConfig,
+        loss_cfg: DictConfig,
+        optim_cfg: DictConfig,
     ):
         """
         Parameters
@@ -34,13 +35,13 @@ class DecodingModule(L.LightningModule):
             prior : ndarray
                 Prior probabilities of errors, shape=(num_vars,), float
 
-            model_cfg : dict
+            model_cfg : DictConfig
                 Configuration for the decoder model.
 
-            loss_cfg : dict
+            loss_cfg : DictConfig
                 Configuration for the loss function.
 
-            optim_cfg : dict
+            optim_cfg : DictConfig
                 Configuration for the optimizer.
         """
         super().__init__()
@@ -60,8 +61,8 @@ class DecodingModule(L.LightningModule):
         # Set up loss function and metric.
         self.loss_fn = IterativeDecodingLoss(
             chkmat, obsmat,
-            beta=loss_cfg["beta"],
-            skip_iters=loss_cfg["skip_iters"],
+            beta=loss_cfg.beta,
+            skip_iters=loss_cfg.skip_iters,
         )
         self.metric = DecodingMetric(chkmat, obsmat)
 
@@ -92,4 +93,4 @@ class DecodingModule(L.LightningModule):
         self.metric.reset()
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
-        return torch.optim.Adam(self.decoder.parameters(), lr=self.hparams.optim_cfg["lr"])
+        return torch.optim.Adam(self.decoder.parameters(), lr=self.hparams.optim_cfg.lr)
