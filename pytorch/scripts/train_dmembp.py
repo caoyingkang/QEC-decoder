@@ -1,5 +1,3 @@
-from src.dataset import DecodingDataModule
-from src.lightning_module import DecodingModule
 import sys
 import os
 from pathlib import Path
@@ -8,9 +6,6 @@ import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping
 from lightning.pytorch.loggers import TensorBoardLogger
 from qecdec import RotatedSurfaceCode_Memory
-
-# Add pytorch directory to sys.path.
-sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 
 # QEC experiment configuration.
@@ -101,4 +96,9 @@ def main():
 
 
 if __name__ == "__main__":
+    # Add pytorch directory to sys.path.
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
+    from src.dataset import DecodingDataModule
+    from src.lightning_module import DecodingModule
+
     main()
