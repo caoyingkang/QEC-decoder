@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 import numpy as np
 import torch
@@ -9,7 +9,7 @@ BIG = 1e8
 FLOAT_DTYPE = torch.float32
 
 
-class LearnedDMemBPDecoder(nn.Module):
+class LearnedDMemBP(nn.Module):
     """
     Disordered Memory BP decoder with trainable memory strength.
     """
@@ -20,15 +20,14 @@ class LearnedDMemBPDecoder(nn.Module):
         prior: np.ndarray,
         *,
         num_iters: int,
-        min_impl_method: Literal["smooth", "hard"] = "smooth",
-        sign_impl_method: Literal["smooth", "hard"] = "smooth",
-        gamma_init: Optional[np.ndarray] = None
+        min_impl_method: Literal["smooth", "hard"],
+        sign_impl_method: Literal["smooth", "hard"],
     ):
         """
         Parameters
         ----------
             pcm : ndarray
-                Parity-check matrix ∈ {0,1}, shape=(num_chks, num_vars), integer or bool
+                Parity-check matrix, shape=(num_chks, num_vars), integer ∈ {0,1} or bool
 
             prior : ndarray
                 Prior probabilities of errors, shape=(num_vars,), float
@@ -37,21 +36,13 @@ class LearnedDMemBPDecoder(nn.Module):
                 Number of BP iterations.
 
             min_impl_method : Literal["smooth", "hard"]
-                Implementation method of the min function. Can be "smooth" (based on softmin) or "hard" (using torch.amin).
+                Implementation method of the min function. Options: "smooth" (based on softmin), "hard" (using torch.amin).
 
             sign_impl_method : Literal["smooth", "hard"]
-                Implementation method of the sign function. Can be "smooth" (based on tanh) or "hard" (using torch.sign).
-
-            gamma_init : ndarray | None
-                Initial memory strength, shape=(num_vars,), float. If None, the memory strength is initialized to 0.0.
+                Implementation method of the sign function. Options: "smooth" (based on tanh), "hard" (using torch.sign).
         """
         super().__init__()
-        assert isinstance(pcm, np.ndarray) and isinstance(prior, np.ndarray)
-        assert np.issubdtype(pcm.dtype, np.integer) or np.issubdtype(pcm.dtype, np.bool_)
-        assert np.issubdtype(prior.dtype, np.floating)
-        assert pcm.ndim == 2
         self.num_chks, self.num_vars = pcm.shape
-        assert prior.shape == (self.num_vars,)
         self.num_iters = num_iters
 
         if min_impl_method == "smooth":
@@ -60,7 +51,7 @@ class LearnedDMemBPDecoder(nn.Module):
         elif min_impl_method == "hard":
             self.min_func = torch.amin
         else:
-            raise ValueError(f"Invalid min_impl_method: {min_impl_method}")
+            raise ValueError(f"Invalid min_impl_method: {min_impl_method!r}")
 
         if sign_impl_method == "smooth":
             from ..utils.tensor_utils import smooth_sign
@@ -68,7 +59,7 @@ class LearnedDMemBPDecoder(nn.Module):
         elif sign_impl_method == "hard":
             self.sign_func = torch.sign
         else:
-            raise ValueError(f"Invalid sign_impl_method: {sign_impl_method}")
+            raise ValueError(f"Invalid sign_impl_method: {sign_impl_method!r}")
 
         # Build edge list from parity-check matrix.
         edge_to_cn, edge_to_vn = np.nonzero(pcm)
@@ -118,21 +109,15 @@ class LearnedDMemBPDecoder(nn.Module):
         prior_llr = np.log((1 - prior) / prior)
         self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=FLOAT_DTYPE))  # (num_vars,)
 
-        # Trainable memory strength as a single tensor (not ParameterList).
-        if gamma_init is None:
-            self.gamma = nn.Parameter(torch.zeros(self.num_vars, dtype=FLOAT_DTYPE))
-        else:
-            assert isinstance(gamma_init, np.ndarray)
-            assert np.issubdtype(gamma_init.dtype, np.floating)
-            assert gamma_init.shape == (self.num_vars,)
-            self.gamma = nn.Parameter(torch.tensor(gamma_init, dtype=FLOAT_DTYPE))
+        # Initialize trainable parameter: memory strength.
+        self.gamma = nn.Parameter(torch.zeros(self.num_vars, dtype=FLOAT_DTYPE))  # (num_vars,)
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
         """
         Parameters
         ----------
             syndromes : torch.Tensor
-                Syndrome bits ∈ {0,1}, shape=(batch_size, num_chks), int
+                Syndrome bits, shape=(batch_size, num_chks), int ∈ {0,1}
 
         Returns
         -------
@@ -141,7 +126,7 @@ class LearnedDMemBPDecoder(nn.Module):
         """
         device = syndromes.device
         batch_size = syndromes.shape[0]
-        synd_sgn = (1 - 2 * syndromes).to(FLOAT_DTYPE)  # (batch, num_chks) ∈ {+1,-1}
+        synd_sgn = (1 - 2 * syndromes).to(FLOAT_DTYPE)  # (batch_size, num_chks) ∈ {+1,-1}
 
         # Edge message arrays.
         # vn_to_cn[:, e], 0 <= e < num_edges, is the message along edge e from VN to CN.
@@ -155,8 +140,8 @@ class LearnedDMemBPDecoder(nn.Module):
         vn_to_cn[:, :self.num_edges] = self.prior_llr[self.edge_to_vn]
 
         # Pre-expand flattened index tensors for scatter.
-        cn_flat_idx = self.cn_edge_idx.reshape(1, -1).expand(batch_size, -1)  # (batch, num_chks * max_cn_deg)
-        vn_flat_idx = self.vn_edge_idx.reshape(1, -1).expand(batch_size, -1)  # (batch, num_vars * max_vn_deg)
+        cn_flat_idx = self.cn_edge_idx.reshape(1, -1).expand(batch_size, -1)  # (batch_size, num_chks * max_cn_deg)
+        vn_flat_idx = self.vn_edge_idx.reshape(1, -1).expand(batch_size, -1)  # (batch_size, num_vars * max_vn_deg)
 
         cn_mask_3d = self.cn_mask.unsqueeze(0)  # (1, num_chks, max_cn_deg)
         vn_mask_3d = self.vn_mask.unsqueeze(0)  # (1, num_vars, max_vn_deg)
@@ -167,20 +152,20 @@ class LearnedDMemBPDecoder(nn.Module):
         for t in range(self.num_iters):
             # ==================== CN update ====================
             # Gather incoming messages at all CNs.
-            msgs_cn = vn_to_cn[:, self.cn_edge_idx]  # (batch, num_chks, max_cn_deg)
-            msgs_sgn = self.sign_func(msgs_cn).masked_fill(~cn_mask_3d, 1.0)  # (batch, num_chks, max_cn_deg)
-            msgs_abs = msgs_cn.abs().masked_fill(~cn_mask_3d, BIG)  # (batch, num_chks, max_cn_deg)
+            msgs_cn = vn_to_cn[:, self.cn_edge_idx]  # (batch_size, num_chks, max_cn_deg)
+            msgs_sgn = self.sign_func(msgs_cn).masked_fill(~cn_mask_3d, 1.0)  # (batch_size, num_chks, max_cn_deg)
+            msgs_abs = msgs_cn.abs().masked_fill(~cn_mask_3d, BIG)  # (batch_size, num_chks, max_cn_deg)
 
             # Leave-one-out sign product via 4D expansion + diagonal mask.
-            msgs_sgn_4d = msgs_sgn.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (batch, num_chks, max_cn_deg, max_cn_deg)
-            loo_sgn_prod = msgs_sgn_4d.masked_fill(self.cn_diag_mask, 1.0).prod(dim=3)  # (batch, num_chks, max_cn_deg)
+            msgs_sgn_4d = msgs_sgn.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (batch_size, num_chks, max_cn_deg, max_cn_deg)
+            loo_sgn_prod = msgs_sgn_4d.masked_fill(self.cn_diag_mask, 1.0).prod(dim=3)  # (batch_size, num_chks, max_cn_deg)
 
             # Leave-one-out min abs via 4D expansion + diagonal mask.
-            msgs_abs_4d = msgs_abs.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (batch, num_chks, max_cn_deg, max_cn_deg)
-            loo_abs_min = self.min_func(msgs_abs_4d.masked_fill(self.cn_diag_mask, BIG), dim=3)  # (batch, num_chks, max_cn_deg)
+            msgs_abs_4d = msgs_abs.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (batch_size, num_chks, max_cn_deg, max_cn_deg)
+            loo_abs_min = self.min_func(msgs_abs_4d.masked_fill(self.cn_diag_mask, BIG), dim=3)  # (batch_size, num_chks, max_cn_deg)
 
             # CN output messages.
-            cn_out = synd_sgn.unsqueeze(2) * loo_sgn_prod * loo_abs_min   # (batch, num_chks, max_cn_deg)
+            cn_out = synd_sgn.unsqueeze(2) * loo_sgn_prod * loo_abs_min   # (batch_size, num_chks, max_cn_deg)
 
             # Scatter CN outputs to edge array.
             # The values in cn_to_vn[:, num_edges] will be non-deterministic, but it's okay because they will be masked out during VN update.
@@ -188,28 +173,28 @@ class LearnedDMemBPDecoder(nn.Module):
 
             # ==================== VN update ====================
             # Gather incoming messages at all VNs.
-            msgs_vn = cn_to_vn[:, self.vn_edge_idx]  # (batch, num_vars, max_vn_deg)
-            msgs_vn = msgs_vn.masked_fill(~vn_mask_3d, 0.0)  # (batch, num_vars, max_vn_deg)
+            msgs_vn = cn_to_vn[:, self.vn_edge_idx]  # (batch_size, num_vars, max_vn_deg)
+            msgs_vn = msgs_vn.masked_fill(~vn_mask_3d, 0.0)  # (batch_size, num_vars, max_vn_deg)
 
             # Sum incoming messages per VN.
-            incoming_sum = msgs_vn.sum(dim=2)  # (batch, num_vars)
+            incoming_sum = msgs_vn.sum(dim=2)  # (batch_size, num_vars)
 
             # Posterior LLR with memory.
             if t == 0:
-                llrs = incoming_sum + self.prior_llr  # (batch, num_vars)
+                llrs = incoming_sum + self.prior_llr  # (batch_size, num_vars)
             else:
                 llrs = incoming_sum + \
                     (1.0 - self.gamma) * self.prior_llr + \
-                    self.gamma * prev_llrs  # (batch, num_vars)
+                    self.gamma * prev_llrs  # (batch_size, num_vars)
 
             llrs_list.append(llrs)
             prev_llrs = llrs
 
             if t < self.num_iters - 1:  # skip VN→CN messages in the last iteration
                 # VN output messages.
-                vn_out = llrs.unsqueeze(2) - msgs_vn  # (batch, num_vars, max_vn_deg)
+                vn_out = llrs.unsqueeze(2) - msgs_vn  # (batch_size, num_vars, max_vn_deg)
                 # Scatter VN outputs to edge array.
                 # The values in vn_to_cn[:, num_edges] will be non-deterministic, but it's okay because they will be masked out during CN update.
                 vn_to_cn.scatter_(1, vn_flat_idx, vn_out.reshape(batch_size, -1))
 
-        return torch.stack(llrs_list, dim=0)  # (num_iters, batch, num_vars)
+        return torch.stack(llrs_list, dim=0)  # (num_iters, batch_size, num_vars)
