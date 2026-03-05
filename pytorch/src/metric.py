@@ -7,7 +7,7 @@ INT_DTYPE = torch.int32
 
 class DecodingMetric(Metric):
     """
-    A PyTorch Metric that calculates the performance metrics of the decoder.
+    A PyTorch Metric that calculates decoding performance metrics on CPU.
     """
 
     def __init__(
@@ -19,20 +19,14 @@ class DecodingMetric(Metric):
         Parameters
         ----------
             chkmat : ndarray
-                Check matrix ∈ {0,1}, shape=(num_chks, num_vars), integer or bool
+                Check matrix, shape=(num_chks, num_vars), integer ∈ {0,1} or bool
 
             obsmat : ndarray
-                Observable matrix ∈ {0,1}, shape=(num_obsers, num_vars), integer or bool
+                Observable matrix, shape=(num_obsers, num_vars), integer ∈ {0,1} or bool
         """
         super().__init__()
-        assert isinstance(chkmat, np.ndarray) and isinstance(obsmat, np.ndarray)
-        assert np.issubdtype(chkmat.dtype, np.integer) or np.issubdtype(chkmat.dtype, np.bool_)
-        assert np.issubdtype(obsmat.dtype, np.integer) or np.issubdtype(obsmat.dtype, np.bool_)
-        assert chkmat.ndim == 2 and obsmat.ndim == 2
-        assert chkmat.shape[1] == obsmat.shape[1]
-
-        self.chkmat = torch.as_tensor(chkmat, dtype=INT_DTYPE)
-        self.obsmat = torch.as_tensor(obsmat, dtype=INT_DTYPE)
+        self.chkmat = torch.tensor(chkmat, dtype=INT_DTYPE)
+        self.obsmat = torch.tensor(obsmat, dtype=INT_DTYPE)
 
         self.add_state("wrong_syndrome", default=torch.tensor(0), dist_reduce_fx="sum")
         self.add_state("wrong_observable", default=torch.tensor(0), dist_reduce_fx="sum")
@@ -41,26 +35,27 @@ class DecodingMetric(Metric):
 
     def update(
         self,
-        hard_decisions: torch.Tensor,
+        llrs: torch.Tensor,
         syndromes: torch.Tensor,
         observables: torch.Tensor
     ):
         """
         Parameters
         ----------
-            hard_decisions : torch.Tensor
-                Hard decisions ∈ {0,1} at all iterations, shape=(num_iters, batch_size, num_vars), int, device=cpu
+            llrs : torch.Tensor
+                LLR values at all iterations, shape=(num_iters, batch_size, num_vars), float, device=cpu
 
             syndromes : torch.Tensor
-                Syndrome bits ∈ {0,1}, shape=(batch_size, num_chks), int, device=cpu
+                Syndrome bits, shape=(batch_size, num_chks), int ∈ {0,1}, device=cpu
 
             observables : torch.Tensor
-                Observable bits ∈ {0,1}, shape=(batch_size, num_obsers), int, device=cpu
+                Observable bits, shape=(batch_size, num_obsers), int ∈ {0,1}, device=cpu
         """
-        num_iters, batch_size, num_vars = hard_decisions.shape
+        num_iters, batch_size, num_vars = llrs.shape
+        hard_decisions = (llrs < 0).to(INT_DTYPE)
 
         # For each shot, check if the decoder converges, i.e., whether the syndrome is matched at any iteration
-        synd_pred = torch.matmul(hard_decisions, self.chkmat.T) % 2  # (num_iters, batch_size, num_chks), int, 0/1
+        synd_pred = torch.matmul(hard_decisions, self.chkmat.T) % 2  # (num_iters, batch_size, num_chks), int ∈ {0,1}
         synd_matched_mask = torch.all(synd_pred == syndromes.unsqueeze(dim=0), dim=2)  # (num_iters, batch_size), bool
         converged_mask = torch.any(synd_matched_mask, dim=0)  # (batch_size,), bool
 
@@ -75,10 +70,10 @@ class DecodingMetric(Metric):
 
         # Get the output error pattern for each shot
         index = output_iters.reshape(1, batch_size, 1).expand(1, batch_size, num_vars)
-        ehat = torch.gather(hard_decisions, dim=0, index=index).squeeze(0)  # (batch_size, num_vars), int, 0/1
+        ehat = torch.gather(hard_decisions, dim=0, index=index).squeeze(0)  # (batch_size, num_vars), int ∈ {0,1}
 
         # For each shot, check if the decoder predicts the observables correctly
-        obs_pred = torch.matmul(ehat, self.obsmat.T) % 2  # (batch_size, num_obsers), int, 0/1
+        obs_pred = torch.matmul(ehat, self.obsmat.T) % 2  # (batch_size, num_obsers), int ∈ {0,1}
         obs_correct_mask = torch.all(obs_pred == observables, dim=1)  # (batch_size,), bool
 
         # Update states
@@ -91,5 +86,5 @@ class DecodingMetric(Metric):
         return {
             "wrong_syndrome_rate": self.wrong_syndrome.float() / self.total.float(),
             "wrong_observable_rate": self.wrong_observable.float() / self.total.float(),
-            "failure_rate": self.wrong_either.float() / self.total.float(),
+            "wrong_either_rate": self.wrong_either.float() / self.total.float(),
         }

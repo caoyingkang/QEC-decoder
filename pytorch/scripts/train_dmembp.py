@@ -1,106 +1,104 @@
-from datetime import datetime
+from src.dataset import DecodingDataModule
+from src.lightning_module import DecodingModule
 import sys
 import os
 from pathlib import Path
-import argparse
 
-import numpy as np
-import torch
-from torch.utils.data import DataLoader
+import lightning as L
+from lightning.pytorch.callbacks import EarlyStopping
+from lightning.pytorch.loggers import TensorBoardLogger
 from qecdec import RotatedSurfaceCode_Memory
+
+# Add pytorch directory to sys.path.
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+
+# QEC experiment configuration.
+qec_cfg = dict(
+    d=5,
+    rounds=5,
+    basis='Z',
+    data_qubit_error_rate=0.01,
+    meas_error_rate=0.01,
+)
+
+# Model configuration.
+model_cfg = dict(
+    name="learned_dmembp",
+    num_iters=5,
+    min_impl_method="smooth",
+    sign_impl_method="smooth",
+)
+
+# Loss function configuration.
+loss_cfg = dict(
+    beta=0.8,
+    skip_iters=0,
+)
+
+# Optimizer configuration.
+optim_cfg = dict(
+    lr=0.002,
+)
+
+# Early stopping configuration.
+early_stopping_cfg = dict(
+    min_delta=1e-4,
+    patience=5,
+)
+
+# Tensorboard logger configuration.
+tb_logger_cfg = dict(
+    save_dir="",
+    log_graph=False,
+)
+
+# Data module configuration.
+data_cfg = dict(
+    batch_size=256,
+    num_workers=os.cpu_count(),
+)
+
+# Trainer configuration.
+train_cfg = dict(
+    accelerator="cpu",  # "gpu", "auto"
+    max_epochs=20,
+    enable_progress_bar=True,
+)
+
+
+def get_data_dir(qec_cfg: dict) -> Path:
+    d = qec_cfg['d']
+    rounds = qec_cfg['rounds']
+    p = qec_cfg['data_qubit_error_rate']
+    return Path(__file__).resolve().parent.parent / "datasets" / "rotated_surface_code_memory_Z" / f"d={d}_rounds={rounds}_p={p}"
+
+
+def main():
+    expmt = RotatedSurfaceCode_Memory(**qec_cfg)
+    print(f">>>>>> Number of error mechanisms: {expmt.num_error_mechanisms}")
+    print(f">>>>>> Number of detectors: {expmt.num_detectors}")
+    print(f">>>>>> Number of observables: {expmt.num_observables}")
+
+    decoder = DecodingModule(
+        expmt.chkmat, expmt.obsmat, expmt.prior,
+        model_cfg=model_cfg,
+        loss_cfg=loss_cfg,
+        optim_cfg=optim_cfg,
+    )
+
+    datamodule = DecodingDataModule(get_data_dir(qec_cfg), **data_cfg)
+
+    early_stopping = EarlyStopping(monitor="val_loss", mode="min", verbose=True, **early_stopping_cfg)
+    tb_logger = TensorBoardLogger(**tb_logger_cfg)
+    trainer = L.Trainer(
+        callbacks=[early_stopping],
+        logger=tb_logger,
+        **train_cfg,
+    )
+
+    trainer.fit(decoder, datamodule=datamodule)
 
 
 if __name__ == "__main__":
-    # Parse command line arguments.
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--distance", type=int, required=True, help="code distance")
-    parser.add_argument("-p", "--per", type=float, default=0.01, help="physical error rate (optional, default=0.01)")
-
-    args = parser.parse_args()
-    d: int = args.distance  # code distance
-    p: float = args.per  # physical error rate
-    rounds: int = d  # number of rounds of stabilizer measurements
-
-    # Import modules.
-    sys.path.append(str(Path(__file__).resolve().parent.parent))
-    from src.dataset import DecodingDataset
-    from src.models import LearnedDMemBPDecoder
-    from src.training import *
-
-    # Set training parameters. # TODO: make config file
-    num_epochs = 20
-    batch_size = 256
-    decoder_kwargs = dict(num_iters=5)
-    optimizer_kwargs = dict(lr=0.002)
-    loss_fn_kwargs = dict(beta=0.8)
-    lr_scheduler_kwargs = dict(factor=0.2, patience=3, threshold=1e-3, threshold_mode="abs")
-    early_stopper_kwargs = dict(patience=5, min_delta=1e-3)
-
-    # Set up dataloaders.
-    dataset_dir = Path(__file__).resolve().parent.parent / "datasets" / "rotated_surface_code_memory_Z" / f"d={d}_rounds={rounds}_p={p}"
-    train_dataset = DecodingDataset.load_from_file(dataset_dir / "train_dataset.pt")
-    val_dataset = DecodingDataset.load_from_file(dataset_dir / "val_dataset.pt")
-    print(f"Size of train_dataset: {len(train_dataset)}")
-    print(f"Size of val_dataset: {len(val_dataset)}")
-    num_cpus = os.cpu_count()
-    print(f"Number of CPUs: {num_cpus}")
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        pin_memory=True,
-        shuffle=True,
-        num_workers=num_cpus,
-    )
-    val_dataloader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        pin_memory=True,
-        shuffle=False,
-        num_workers=num_cpus,
-    )
-
-    # Set up decoding task.
-    expmt = RotatedSurfaceCode_Memory(
-        d=d,
-        rounds=rounds,
-        basis='Z',
-        data_qubit_error_rate=p,
-        meas_error_rate=p,
-    )
-    print("Number of error mechanisms:", expmt.num_error_mechanisms)
-    print("Number of detectors:", expmt.num_detectors)
-    print("Number of observables:", expmt.num_observables)
-
-    # Set up training components.
-    decoder = LearnedDMemBPDecoder(expmt.chkmat, expmt.prior, **decoder_kwargs)
-    loss_fn = IterativeDecodingLoss(expmt.chkmat, expmt.obsmat, **loss_fn_kwargs)
-    metric = DecodingMetric(expmt.chkmat, expmt.obsmat)
-    optimizer = torch.optim.Adam(decoder.parameters(), **optimizer_kwargs)
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, **lr_scheduler_kwargs)
-    early_stopper = EarlyStopper(**early_stopper_kwargs)
-
-    # Set checkpoint directory.
-    checkpoint_dir = Path(__file__).resolve().parent.parent / "checkpoints" / "dmembp" \
-        / "rotated_surface_code_memory_Z" / f"d={d}_rounds={rounds}_p={p}"
-
-    # Train decoder.
-    train_decoder(
-        decoder,
-        train_dataloader,
-        val_dataloader,
-        loss_fn,
-        metric,
-        optimizer,
-        num_epochs=num_epochs,
-        checkpoint_dir=checkpoint_dir,
-        # device="cpu",
-        lr_scheduler=lr_scheduler,
-        early_stopper=early_stopper,
-        progress_bar=True,
-    )
-
-    # Save learned parameters.
-    gamma = torch.stack([x.detach() for x in decoder.gamma]).cpu().numpy().astype(np.float64)
-    timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    save_dir = Path(__file__).resolve().parent
-    np.save(save_dir / f"dmembp_d{d}_{timestamp}_gamma.npy", gamma)
+    main()

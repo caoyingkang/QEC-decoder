@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-pytorch = ["torch", "torchmetrics"]
+pytorch = ["torch", "torchmetrics", "lightning", "tensorboard"]
 
 [tool.maturin]
 python-source = "python"
