@@ -9,6 +9,7 @@ target/
 scratch.ipynb
 *.pt
 *.log
+*.ckpt
 pytorch/checkpoints/
 lightning_logs/
 uv.lock
