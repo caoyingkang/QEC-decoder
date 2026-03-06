@@ -1,0 +1,40 @@
+qec:
+  d: 5
+  rounds: 5
+  basis: Z
+  data_qubit_error_rate: 0.01
+  meas_error_rate: 0.01
+
+model:
+  name: learned_dmembp
+  num_iters: 5
+  min_impl_method: smooth
+  sign_impl_method: smooth
+
+loss:
+  beta: 0.8
+  skip_iters: 0
+
+optim:
+  lr: 0.002
+  lr_scheduler:
+    factor: 0.2
+    patience: 3
+    threshold: 0.001
+    threshold_mode: abs
+
+early_stopping:
+  min_delta: 0.0001
+  patience: 5
+
+tb_logger:
+  log_graph: false
+
+data:
+  batch_size: 256
+  num_workers: null   # null = use os.cpu_count() at runtime
+
+trainer:
+  accelerator: auto  # auto = auto-detect available accelerator
+  max_epochs: 50
+  enable_progress_bar: true

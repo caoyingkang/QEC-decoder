@@ -7,6 +7,11 @@ relay/
 *.so
 target/
 scratch.ipynb
+*.pt
+*.log
+*.ckpt
+*.sh
 pytorch/runs/
-pytorch/datasets/
-pytorch/checkpoints/
+lightning_logs/
+uv.lock
+__hidden__*

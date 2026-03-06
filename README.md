@@ -19,8 +19,8 @@ The ultimate goal is a fast real-time decoder implementable on FPGA with submicr
   ```
   git clone https://github.com/caoyingkang/QEC-decoder.git
   cd QEC-decoder
-  python3 -m venv .env
-  source .env/bin/activate
+  python3 -m venv .venv
+  source .venv/bin/activate
   pip install --upgrade pip
   ```
 - Install maturin: `pip install maturin`.
