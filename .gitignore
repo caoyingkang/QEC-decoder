@@ -10,7 +10,7 @@ scratch.ipynb
 *.pt
 *.log
 *.ckpt
-pytorch/checkpoints/
+pytorch/runs/
 lightning_logs/
 uv.lock
 __hidden__*

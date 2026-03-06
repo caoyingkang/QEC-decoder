@@ -56,6 +56,10 @@ def main():
 
     data_dir = get_data_dir(cfg.qec)
     run_dir = get_run_dir(cfg)
+    print(f">>>>>> Data directory: {data_dir}")
+    print(f">>>>>> Run directory: {run_dir}")
+    run_dir.mkdir(parents=True, exist_ok=True)
+    OmegaConf.save(cfg, run_dir / "config.yaml")
 
     expmt = RotatedSurfaceCode_Memory(
         d=cfg.qec.d,
