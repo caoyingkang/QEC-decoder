@@ -62,6 +62,7 @@ def main():
         verbose=True,
         mode="min",
     )
+    epoch_summary = EpochSummary()
     tb_logger = TensorBoardLogger(
         save_dir="",
         log_graph=cfg.tb_logger.log_graph,
@@ -70,8 +71,8 @@ def main():
         accelerator=cfg.trainer.accelerator,
         max_epochs=cfg.trainer.max_epochs,
         enable_progress_bar=cfg.trainer.enable_progress_bar,
+        callbacks=[early_stopping, epoch_summary],
         logger=tb_logger,
-        callbacks=[early_stopping],
     )
     trainer.fit(decoder, datamodule=datamodule)
 
@@ -80,5 +81,6 @@ if __name__ == "__main__":
     sys.path.append(str(_PYTORCH_ROOT))
     from src.dataset import DecodingDataModule
     from src.lightning_module import DecodingModule
+    from src.callbacks import EpochSummary
 
     main()
