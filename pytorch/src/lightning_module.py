@@ -79,6 +79,26 @@ class DecodingModule(L.LightningModule):
         self.log('train_loss', loss, prog_bar=True)
         return loss
 
+    def on_before_optimizer_step(self, optimizer):
+        global_step = self.trainer.global_step
+        if global_step % 100 == 1:  # Log every 100 steps to avoid slowing down training
+            for name, p in self.decoder.named_parameters():
+                # Inspect parameter values distribution
+                self.logger.experiment.add_histogram(
+                    tag=f"values/{name}",
+                    values=p.detach(),
+                    global_step=global_step
+                )
+                if p.grad is not None:
+                    # Inspect gradient norm
+                    self.log(f"grad_norm/{name}", torch.linalg.norm(p.grad.detach(), 2))
+                    # Inspect gradient distribution
+                    self.logger.experiment.add_histogram(
+                        tag=f"grads/{name}",
+                        values=p.grad.detach(),
+                        global_step=global_step
+                    )
+
     def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers)
         llrs = self(syndromes)  # (num_iters, batch_size, num_vars)
