@@ -35,7 +35,18 @@ def get_run_dir(cfg: DictConfig) -> Path:
     d = cfg.qec.d
     rounds = cfg.qec.rounds
     basis = cfg.qec.basis
-    return _RUNS_ROOT / "rotated_surface_code_memory" / f"d={d}_rounds={rounds}_basis={basis}" / cfg.model.name
+    model_name: str = cfg.model.name
+    base_dir = _RUNS_ROOT / "rotated_surface_code_memory" / f"d={d}_rounds={rounds}_basis={basis}" / model_name
+    base_dir.mkdir(parents=True, exist_ok=True)
+    run_ids = []
+    for p in base_dir.iterdir():
+        if p.is_dir() and p.name.startswith("run_"):
+            try:
+                run_ids.append(int(p.name[4:]))
+            except ValueError:
+                pass
+    next_run_id = max(run_ids, default=-1) + 1
+    return base_dir / f"run_{next_run_id}"
 
 
 def main():
