@@ -1,5 +1,5 @@
 from .dataset import DecodingDataset
-from .data_module import DecodingDataModule
+from .datamodule import DecodingDataModule
 
 __all__ = [
     "DecodingDataset",

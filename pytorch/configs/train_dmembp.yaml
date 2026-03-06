@@ -35,6 +35,6 @@ data:
   num_workers: null   # null = use os.cpu_count() at runtime
 
 trainer:
-  accelerator: cpu  # auto = auto-detect available accelerator
+  accelerator: auto  # auto = auto-detect available accelerator
   max_epochs: 20
   enable_progress_bar: true

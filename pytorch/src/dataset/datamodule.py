@@ -15,7 +15,6 @@ class DecodingDataModule(L.LightningDataModule):
 
     def setup(self, stage: str):        
         if stage == "fit":
-            # TODO: use random split from an entire dataset instead
             self.train_ds = DecodingDataset.load_from_file(self.data_dir / "train_dataset.pt")
             self.val_ds = DecodingDataset.load_from_file(self.data_dir / "val_dataset.pt")
 

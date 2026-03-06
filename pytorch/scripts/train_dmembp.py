@@ -25,8 +25,7 @@ def load_config() -> DictConfig:
 def get_data_dir(qec_cfg: DictConfig) -> Path:
     d = qec_cfg.d
     rounds = qec_cfg.rounds
-    p = qec_cfg.data_qubit_error_rate
-    return Path(__file__).resolve().parent.parent / "datasets" / "rotated_surface_code_memory_Z" / f"d={d}_rounds={rounds}_p={p}"
+    return Path(__file__).resolve().parent.parent / "datasets" / "rotated_surface_code_memory_Z" / f"d={d}_rounds={rounds}"
 
 
 def main():

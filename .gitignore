@@ -7,7 +7,8 @@ relay/
 *.so
 target/
 scratch.ipynb
-pytorch/datasets/
+*.pt
+*.log
 pytorch/checkpoints/
 lightning_logs/
 uv.lock
