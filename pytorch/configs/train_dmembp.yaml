@@ -36,5 +36,5 @@ data:
 
 trainer:
   accelerator: auto  # auto = auto-detect available accelerator
-  max_epochs: 20
+  max_epochs: 50
   enable_progress_bar: true

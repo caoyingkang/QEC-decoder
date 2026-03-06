@@ -10,6 +10,7 @@ scratch.ipynb
 *.pt
 *.log
 *.ckpt
+*.sh
 pytorch/runs/
 lightning_logs/
 uv.lock
