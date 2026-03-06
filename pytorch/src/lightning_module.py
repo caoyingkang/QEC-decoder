@@ -85,7 +85,7 @@ class DecodingModule(L.LightningModule):
             for name, p in self.decoder.named_parameters():
                 # Inspect parameter values distribution
                 self.logger.experiment.add_histogram(
-                    tag=f"values/{name}",
+                    tag=f"params/{name}",
                     values=p.detach(),
                     global_step=global_step
                 )

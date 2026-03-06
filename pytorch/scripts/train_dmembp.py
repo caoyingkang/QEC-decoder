@@ -91,7 +91,7 @@ def main():
     )
     epoch_summary_callback = EpochSummary()
     model_checkpoint_callback = ModelCheckpoint(
-        dirpath=run_dir,
+        dirpath=run_dir / "checkpoints",
         filename="best_model",
         monitor="val_loss",
         save_last=True,
@@ -99,7 +99,9 @@ def main():
         mode="min",
     )
     tb_logger = TensorBoardLogger(
-        save_dir="",
+        save_dir=run_dir,
+        name="tb_logs",
+        version="",
         log_graph=cfg.tb_logger.log_graph,
     )
     trainer = L.Trainer(
