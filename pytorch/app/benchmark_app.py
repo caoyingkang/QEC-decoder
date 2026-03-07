@@ -3,24 +3,22 @@ Streamlit app for Monte Carlo benchmarking of trained decoder models.
 
 Select runs, run or load cached benchmarks, and plot logical error rate vs physical error rate.
 """
-import subprocess
-import sys
 from io import BytesIO
 from pathlib import Path
 
-from omegaconf import OmegaConf, DictConfig
 import matplotlib.pyplot as plt
 import sinter
 import streamlit as st
 
+from benchmark_utils import (
+    RUNS_ROOT,
+    BENCHMARK_RESULTS_FILENAME,
+    get_baselines_path,
+    load_run_config,
+    run_benchmark,
+)
 from utils import is_unique
 
-_PYTORCH_ROOT = Path(__file__).resolve().parent.parent
-_APP_DIR = _PYTORCH_ROOT / "app"
-_RUNS_ROOT = _PYTORCH_ROOT / "runs"
-_BASELINES_ROOT = _PYTORCH_ROOT / "baselines"
-_SCRIPTS_DIR = _PYTORCH_ROOT / "scripts"
-BENCHMARK_RESULTS_FILENAME = "benchmark_results.csv"
 
 BASELINE_DECODERS = ["pymatching", "bp"]  # Used for plot styling (dashed lines)
 BASELINE_OPTIONS = {"MWPM": "pymatching", "BP": "bp"}
@@ -30,25 +28,12 @@ DEFAULT_MAX_SHOTS = 1_000_000
 DEFAULT_MAX_ERRORS = 100
 
 
-def get_baselines_path(d: int, rounds: int, basis: str) -> Path:
-    code_dir = f"d={d}_rounds={rounds}_basis={basis}"
-    return _BASELINES_ROOT / "rotated_surface_code_memory" / code_dir / BENCHMARK_RESULTS_FILENAME
-
-
-def get_config_from_run_dir(run_dir: Path) -> DictConfig:
-    """Load config.yaml from a run directory."""
-    cfg_path = run_dir / "config.yaml"
-    if not cfg_path.exists():
-        raise FileNotFoundError(f"Config file not found: {cfg_path}")
-    return OmegaConf.load(cfg_path)
-
-
 def discover_runs() -> list[tuple[Path, str]]:
     """Return list of (run_dir, label)."""
     runs = []
-    for p in _RUNS_ROOT.rglob("checkpoints/best_model.ckpt"):
+    for p in RUNS_ROOT.rglob("checkpoints/best_model.ckpt"):
         run_dir = p.parent.parent
-        cfg = get_config_from_run_dir(run_dir)
+        cfg = load_run_config(run_dir)
         d = cfg.qec.d
         rounds = cfg.qec.rounds
         basis = cfg.qec.basis
@@ -65,7 +50,7 @@ def load_and_merge_stats(run_dirs: list[Path], baselines: list[str]) -> list[sin
     seen_qec_settings = set()
 
     for run_dir in run_dirs:
-        cfg = get_config_from_run_dir(run_dir)
+        cfg = load_run_config(run_dir)
         d = cfg.qec.d
         rounds = cfg.qec.rounds
         basis = cfg.qec.basis
@@ -92,30 +77,6 @@ def load_and_merge_stats(run_dirs: list[Path], baselines: list[str]) -> list[sin
         all_stats.extend(stats)
 
     return all_stats
-
-
-def run_benchmark(
-    run_dirs: list[Path],
-    p_list: list[float],
-    max_shots: int,
-    max_errors: int,
-    baselines: list[str],
-):
-    """Run benchmark_decoder.py as subprocess."""
-    run_dirs_as_strs = [str(r) for r in run_dirs]
-    cmd = [
-        sys.executable,
-        str(_SCRIPTS_DIR / "benchmark_decoder.py"),
-        *run_dirs_as_strs,
-        "--p-list", *[str(p) for p in p_list],
-        "--max-shots", str(max_shots),
-        "--max-errors", str(max_errors),
-        "--baselines", *baselines,
-    ]
-    project_root = _PYTORCH_ROOT.parent
-    result = subprocess.run(cmd, cwd=str(project_root))
-    if result.returncode != 0:
-        raise RuntimeError(f"Benchmark script exited with code {result.returncode}")
 
 
 def main():
@@ -187,11 +148,11 @@ def main():
             with st.spinner("Running benchmark..."):
                 try:
                     run_benchmark(
-                        selected_rundirs,
-                        p_list,
-                        max_shots,
-                        max_errors,
-                        selected_baselines,
+                        run_dirs=selected_rundirs,
+                        p_list=p_list,
+                        max_shots=max_shots,
+                        max_errors=max_errors,
+                        baseline_decoders=selected_baselines,
                     )
                     st.success("Benchmark complete.")
                 except Exception as e:
