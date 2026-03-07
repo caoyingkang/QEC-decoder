@@ -1,8 +1,7 @@
 """
 Streamlit app for Monte Carlo benchmarking of trained decoder models.
 
-Select runs, run or load cached benchmarks, and plot logical error rate vs
-physical error rate.
+Select runs, run or load cached benchmarks, and plot logical error rate vs physical error rate.
 """
 import subprocess
 import sys
@@ -23,7 +22,8 @@ _BASELINES_ROOT = _PYTORCH_ROOT / "baselines"
 _SCRIPTS_DIR = _PYTORCH_ROOT / "scripts"
 BENCHMARK_RESULTS_FILENAME = "benchmark_results.csv"
 
-BASELINE_DECODERS = ["pymatching", "bp"]
+BASELINE_DECODERS = ["pymatching", "bp"]  # Used for plot styling (dashed lines)
+BASELINE_OPTIONS = {"MWPM": "pymatching", "BP": "bp"}
 
 DEFAULT_P_LIST = [0.004, 0.006, 0.008, 0.01, 0.012]
 DEFAULT_MAX_SHOTS = 1_000_000
@@ -58,7 +58,7 @@ def discover_runs() -> list[tuple[Path, str]]:
     return sorted(runs, key=lambda x: x[1])
 
 
-def load_and_merge_stats(run_dirs: list[Path]) -> list[sinter.TaskStats]:
+def load_and_merge_stats(run_dirs: list[Path], baselines: list[str]) -> list[sinter.TaskStats]:
     """Load baseline + per-run stats and merge into single list for plotting."""
     # TODO: collect all CSV files first, then call sinter.read_stats_from_csv_files once
     all_stats = []
@@ -78,7 +78,11 @@ def load_and_merge_stats(run_dirs: list[Path]) -> list[sinter.TaskStats]:
             if not baselines_path.exists():
                 pass  # TODO: handle this case
             stats = sinter.read_stats_from_csv_files(baselines_path)
-            all_stats.extend(stats)
+            # Filter to only include selected baseline decoders
+            # TODO: when benchmarking, save results with different decoder names to avoid this filter
+            for s in stats:
+                if s.json_metadata["decoder"] in baselines:
+                    all_stats.append(s)
 
         # Load per-run learned DMemBP results
         run_results_path = run_dir / BENCHMARK_RESULTS_FILENAME
@@ -90,7 +94,13 @@ def load_and_merge_stats(run_dirs: list[Path]) -> list[sinter.TaskStats]:
     return all_stats
 
 
-def run_benchmark(run_dirs: list[Path], p_list: list[float], max_shots: int, max_errors: int):
+def run_benchmark(
+    run_dirs: list[Path],
+    p_list: list[float],
+    max_shots: int,
+    max_errors: int,
+    baselines: list[str],
+):
     """Run benchmark_decoder.py as subprocess."""
     run_dirs_as_strs = [str(r) for r in run_dirs]
     cmd = [
@@ -100,6 +110,7 @@ def run_benchmark(run_dirs: list[Path], p_list: list[float], max_shots: int, max
         "--p-list", *[str(p) for p in p_list],
         "--max-shots", str(max_shots),
         "--max-errors", str(max_errors),
+        "--baselines", *baselines,
     ]
     project_root = _PYTORCH_ROOT.parent
     result = subprocess.run(cmd, cwd=str(project_root))
@@ -130,6 +141,14 @@ def main():
             default=[],
         )
         selected_rundirs = [label2rundir[l] for l in selected_labels]
+
+        st.subheader("Baseline decoders")
+        selected_baseline_labels = st.multiselect(
+            "Baseline decoder(s) to benchmark against",
+            options=list(BASELINE_OPTIONS.keys()),
+            default=list(BASELINE_OPTIONS.keys()),
+        )
+        selected_baselines = [BASELINE_OPTIONS[l] for l in selected_baseline_labels]
 
         st.subheader("Benchmark parameters")
         p_list_str = st.text_input(
@@ -167,7 +186,13 @@ def main():
 
             with st.spinner("Running benchmark..."):
                 try:
-                    run_benchmark(selected_rundirs, p_list, max_shots, max_errors)  # TODO: check correctness
+                    run_benchmark(
+                        selected_rundirs,
+                        p_list,
+                        max_shots,
+                        max_errors,
+                        selected_baselines,
+                    )
                     st.success("Benchmark complete.")
                 except Exception as e:
                     st.error(str(e))
@@ -177,7 +202,7 @@ def main():
         st.info("Select one or more runs from the sidebar to plot.")
         st.stop()
 
-    stats = load_and_merge_stats(selected_rundirs)  # TODO: check correctness
+    stats = load_and_merge_stats(selected_rundirs, selected_baselines)
     if len(stats) == 0:
         # TODO: ensure every selected run has benchmark data
         st.info("No benchmark data found. Run the benchmark first.")

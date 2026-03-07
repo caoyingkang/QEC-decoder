@@ -63,16 +63,24 @@ def load_gamma_from_checkpoint(run_dir: Path) -> np.ndarray:
     return ckpt["state_dict"]["decoder.gamma"].numpy().astype(np.float64)
 
 
-def baseline_tasks_complete(baselines_path: Path, p_list: list[float]) -> bool:
-    """Check if baselines CSV has MWPM and BP data (by decoder in json_metadata)."""
-    # TODO: check if MWPM and BP data are present for all p in p_list
+def baseline_tasks_complete(baselines_path: Path, p_list: list[float], baseline_decoders: list[str]) -> bool:
+    """Check if baselines CSV has data for all requested decoders (by decoder in json_metadata)."""
+    # TODO: check every p in p_list is present in the CSV
     if not baselines_path.exists():
         return False
     with open(baselines_path) as f:
         content = f.read()
-    # json_metadata contains "decoder": "pymatching" or "decoder": "bp"
     norm = content.replace(" ", "")
-    return "pymatching" in content and ('"decoder":"bp"' in norm or '"decoder":"bp"}' in norm)
+    for decoder in baseline_decoders:
+        if decoder == "bp":
+            if '"decoder":"bp"' not in norm and '"decoder":"bp"}' not in norm:
+                return False
+        elif decoder == "pymatching":
+            if "pymatching" not in content:
+                return False
+        else:
+            return False
+    return True
 
 
 def run_baseline_benchmark(
@@ -84,8 +92,12 @@ def run_baseline_benchmark(
     max_shots: int,
     max_errors: int,
     num_workers: int,
+    baseline_decoders: list[str],
 ):
-    """Run MWPM + BP benchmark, cache to baselines/.../benchmark_results.csv."""
+    """Run selected baseline decoders, cache to baselines/.../benchmark_results.csv."""
+    if len(baseline_decoders) == 0:
+        return
+
     baselines_path = get_baselines_path(d, rounds, basis)
     baselines_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -99,23 +111,23 @@ def run_baseline_benchmark(
             data_qubit_error_rate=p,
             meas_error_rate=p,
         )
-        # MWPM decoder
-        tasks.append(sinter.Task(
-            circuit=expmt.circuit,
-            detector_error_model=expmt.dem,
-            decoder="pymatching",
-            json_metadata={"d": d, "rounds": rounds, "basis": basis, "p": p, "decoder": "pymatching"},
-        ))
-        # Vanilla BP decoder
-        bp = BPDecoder(expmt.chkmat, expmt.prior, max_iter=max_iter)
-        bp_id = f"bp_{len(custom_decoders)}"
-        custom_decoders[bp_id] = SinterDecoderWrapper(bp, expmt.obsmat)
-        tasks.append(sinter.Task(
-            circuit=expmt.circuit,
-            detector_error_model=expmt.dem,
-            decoder=bp_id,
-            json_metadata={"d": d, "rounds": rounds, "basis": basis, "p": p, "decoder": "bp"},
-        ))
+        if "pymatching" in baseline_decoders:
+            tasks.append(sinter.Task(
+                circuit=expmt.circuit,
+                detector_error_model=expmt.dem,
+                decoder="pymatching",
+                json_metadata={"d": d, "rounds": rounds, "basis": basis, "p": p, "decoder": "pymatching"},
+            ))
+        if "bp" in baseline_decoders:
+            bp = BPDecoder(expmt.chkmat, expmt.prior, max_iter=max_iter)
+            bp_id = f"bp_{len(custom_decoders)}"
+            custom_decoders[bp_id] = SinterDecoderWrapper(bp, expmt.obsmat)
+            tasks.append(sinter.Task(
+                circuit=expmt.circuit,
+                detector_error_model=expmt.dem,
+                decoder=bp_id,
+                json_metadata={"d": d, "rounds": rounds, "basis": basis, "p": p, "decoder": "bp"},
+            ))
 
     sinter.collect(
         num_workers=num_workers,
@@ -185,6 +197,7 @@ class CLIArgs(Protocol):
     max_shots: int
     max_errors: int
     num_workers: int
+    baselines: list[str]
 
 
 def main():
@@ -231,6 +244,14 @@ def main():
         default=max(1, (os.cpu_count() or 1) - 1),
         help="Number of workers to use for Monte Carlo benchmarking (default: number of cpu cores - 1)",
     )
+    parser.add_argument(
+        "--baselines",
+        type=str,
+        nargs="*",
+        default=["pymatching", "bp"],
+        choices=["pymatching", "bp"],
+        help="Baseline decoders to benchmark against (default: pymatching bp).",
+    )
     args: CLIArgs = parser.parse_args()
 
     if args.all:
@@ -262,10 +283,12 @@ def main():
         basis = qec_cfg.basis
         by_qec_expmts[(d, rounds, basis)].append(run_dir)
 
+    baseline_decoders = args.baselines
+
     for (d, rounds, basis), runs in by_qec_expmts.items():
         baselines_path = get_baselines_path(d, rounds, basis)
-        if not baseline_tasks_complete(baselines_path, args.p_list):
-            print(f">>>>>> Running baselines (MWPM, BP) for d={d} rounds={rounds} basis={basis}")
+        if not baseline_tasks_complete(baselines_path, args.p_list, baseline_decoders):
+            print(f">>>>>> Running baselines ({', '.join(baseline_decoders)}) for d={d} rounds={rounds} basis={basis}")
             run_baseline_benchmark(
                 d=d, rounds=rounds, basis=basis,
                 p_list=args.p_list,
@@ -273,6 +296,7 @@ def main():
                 max_shots=args.max_shots,
                 max_errors=args.max_errors,
                 num_workers=args.num_workers,
+                baseline_decoders=baseline_decoders,
             )
         else:
             print(f">>>>>> Baselines already cached for d={d} rounds={rounds} basis={basis}")
