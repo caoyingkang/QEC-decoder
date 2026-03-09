@@ -103,6 +103,19 @@ def load_and_merge_stats(
 
 def main():
     st.set_page_config(page_title="Decoder Benchmark", layout="wide", page_icon="📈")
+
+    # Prevent truncation of multiselect chip labels so decoder names are fully visible
+    st.markdown(
+        """
+        <style>
+            .stMultiSelect [data-baseweb=select] span {
+                max-width: 500px;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.title("Monte Carlo Decoder Benchmark")
 
     # Discover all run_dirs
@@ -230,8 +243,8 @@ def main():
         baseline_decoders=selected_baseline_decoders,
     )
 
-    st.subheader("Logical Error Rate vs Physical Error Rate")
-    fig, ax = plt.subplots(1, 1)
+    st.subheader("Logical Error Rate (per shot) vs Physical Error Rate")
+    fig1, ax1 = plt.subplots(1, 1)
 
     def filter_func(stat: sinter.TaskStats) -> bool:
         cond1 = stat.json_metadata["p"] in p_list
@@ -255,7 +268,7 @@ def main():
             }
 
     sinter.plot_error_rate(
-        ax=ax,
+        ax=ax1,
         stats=stats,
         x_func=lambda stat: stat.json_metadata["p"],
         filter_func=filter_func,
@@ -264,24 +277,53 @@ def main():
             "linestyle": group_key["linestyle"],
         },
     )
-    ax.loglog()
-    ax.grid(axis='y')
-    ax.set_title(f"{code}, {noise_model}, d={d}, rounds={rounds}, basis={basis}")
-    ax.set_ylabel("Logical Error Rate (per shot)")
-    ax.set_xlabel("Physical Error Rate")
-    ax.legend()
-    st.pyplot(fig)
+    ax1.loglog()
+    ax1.grid(axis='y')
+    ax1.set_title(f"{code}, {noise_model}, d={d}, rounds={rounds}, basis={basis}")
+    ax1.set_ylabel("Logical Error Rate (per shot)")
+    ax1.set_xlabel("Physical Error Rate")
+    ax1.legend()
+    st.pyplot(fig1)
 
-    # TODO: show legend outside of the axis
-    # TODO: add a new figure to show logical error rate per round
-
-    # Export as PNG
-    buf = BytesIO()
-    fig.savefig(buf, format="png", dpi=150)
+    buf1 = BytesIO()
+    fig1.savefig(buf1, format="png", dpi=150)
     st.download_button(
-        "Download plot as PNG",
-        data=buf.getvalue(),
-        file_name="benchmark_plot.png",
+        "Download LER (per shot) vs PER plot as PNG",
+        data=buf1.getvalue(),
+        file_name="benchmark_LER_per_shot_vs_PER.png",
+        mime="image/png",
+    )
+
+    # Add a visual line separator between the two plots
+    st.markdown("---")
+
+    st.subheader("Logical Error Rate (per round) vs Physical Error Rate")
+    fig2, ax2 = plt.subplots(1, 1)
+    sinter.plot_error_rate(
+        ax=ax2,
+        stats=stats,
+        x_func=lambda stat: stat.json_metadata["p"],
+        filter_func=filter_func,
+        group_func=group_func,
+        failure_units_per_shot_func=lambda stat: stat.json_metadata["rounds"],
+        plot_args_func=lambda index, group_key: {
+            "linestyle": group_key["linestyle"],
+        },
+    )
+    ax2.loglog()
+    ax2.grid(axis='y')
+    ax2.set_title(f"{code}, {noise_model}, d={d}, rounds={rounds}, basis={basis}")
+    ax2.set_ylabel("Logical Error Rate (per round)")
+    ax2.set_xlabel("Physical Error Rate")
+    ax2.legend()
+    st.pyplot(fig2)
+
+    buf2 = BytesIO()
+    fig2.savefig(buf2, format="png", dpi=150)
+    st.download_button(
+        "Download LER (per round) vs PER plot as PNG",
+        data=buf2.getvalue(),
+        file_name="benchmark_LER_per_round_vs_PER.png",
         mime="image/png",
     )
 
