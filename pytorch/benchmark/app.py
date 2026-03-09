@@ -62,6 +62,49 @@ def group_run_dirs_by_d_rounds_basis(run_dirs: list[Path]) -> defaultdict[tuple[
     return grouped
 
 
+def filter_stats(
+    stats: list[sinter.TaskStats],
+    *,
+    p_list: list[float],
+    max_iter: int,
+) -> list[sinter.TaskStats]:
+    """
+    Filter the list of `sinter.TaskStats` to only include those consistent 
+    with the given `p_list` and `max_iter`.
+    """
+    filtered: list[sinter.TaskStats] = []
+    for s in stats:
+        if s.json_metadata["p"] not in p_list:
+            continue
+        if "max_iter" in s.json_metadata and s.json_metadata["max_iter"] != max_iter:
+            continue
+        filtered.append(s)
+    return filtered
+
+
+def validate_stats(
+    stats: list[sinter.TaskStats],
+    *,
+    p_list: list[float],
+    max_shots: int,
+    max_errors: int,
+) -> bool:
+    """
+    Validate that: 
+    - The list `stats` covers all p in `p_list` and no other p.
+    - Each element of `stats` has enough shots to meet `max_shots` or enough errors to meet `max_errors`.
+
+    Return `True` if validation succeeds, `False` otherwise.
+    """
+    covered_p: set[float] = set(s.json_metadata["p"] for s in stats)
+    if covered_p != set(p_list):
+        return False
+    for s in stats:
+        if s.shots < max_shots and s.errors < max_errors:
+            return False
+    return True
+
+
 def load_and_merge_stats(
     *,
     code: str,
@@ -71,10 +114,15 @@ def load_and_merge_stats(
     basis: str,
     run_dirs: list[Path],
     baseline_decoders: list[str],
+    max_iter: int,
+    p_list: list[float],
+    max_shots: int,
+    max_errors: int,
 ) -> list[sinter.TaskStats]:
     """
     Load and merge PyTorch decoders' stats and baseline decoders' stats into a single list.
-    If any of the CSV files does not exist, display a warning and stop the app.
+    If any of the CSV files does not exist or only contains partial results, call `st.warning()` 
+    and `st.stop()`.
     """
     all_stats: list[sinter.TaskStats] = []
 
@@ -82,9 +130,13 @@ def load_and_merge_stats(
     for run_dir in run_dirs:
         csv_path = run_dir / BENCHMARK_CSV_FILENAME
         if not csv_path.exists():
-            st.warning(f"Missing benchmark data. Run benchmark first.")
+            st.warning("Missing data. Run benchmark first.")
             st.stop()
         stats = sinter.read_stats_from_csv_files(csv_path)
+        stats = filter_stats(stats, p_list=p_list, max_iter=max_iter)
+        if not validate_stats(stats, p_list=p_list, max_shots=max_shots, max_errors=max_errors):
+            st.warning("Missing data. Run benchmark first.")
+            st.stop()
         all_stats.extend(stats)
 
     # Load baseline decoders' stats.
@@ -93,9 +145,13 @@ def load_and_merge_stats(
             code, noise_model, d, rounds, basis, decoder
         )
         if not csv_path.exists():
-            st.warning(f"Missing benchmark data. Run benchmark first.")
+            st.warning("Missing data. Run benchmark first.")
             st.stop()
         stats = sinter.read_stats_from_csv_files(csv_path)
+        stats = filter_stats(stats, p_list=p_list, max_iter=max_iter)
+        if not validate_stats(stats, p_list=p_list, max_shots=max_shots, max_errors=max_errors):
+            st.warning("Missing data. Run benchmark first.")
+            st.stop()
         all_stats.extend(stats)
 
     return all_stats
@@ -116,7 +172,7 @@ def main():
         unsafe_allow_html=True,
     )
 
-    st.title("Monte Carlo Decoder Benchmark")
+    st.title("Monte Carlo Benchmark")
 
     # Discover all run_dirs
     run_dirs = discover_run_dirs()
@@ -241,6 +297,10 @@ def main():
         basis=basis,
         run_dirs=selected_run_dirs,
         baseline_decoders=selected_baseline_decoders,
+        max_iter=max_iter,
+        p_list=p_list,
+        max_shots=max_shots,
+        max_errors=max_errors,
     )
 
     st.subheader("Logical Error Rate (per shot) vs Physical Error Rate")
