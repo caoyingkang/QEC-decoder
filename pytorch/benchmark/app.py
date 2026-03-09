@@ -20,7 +20,6 @@ from utils import (
     extract_pytorch_decoder_name,
     flatten_config,
     get_differing_keys,
-    highlight_yaml_differences,
 )
 from benchmark import run_benchmark
 from baselines_benchmark import (
@@ -164,19 +163,6 @@ def load_and_merge_stats(
 
 def main():
     st.set_page_config(page_title="Decoder Benchmark", layout="wide", page_icon="📈")
-
-    # Prevent truncation of multiselect chip labels so decoder names are fully visible
-    st.markdown(
-        """
-        <style>
-            .stMultiSelect [data-baseweb=select] span {
-                max-width: 500px;
-            }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
     st.title("Monte Carlo Benchmark")
 
     # Discover all run_dirs
@@ -187,61 +173,13 @@ def main():
     if not is_unique(run_dirs):
         raise Exception("Duplicate run_dirs found.")
 
-    # Sidebar: hierarchical selection
+    # Sidebar: baseline decoders and benchmark params
     with st.sidebar:
-        st.subheader("Select QEC parameters")
-        grouped = group_run_dirs_by_code_and_noise(run_dirs)  # Group run_dirs by (code, noise_model)
-        code_noise_pairs = sorted(grouped.keys())
-        selected_code_noise_pair = st.selectbox(
-            "code, noise model",
-            options=code_noise_pairs,
-            index=None,
-            format_func=lambda x: f"{x[0]}, {x[1]}",
-        )
-        if selected_code_noise_pair is None:
-            st.stop()
-        code, noise_model = selected_code_noise_pair
-        run_dirs = grouped[selected_code_noise_pair]  # Filter run_dirs by selected (code, noise_model)
-
-        grouped = group_run_dirs_by_d_rounds_basis(run_dirs)  # Group run_dirs by (d, rounds, basis)
-        d_rounds_basis_triples = sorted(grouped.keys())
-        selected_d_rounds_basis_triple = st.selectbox(
-            "d, rounds, basis",
-            options=d_rounds_basis_triples,
-            index=None,
-            format_func=lambda x: f"{x[0]}, {x[1]}, {x[2]}",
-        )
-        if selected_d_rounds_basis_triple is None:
-            st.stop()
-        d, rounds, basis = selected_d_rounds_basis_triple
-        run_dirs = grouped[selected_d_rounds_basis_triple]  # Filter run_dirs by selected (d, rounds, basis)
-
-        st.subheader("Select PyTorch decoder(s)")
-        selected_run_dirs = st.multiselect(
-            "PyTorch decoder(s) to benchmark",
-            options=sorted(run_dirs),
-            default=None,
-            format_func=extract_pytorch_decoder_name,
-        )
-
-        with st.expander("View configs"):
-            selected_view_config = st.selectbox(
-                "PyTorch decoder",
-                options=sorted(run_dirs),
-                index=None,
-                format_func=extract_pytorch_decoder_name,
-                key="config_viewer",
-            )
-            if selected_view_config:
-                cfg = load_run_config(selected_view_config)
-                cfg_yaml = OmegaConf.to_yaml(cfg)
-                st.code(cfg_yaml, language="yaml")
-
         st.subheader("Select baseline decoder(s)")
         selected_baseline_decoders = st.multiselect(
             "Baseline decoder(s) to benchmark against",
             options=BASELINE_DECODERS,
-            default=None,
+            default=BASELINE_DECODERS,
         )
 
         st.subheader("Select benchmark parameters")
@@ -277,34 +215,113 @@ def main():
             help="Stops Monte Carlo sampling after having seen this many failures."
         )
 
-        if st.button("Run benchmark", type="primary"):
-            if len(selected_run_dirs) == 0 and len(selected_baseline_decoders) == 0:
-                st.warning("Please select at least one PyTorch decoder or baseline decoder.")
+    # Main: Select QEC parameters
+    st.subheader("Select QEC parameters")
+    col1, col2 = st.columns(2)
+    with col1:
+        grouped = group_run_dirs_by_code_and_noise(run_dirs)
+        code_noise_pairs = sorted(grouped.keys())
+        selected_code_noise_pair = st.selectbox(
+            "code, noise model",
+            options=code_noise_pairs,
+            index=None,
+            format_func=lambda x: f"{x[0]}, {x[1]}",
+        )
+    if selected_code_noise_pair is None:
+        st.stop()
+    code, noise_model = selected_code_noise_pair
+    run_dirs = grouped[selected_code_noise_pair]  # Filter run_dirs by code and noise model
+
+    with col2:
+        grouped = group_run_dirs_by_d_rounds_basis(run_dirs)
+        d_rounds_basis_triples = sorted(grouped.keys())
+        selected_d_rounds_basis_triple = st.selectbox(
+            "d, rounds, basis",
+            options=d_rounds_basis_triples,
+            index=None,
+            format_func=lambda x: f"{x[0]}, {x[1]}, {x[2]}",
+        )
+    if selected_d_rounds_basis_triple is None:
+        st.stop()
+    d, rounds, basis = selected_d_rounds_basis_triple
+    run_dirs = grouped[selected_d_rounds_basis_triple]  # Filter run_dirs by d, rounds, and basis
+
+    # Main: Table of PyTorch decoders with row selection; compare configs when there are 2+ decoders
+    st.subheader("Select PyTorch decoder(s)")
+    # Config comparison caption (when 2+ decoders)
+    sorted_run_dirs = sorted(run_dirs)
+    df_data = {"Decoder": [extract_pytorch_decoder_name(r) for r in sorted_run_dirs]}
+    if len(sorted_run_dirs) >= 2:
+        configs = [load_run_config(r) for r in sorted_run_dirs]
+        flat_configs = [flatten_config(OmegaConf.to_container(cfg, resolve=True)) for cfg in configs]
+        diff_keys = get_differing_keys(flat_configs)
+        sorted_diff_keys = sorted(diff_keys)
+        df_data.update({
+            k: [str(c.get(k, "N/A")) for c in flat_configs]
+            for k in sorted_diff_keys
+        })
+    else:
+        diff_keys: set[str] = set()
+    df = pd.DataFrame(df_data)
+
+    if diff_keys:
+        st.caption("Only differing config fields are shown in the table. "
+                   "Click the expander below to view full configs.")
+
+    event = st.dataframe(
+        df,
+        width="stretch",
+        key=f"pytorch_decoder_selection_{code}_{noise_model}_{d}_{rounds}_{basis}",
+        on_select="rerun",
+        selection_mode="multi-row",
+        hide_index=True,
+    )
+    selected_indices = event.selection.rows or []
+    selected_run_dirs = [sorted_run_dirs[i] for i in selected_indices]
+
+    # View configs expander
+    with st.expander("View full configs"):
+        selected_view_config = st.selectbox(
+            "PyTorch decoder",
+            options=sorted_run_dirs,
+            index=None,
+            format_func=extract_pytorch_decoder_name,
+            key=f"config_viewer_{code}_{noise_model}_{d}_{rounds}_{basis}",
+        )
+        if selected_view_config:
+            cfg = load_run_config(selected_view_config)
+            cfg_yaml = OmegaConf.to_yaml(cfg)
+            st.code(cfg_yaml, language="yaml")
+
+    # Run benchmark button
+    if st.button("Run benchmark", type="primary"):
+        if len(selected_run_dirs) == 0 and len(selected_baseline_decoders) == 0:
+            st.warning("Please select at least one PyTorch decoder or baseline decoder.")
+            st.stop()
+
+        with st.spinner("Running benchmark..."):
+            try:
+                run_benchmark(
+                    code=code,
+                    noise_model=noise_model,
+                    d=d,
+                    rounds=rounds,
+                    basis=basis,
+                    run_dirs=selected_run_dirs,
+                    baseline_decoders=selected_baseline_decoders,
+                    max_iter=max_iter,
+                    p_list=p_list,
+                    max_shots=max_shots,
+                    max_errors=max_errors,
+                )
+                st.success("Benchmark complete.")
+            except Exception as e:
+                st.error(str(e))
                 st.stop()
 
-            with st.spinner("Running benchmark..."):
-                try:
-                    run_benchmark(
-                        code=code,
-                        noise_model=noise_model,
-                        d=d,
-                        rounds=rounds,
-                        basis=basis,
-                        run_dirs=selected_run_dirs,
-                        baseline_decoders=selected_baseline_decoders,
-                        max_iter=max_iter,
-                        p_list=p_list,
-                        max_shots=max_shots,
-                        max_errors=max_errors,
-                    )
-                    st.success("Benchmark complete.")
-                except Exception as e:
-                    st.error(str(e))
-                    st.stop()
-
-    # Main: plot
+    # Plots (require at least one decoder selected)
     if len(selected_run_dirs) == 0 and len(selected_baseline_decoders) == 0:
-        st.warning("Please select at least one decoder in the sidebar.")
+        st.warning("Please select at least one decoder to benchmark.")
         st.stop()
 
     stats = load_and_merge_stats(
@@ -320,40 +337,6 @@ def main():
         max_shots=max_shots,
         max_errors=max_errors,
     )
-
-    # Config comparison (only when 2+ PyTorch decoders selected)
-    st.subheader("Config comparison between PyTorch decoders")
-    if len(selected_run_dirs) < 2:
-        st.info("Need at least two PyTorch decoders to compare configs.")
-    else:
-        configs = [load_run_config(r) for r in selected_run_dirs]
-        flat_configs = [
-            flatten_config(OmegaConf.to_container(cfg, resolve=True))
-            for cfg in configs
-        ]
-        diff_keys = get_differing_keys(flat_configs)
-        sorted_diff_keys = sorted(diff_keys)
-        if diff_keys:
-            st.caption("Only differing fields are shown in the table. For full configs with highlighted differing fields, click the expanders below.")
-            df = pd.DataFrame(
-                {
-                    "Fields": sorted_diff_keys,
-                    **{
-                        extract_pytorch_decoder_name(r): [
-                            str(c.get(k, "N/A")) for k in sorted_diff_keys
-                        ]
-                        for r, c in zip(selected_run_dirs, flat_configs)
-                    },
-                }
-            )
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("All selected PyTorch decoders have identical configs. Any differences in the benchmark may arise from randomness in the training and benchmarking processes.")
-        for run_dir, cfg in zip(selected_run_dirs, configs):
-            with st.expander(f"Full config: {extract_pytorch_decoder_name(run_dir)}"):
-                cfg_yaml = OmegaConf.to_yaml(cfg)
-                highlighted = highlight_yaml_differences(cfg_yaml, diff_keys)
-                st.markdown(highlighted, unsafe_allow_html=True)
 
     st.divider()
     st.subheader("Logical Error Rate (per shot) vs Physical Error Rate")
