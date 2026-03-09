@@ -7,7 +7,7 @@ from .learned_dmembp import LearnedDMemBP
 
 def build_decoder_model(chkmat: np.ndarray, prior: np.ndarray, model_cfg: DictConfig) -> nn.Module:
     model_name = model_cfg.name
-    if model_name == "learned_dmembp":
+    if model_name == "LearnedDMemBP":
         return LearnedDMemBP(
             chkmat, prior,
             num_iters=model_cfg.num_iters,

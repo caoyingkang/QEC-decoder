@@ -14,5 +14,5 @@ python train_dmembp.py qec.d=5 qec.rounds=5 model.num_iters=5
 Run the Streamlit app to select trained runs, run or load cached benchmarks, and plot logical error rate vs physical error rate:
 
 ```bash
-streamlit run pytorch/app/benchmark_app.py
+streamlit run pytorch/benchmark/app.py
 ```
