@@ -6,6 +6,7 @@ from io import BytesIO
 from pathlib import Path
 from collections import defaultdict
 
+import pandas as pd
 import matplotlib.pyplot as plt
 import sinter
 import streamlit as st
@@ -17,6 +18,9 @@ from utils import (
     is_unique,
     load_run_config,
     extract_pytorch_decoder_name,
+    flatten_config,
+    get_differing_keys,
+    highlight_yaml_differences,
 )
 from benchmark import run_benchmark
 from baselines_benchmark import (
@@ -317,6 +321,41 @@ def main():
         max_errors=max_errors,
     )
 
+    # Config comparison (only when 2+ PyTorch decoders selected)
+    st.subheader("Config comparison between PyTorch decoders")
+    if len(selected_run_dirs) < 2:
+        st.info("Need at least two PyTorch decoders to compare configs.")
+    else:
+        configs = [load_run_config(r) for r in selected_run_dirs]
+        flat_configs = [
+            flatten_config(OmegaConf.to_container(cfg, resolve=True))
+            for cfg in configs
+        ]
+        diff_keys = get_differing_keys(flat_configs)
+        sorted_diff_keys = sorted(diff_keys)
+        if diff_keys:
+            st.caption("Only differing fields are shown in the table. For full configs with highlighted differing fields, click the expanders below.")
+            df = pd.DataFrame(
+                {
+                    "Fields": sorted_diff_keys,
+                    **{
+                        extract_pytorch_decoder_name(r): [
+                            str(c.get(k, "N/A")) for k in sorted_diff_keys
+                        ]
+                        for r, c in zip(selected_run_dirs, flat_configs)
+                    },
+                }
+            )
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("All selected PyTorch decoders have identical configs. Any differences in the benchmark may arise from randomness in the training and benchmarking processes.")
+        for run_dir, cfg in zip(selected_run_dirs, configs):
+            with st.expander(f"Full config: {extract_pytorch_decoder_name(run_dir)}"):
+                cfg_yaml = OmegaConf.to_yaml(cfg)
+                highlighted = highlight_yaml_differences(cfg_yaml, diff_keys)
+                st.markdown(highlighted, unsafe_allow_html=True)
+
+    st.divider()
     st.subheader("Logical Error Rate (per shot) vs Physical Error Rate")
     fig1, ax1 = plt.subplots(1, 1)
 
@@ -362,14 +401,14 @@ def main():
     buf1 = BytesIO()
     fig1.savefig(buf1, format="png", dpi=150)
     st.download_button(
-        "Download LER (per shot) vs PER plot as PNG",
+        "Download plot as PNG",
         data=buf1.getvalue(),
         file_name="benchmark_LER_per_shot_vs_PER.png",
         mime="image/png",
     )
 
     # Add a visual line separator between the two plots
-    st.markdown("---")
+    st.divider()
 
     st.subheader("Logical Error Rate (per round) vs Physical Error Rate")
     fig2, ax2 = plt.subplots(1, 1)
@@ -395,7 +434,7 @@ def main():
     buf2 = BytesIO()
     fig2.savefig(buf2, format="png", dpi=150)
     st.download_button(
-        "Download LER (per round) vs PER plot as PNG",
+        "Download plot as PNG",
         data=buf2.getvalue(),
         file_name="benchmark_LER_per_round_vs_PER.png",
         mime="image/png",
