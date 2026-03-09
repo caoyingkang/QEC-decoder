@@ -9,6 +9,7 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 import sinter
 import streamlit as st
+from omegaconf import OmegaConf
 
 from utils import (
     RUNS_ROOT,
@@ -218,6 +219,19 @@ def main():
             default=None,
             format_func=extract_pytorch_decoder_name,
         )
+
+        with st.expander("View configs"):
+            selected_view_config = st.selectbox(
+                "PyTorch decoder",
+                options=sorted(run_dirs),
+                index=None,
+                format_func=extract_pytorch_decoder_name,
+                key="config_viewer",
+            )
+            if selected_view_config:
+                cfg = load_run_config(selected_view_config)
+                cfg_yaml = OmegaConf.to_yaml(cfg)
+                st.code(cfg_yaml, language="yaml")
 
         st.subheader("Select baseline decoder(s)")
         selected_baseline_decoders = st.multiselect(
