@@ -5,17 +5,17 @@ import numpy as np
 from omegaconf import OmegaConf
 from qecdec import RotatedSurfaceCode_Memory
 
-_PYTORCH_ROOT = Path(__file__).resolve().parent.parent
-_DATASETS_ROOT = _PYTORCH_ROOT / "datasets"
+PYTORCH_ROOT = Path(__file__).resolve().parent.parent
+DATASETS_ROOT = PYTORCH_ROOT / "datasets"
 
 SKIP_IF_EXISTS = True # TODO: use CLI argument
 
 def find_config_dirs() -> list[Path]:
     """Find all subdirectories containing config.yaml."""
-    config_dirs = []
-    for path in _DATASETS_ROOT.rglob("config.yaml"):
+    config_dirs: list[Path] = []
+    for path in DATASETS_ROOT.rglob("config.yaml"):
         config_dirs.append(path.parent)
-    return sorted(config_dirs)
+    return config_dirs
 
 
 def sample_shots(expmt: RotatedSurfaceCode_Memory, num_shots: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
@@ -56,13 +56,16 @@ def build_dataset_for_config(config_dir: Path) -> None:
     data_cfg = cfg.data
     seed = cfg.seed
 
-    expmt = RotatedSurfaceCode_Memory(
-        d=qec_cfg.d,
-        rounds=qec_cfg.rounds,
-        basis=qec_cfg.basis,
-        data_qubit_error_rate=qec_cfg.data_qubit_error_rate,
-        meas_error_rate=qec_cfg.meas_error_rate,
-    )
+    if qec_cfg.code == "RotatedSurfaceCode" and qec_cfg.noise_model == "Phenomenological":
+        expmt = RotatedSurfaceCode_Memory(
+            d=qec_cfg.d,
+            rounds=qec_cfg.rounds,
+            basis=qec_cfg.basis,
+            data_qubit_error_rate=qec_cfg.p,
+            meas_error_rate=qec_cfg.p,
+        )
+    else:
+        raise ValueError(f"Unsupported combination: {qec_cfg.code} + {qec_cfg.noise_model}")
 
     # –––– sample shots from noisy circuit ––––
     raw_sample_shots = data_cfg.raw_sample_shots
@@ -95,7 +98,7 @@ def build_dataset_for_config(config_dir: Path) -> None:
 def main():
     config_dirs = find_config_dirs()
     if len(config_dirs) == 0:
-        print(f"No config.yaml files found in {_DATASETS_ROOT}")
+        print(f"No config.yaml files found in {DATASETS_ROOT}")
         return
 
     print(f"Found {len(config_dirs)} config directories")
@@ -104,7 +107,7 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(_PYTORCH_ROOT))
+    sys.path.insert(0, str(PYTORCH_ROOT))
     from src.dataset.dataset import DecodingDataset
 
     main()

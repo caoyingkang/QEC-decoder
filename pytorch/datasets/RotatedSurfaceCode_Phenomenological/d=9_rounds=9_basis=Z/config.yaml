@@ -1,9 +1,10 @@
 qec:
+  code: RotatedSurfaceCode
+  noise_model: Phenomenological
   d: 9
   rounds: 9
   basis: Z
-  data_qubit_error_rate: 0.01
-  meas_error_rate: 0.01
+  p: 0.01
 
 data:
   raw_sample_shots: 150000
