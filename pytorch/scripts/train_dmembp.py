@@ -8,15 +8,15 @@ from lightning.pytorch.loggers import TensorBoardLogger
 from omegaconf import OmegaConf, DictConfig
 from qecdec import RotatedSurfaceCode_Memory
 
-_PYTORCH_ROOT = Path(__file__).resolve().parent.parent
-_DATASETS_ROOT = _PYTORCH_ROOT / "datasets"
-_RUNS_ROOT = _PYTORCH_ROOT / "runs"
-_DEFAULT_CONFIG_PATH = _PYTORCH_ROOT / "configs" / (Path(__file__).stem + ".yaml")
+PYTORCH_ROOT = Path(__file__).resolve().parent.parent
+DATASETS_ROOT = PYTORCH_ROOT / "datasets"
+RUNS_ROOT = PYTORCH_ROOT / "runs"
+DEFAULT_CONFIG_PATH = PYTORCH_ROOT / "configs" / (Path(__file__).stem + ".yaml")
 
 
 def load_config() -> DictConfig:
     cli_args = OmegaConf.from_cli()
-    config_path = Path(cli_args.config) if "config" in cli_args else _DEFAULT_CONFIG_PATH
+    config_path = Path(cli_args.config) if "config" in cli_args else DEFAULT_CONFIG_PATH
     base_cfg = OmegaConf.load(config_path)
     cfg = OmegaConf.merge(base_cfg, cli_args)
     if cfg.data.num_workers is None:
@@ -25,49 +25,63 @@ def load_config() -> DictConfig:
 
 
 def get_data_dir(qec_cfg: DictConfig) -> Path:
+    code = qec_cfg.code
+    noise_model = qec_cfg.noise_model
     d = qec_cfg.d
     rounds = qec_cfg.rounds
     basis = qec_cfg.basis
-    return _DATASETS_ROOT / "rotated_surface_code_memory" / f"d={d}_rounds={rounds}_basis={basis}"
+    return DATASETS_ROOT.joinpath(
+        f"{code}_{noise_model}",
+        f"d={d}_rounds={rounds}_basis={basis}",
+    )
 
 
 def get_run_dir(cfg: DictConfig) -> Path:
+    code = cfg.qec.code
+    noise_model = cfg.qec.noise_model
     d = cfg.qec.d
     rounds = cfg.qec.rounds
     basis = cfg.qec.basis
-    model_name: str = cfg.model.name
-    base_dir = _RUNS_ROOT / "rotated_surface_code_memory" / f"d={d}_rounds={rounds}_basis={basis}" / model_name
+    model_name = cfg.model.name
+    base_dir = RUNS_ROOT.joinpath(
+        f"{code}_{noise_model}",
+        f"d={d}_rounds={rounds}_basis={basis}",
+        model_name,
+    )
     base_dir.mkdir(parents=True, exist_ok=True)
-    run_ids = []
+    run_ids = set[int]()
     for p in base_dir.iterdir():
         if p.is_dir() and p.name.startswith("run_"):
-            try:
-                run_ids.append(int(p.name[4:]))
-            except ValueError:
-                pass
-    next_run_id = max(run_ids, default=-1) + 1
-    return base_dir / f"run_{next_run_id}"
+            run_ids.add(int(p.name[4:]))
+    new_id = 0
+    while new_id in run_ids:
+        new_id += 1
+    return base_dir / f"run_{new_id}"
 
 
 def main():
     cfg = load_config()
+    qec_cfg = cfg.qec
     print(">>>>>> Config:")
     print(OmegaConf.to_yaml(cfg))
 
-    data_dir = get_data_dir(cfg.qec)
+    data_dir = get_data_dir(qec_cfg)
     run_dir = get_run_dir(cfg)
     print(f">>>>>> Data directory: {data_dir}")
     print(f">>>>>> Run directory: {run_dir}")
     run_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(cfg, run_dir / "config.yaml")
 
-    expmt = RotatedSurfaceCode_Memory(
-        d=cfg.qec.d,
-        rounds=cfg.qec.rounds,
-        basis=cfg.qec.basis,
-        data_qubit_error_rate=cfg.qec.data_qubit_error_rate,
-        meas_error_rate=cfg.qec.meas_error_rate,
-    )
+    if qec_cfg.code == "RotatedSurfaceCode" and qec_cfg.noise_model == "Phenomenological":
+        expmt = RotatedSurfaceCode_Memory(
+            d=qec_cfg.d,
+            rounds=qec_cfg.rounds,
+            basis=qec_cfg.basis,
+            data_qubit_error_rate=qec_cfg.p,
+            meas_error_rate=qec_cfg.p,
+        )
+    else:
+        raise ValueError(f"Unsupported combination: {qec_cfg.code} + {qec_cfg.noise_model}")
     print(f">>>>>> Number of error mechanisms: {expmt.num_error_mechanisms}")
     print(f">>>>>> Number of detectors: {expmt.num_detectors}")
     print(f">>>>>> Number of observables: {expmt.num_observables}")
@@ -119,7 +133,7 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.path.append(str(_PYTORCH_ROOT))
+    sys.path.append(str(PYTORCH_ROOT))
     from src.dataset import DecodingDataModule
     from src.lightning_module import DecodingModule
     from src.callbacks import EpochSummary

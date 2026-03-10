@@ -1,12 +1,13 @@
 qec:
+  code: RotatedSurfaceCode
+  noise_model: Phenomenological
   d: 5
   rounds: 5
   basis: Z
-  data_qubit_error_rate: 0.01
-  meas_error_rate: 0.01
+  p: 0.01
 
 model:
-  name: learned_dmembp
+  name: LearnedDMemBP
   num_iters: 5
   min_impl_method: smooth
   sign_impl_method: smooth

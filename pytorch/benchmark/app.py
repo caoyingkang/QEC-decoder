@@ -1,0 +1,414 @@
+"""
+Streamlit app for Monte Carlo benchmarking of PyTorch decoders.
+Run with: `streamlit run pytorch/benchmark/app.py`
+"""
+from io import BytesIO
+from pathlib import Path
+from collections import defaultdict
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import sinter
+import streamlit as st
+from omegaconf import OmegaConf
+
+from utils import (
+    RUNS_ROOT,
+    BENCHMARK_CSV_FILENAME,
+    is_unique,
+    load_run_config,
+    extract_pytorch_decoder_name,
+    flatten_config,
+    get_differing_keys,
+)
+from benchmark import run_benchmark
+from baselines_benchmark import (
+    BASELINE_DECODERS,
+    get_baseline_csv_path,
+)
+
+
+DEFAULT_P_LIST = [0.004, 0.006, 0.008, 0.01, 0.012]
+DEFAULT_MAX_SHOTS = 100_000_000
+DEFAULT_MAX_ERRORS = 100
+DEFAULT_MAX_ITER = 50
+
+
+def discover_run_dirs() -> list[Path]:
+    """
+    Discover all run_dirs: These are the subdirectories of pytorch/runs that contain a checkpoints/best_model.ckpt file.
+    """
+    run_dirs: list[Path] = []
+    for p in RUNS_ROOT.rglob("checkpoints/best_model.ckpt"):
+        run_dirs.append(p.parent.parent)
+    return run_dirs
+
+
+def group_run_dirs_by_code_and_noise(run_dirs: list[Path]) -> defaultdict[tuple[str, str], list[Path]]:
+    """
+    Split run_dirs into groups according to (code, noise_model) pairs.
+    """
+    grouped = defaultdict[tuple[str, str], list[Path]](list)
+    for run_dir in run_dirs:
+        cfg = load_run_config(run_dir)
+        grouped[(cfg.qec.code, cfg.qec.noise_model)].append(run_dir)
+    return grouped
+
+
+def group_run_dirs_by_d_rounds_basis(run_dirs: list[Path]) -> defaultdict[tuple[int, int, str], list[Path]]:
+    """
+    Split run_dirs into groups according to (d, rounds, basis) triples.
+    """
+    grouped = defaultdict[tuple[int, int, str], list[Path]](list)
+    for run_dir in run_dirs:
+        cfg = load_run_config(run_dir)
+        grouped[(cfg.qec.d, cfg.qec.rounds, cfg.qec.basis)].append(run_dir)
+    return grouped
+
+
+def filter_stats(
+    stats: list[sinter.TaskStats],
+    *,
+    p_list: list[float],
+    max_iter: int,
+) -> list[sinter.TaskStats]:
+    """
+    Filter the list of `sinter.TaskStats` to only include those consistent 
+    with the given `p_list` and `max_iter`.
+    """
+    filtered: list[sinter.TaskStats] = []
+    for s in stats:
+        if s.json_metadata["p"] not in p_list:
+            continue
+        if "max_iter" in s.json_metadata and s.json_metadata["max_iter"] != max_iter:
+            continue
+        filtered.append(s)
+    return filtered
+
+
+def validate_stats(
+    stats: list[sinter.TaskStats],
+    *,
+    p_list: list[float],
+    max_shots: int,
+    max_errors: int,
+) -> bool:
+    """
+    Validate that: 
+    - The list `stats` covers all p in `p_list` and no other p.
+    - Each element of `stats` has enough shots to meet `max_shots` or enough errors to meet `max_errors`.
+
+    Return `True` if validation succeeds, `False` otherwise.
+    """
+    covered_p: set[float] = set(s.json_metadata["p"] for s in stats)
+    if covered_p != set(p_list):
+        return False
+    for s in stats:
+        if s.shots < max_shots and s.errors < max_errors:
+            return False
+    return True
+
+
+def load_and_merge_stats(
+    *,
+    code: str,
+    noise_model: str,
+    d: int,
+    rounds: int,
+    basis: str,
+    run_dirs: list[Path],
+    baseline_decoders: list[str],
+    max_iter: int,
+    p_list: list[float],
+    max_shots: int,
+    max_errors: int,
+) -> list[sinter.TaskStats]:
+    """
+    Load and merge PyTorch decoders' stats and baseline decoders' stats into a single list.
+    If any of the CSV files does not exist or only contains partial results, call `st.warning()` 
+    and `st.stop()`.
+    """
+    all_stats: list[sinter.TaskStats] = []
+
+    # Load PyTorch decoders' stats.
+    for run_dir in run_dirs:
+        csv_path = run_dir / BENCHMARK_CSV_FILENAME
+        if not csv_path.exists():
+            st.warning("Missing data. Run benchmark first.")
+            st.stop()
+        stats = sinter.read_stats_from_csv_files(csv_path)
+        stats = filter_stats(stats, p_list=p_list, max_iter=max_iter)
+        if not validate_stats(stats, p_list=p_list, max_shots=max_shots, max_errors=max_errors):
+            st.warning("Missing data. Run benchmark first.")
+            st.stop()
+        all_stats.extend(stats)
+
+    # Load baseline decoders' stats.
+    for decoder in baseline_decoders:
+        csv_path = get_baseline_csv_path(
+            code, noise_model, d, rounds, basis, decoder
+        )
+        if not csv_path.exists():
+            st.warning("Missing data. Run benchmark first.")
+            st.stop()
+        stats = sinter.read_stats_from_csv_files(csv_path)
+        stats = filter_stats(stats, p_list=p_list, max_iter=max_iter)
+        if not validate_stats(stats, p_list=p_list, max_shots=max_shots, max_errors=max_errors):
+            st.warning("Missing data. Run benchmark first.")
+            st.stop()
+        all_stats.extend(stats)
+
+    return all_stats
+
+
+def main():
+    st.set_page_config(page_title="Decoder Benchmark", layout="wide", page_icon="📈")
+    st.title("Monte Carlo Benchmark")
+
+    # Discover all run_dirs
+    run_dirs = discover_run_dirs()
+    if len(run_dirs) == 0:
+        st.warning("No trained PyTorch decoders found. Train a model first.")
+        st.stop()
+    if not is_unique(run_dirs):
+        raise Exception("Duplicate run_dirs found.")
+
+    # Sidebar: baseline decoders and benchmark params
+    with st.sidebar:
+        st.subheader("Select baseline decoder(s)")
+        selected_baseline_decoders = st.multiselect(
+            "Baseline decoder(s) to benchmark against",
+            options=BASELINE_DECODERS,
+            default=BASELINE_DECODERS,
+        )
+
+        st.subheader("Select benchmark parameters")
+        max_iter = st.number_input(
+            "Max number of decoding iterations",
+            value=DEFAULT_MAX_ITER,
+            min_value=1,
+            help="Only apply to iterative decoders (e.g., BP, LearnedDMemBP)."
+        )
+        p_list_str = st.text_input(
+            "Physical error rates (comma-separated)",
+            value=", ".join(str(p) for p in DEFAULT_P_LIST),
+            help="List of physical error rates to benchmark at, separated by commas."
+        )
+        try:
+            p_list = [float(x.strip()) for x in p_list_str.split(",") if x.strip()]
+        except ValueError:
+            st.error("Cannot parse into a list of floats.")
+            st.stop()
+        if len(p_list) == 0:
+            st.warning("Please enter at least one physical error rate.")
+            st.stop()
+        max_shots = st.number_input(
+            "Max number of shots",
+            value=DEFAULT_MAX_SHOTS,
+            min_value=1,
+            help="Stops Monte Carlo sampling after taking this many shots."
+        )
+        max_errors = st.number_input(
+            "Max number of failures",
+            value=DEFAULT_MAX_ERRORS,
+            min_value=1,
+            help="Stops Monte Carlo sampling after having seen this many failures."
+        )
+
+    # Main: Select QEC parameters
+    st.subheader("Select QEC parameters")
+    col1, col2 = st.columns(2)
+    with col1:
+        grouped = group_run_dirs_by_code_and_noise(run_dirs)
+        code_noise_pairs = sorted(grouped.keys())
+        selected_code_noise_pair = st.selectbox(
+            "code, noise model",
+            options=code_noise_pairs,
+            index=None,
+            format_func=lambda x: f"{x[0]}, {x[1]}",
+        )
+    if selected_code_noise_pair is None:
+        st.stop()
+    code, noise_model = selected_code_noise_pair
+    run_dirs = grouped[selected_code_noise_pair]  # Filter run_dirs by code and noise model
+
+    with col2:
+        grouped = group_run_dirs_by_d_rounds_basis(run_dirs)
+        d_rounds_basis_triples = sorted(grouped.keys())
+        selected_d_rounds_basis_triple = st.selectbox(
+            "d, rounds, basis",
+            options=d_rounds_basis_triples,
+            index=None,
+            format_func=lambda x: f"{x[0]}, {x[1]}, {x[2]}",
+        )
+    if selected_d_rounds_basis_triple is None:
+        st.stop()
+    d, rounds, basis = selected_d_rounds_basis_triple
+    run_dirs = grouped[selected_d_rounds_basis_triple]  # Filter run_dirs by d, rounds, and basis
+
+    # Main: Table of PyTorch decoders with row selection; compare configs when there are 2+ decoders
+    st.subheader("Select PyTorch decoder(s)")
+    # Config comparison caption (when 2+ decoders)
+    sorted_run_dirs = sorted(run_dirs)
+    df_data = {"Decoder": [extract_pytorch_decoder_name(r) for r in sorted_run_dirs]}
+    if len(sorted_run_dirs) >= 2:
+        configs = [load_run_config(r) for r in sorted_run_dirs]
+        flat_configs = [flatten_config(OmegaConf.to_container(cfg, resolve=True)) for cfg in configs]
+        diff_keys = get_differing_keys(flat_configs)
+        sorted_diff_keys = sorted(diff_keys)
+        df_data.update({
+            k: [str(c.get(k, "N/A")) for c in flat_configs]
+            for k in sorted_diff_keys
+        })
+    else:
+        diff_keys: set[str] = set()
+    df = pd.DataFrame(df_data)
+
+    if diff_keys:
+        st.caption("Only differing config fields are shown in the table. "
+                   "Click the expander below to view full configs.")
+
+    event = st.dataframe(
+        df,
+        width="stretch",
+        key=f"pytorch_decoder_selection_{code}_{noise_model}_{d}_{rounds}_{basis}",
+        on_select="rerun",
+        selection_mode="multi-row",
+        hide_index=True,
+    )
+    selected_indices = event.selection.rows or []
+    selected_run_dirs = [sorted_run_dirs[i] for i in selected_indices]
+
+    # View configs expander
+    with st.expander("View full configs"):
+        selected_view_config = st.selectbox(
+            "PyTorch decoder",
+            options=sorted_run_dirs,
+            index=None,
+            format_func=extract_pytorch_decoder_name,
+            key=f"config_viewer_{code}_{noise_model}_{d}_{rounds}_{basis}",
+        )
+        if selected_view_config:
+            cfg = load_run_config(selected_view_config)
+            cfg_yaml = OmegaConf.to_yaml(cfg)
+            st.code(cfg_yaml, language="yaml")
+
+    # Run benchmark button
+    if st.button("Run benchmark", type="primary"):
+        if len(selected_run_dirs) == 0 and len(selected_baseline_decoders) == 0:
+            st.warning("Please select at least one PyTorch decoder or baseline decoder.")
+            st.stop()
+
+        with st.spinner("Running benchmark..."):
+            try:
+                run_benchmark(
+                    code=code,
+                    noise_model=noise_model,
+                    d=d,
+                    rounds=rounds,
+                    basis=basis,
+                    run_dirs=selected_run_dirs,
+                    baseline_decoders=selected_baseline_decoders,
+                    max_iter=max_iter,
+                    p_list=p_list,
+                    max_shots=max_shots,
+                    max_errors=max_errors,
+                )
+                st.success("Benchmark complete.")
+            except Exception as e:
+                st.error(str(e))
+                st.stop()
+
+    # Plots (require at least one decoder selected)
+    if len(selected_run_dirs) == 0 and len(selected_baseline_decoders) == 0:
+        st.warning("Please select at least one decoder to benchmark.")
+        st.stop()
+
+    stats = load_and_merge_stats(
+        code=code,
+        noise_model=noise_model,
+        d=d,
+        rounds=rounds,
+        basis=basis,
+        run_dirs=selected_run_dirs,
+        baseline_decoders=selected_baseline_decoders,
+        max_iter=max_iter,
+        p_list=p_list,
+        max_shots=max_shots,
+        max_errors=max_errors,
+    )
+
+    st.divider()
+    st.subheader("Logical Error Rate (LER) vs Physical Error Rate (PER)")
+    ler_mode = st.radio(
+        "LER calculation method",
+        options=["per shot", "per round"],
+        horizontal=True,
+    )
+
+    def filter_func(stat: sinter.TaskStats) -> bool:
+        cond1 = stat.json_metadata["p"] in p_list
+        if "max_iter" in stat.json_metadata:
+            cond2 = stat.json_metadata["max_iter"] == max_iter
+        else:
+            cond2 = True
+        return cond1 and cond2
+
+    def group_func(stat: sinter.TaskStats) -> dict:
+        decoder = stat.json_metadata["decoder"]
+        if decoder in BASELINE_DECODERS:
+            return {
+                "label": decoder,
+                "linestyle": "dashed",
+            }
+        else:
+            return {
+                "label": decoder,
+                "linestyle": "solid",
+            }
+
+    fig, ax = plt.subplots(1, 1)
+    if ler_mode == "per shot":
+        sinter.plot_error_rate(
+            ax=ax,
+            stats=stats,
+            x_func=lambda stat: stat.json_metadata["p"],
+            filter_func=filter_func,
+            group_func=group_func,
+            plot_args_func=lambda index, group_key: {
+                "linestyle": group_key["linestyle"],
+            },
+        )
+        ax.set_ylabel("LER per shot")
+    else:  # ler_mode == "per round"
+        sinter.plot_error_rate(
+            ax=ax,
+            stats=stats,
+            x_func=lambda stat: stat.json_metadata["p"],
+            filter_func=filter_func,
+            group_func=group_func,
+            failure_units_per_shot_func=lambda stat: stat.json_metadata["rounds"],
+            plot_args_func=lambda index, group_key: {
+                "linestyle": group_key["linestyle"],
+            },
+        )
+        ax.set_ylabel("LER per round")
+    ax.loglog()
+    ax.grid(axis='y')
+    ax.set_title(f"{code}, {noise_model}, d={d}, rounds={rounds}, basis={basis}")
+    ax.set_xlabel("PER")
+    ax.legend()
+    st.pyplot(fig)
+
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=150)
+    st.download_button(
+        "Download plot as PNG",
+        data=buf.getvalue(),
+        file_name="benchmark_LER_vs_PER.png",
+        mime="image/png",
+    )
+
+
+if __name__ == "__main__":
+    main()
