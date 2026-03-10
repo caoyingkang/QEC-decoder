@@ -43,6 +43,8 @@ class LearnedDMemBP(nn.Module):
         """
         super().__init__()
         self.num_chks, self.num_vars = pcm.shape
+        if num_iters < 1:
+            raise ValueError(f"num_iters must be at least 1, but got {num_iters}")
         self.num_iters = num_iters
 
         if min_impl_method == "smooth":
@@ -128,7 +130,7 @@ class LearnedDMemBP(nn.Module):
         batch_size = syndromes.shape[0]
         synd_sgn = (1 - 2 * syndromes).to(FLOAT_DTYPE)  # (batch_size, num_chks) ∈ {+1,-1}
 
-        # Edge message arrays.
+        # Edge message arrays: (batch_size, num_edges + 1)
         # vn_to_cn[:, e], 0 <= e < num_edges, is the message along edge e from VN to CN.
         # cn_to_vn[:, e], 0 <= e < num_edges, is the message along edge e from CN to VN.
         # vn_to_cn[:, num_edges] is a dummy slot, so that vn_to_cn[:, self.cn_edge_idx] will not raise out-of-bounds error.
