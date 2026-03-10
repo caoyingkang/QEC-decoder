@@ -4,14 +4,15 @@ This subproject provides training scripts and a web interface for Monte Carlo be
 
 ## Training
 
-```bash
-cd pytorch/scripts
-python train_dmembp.py qec.d=5 qec.rounds=5 model.num_iters=5
-```
+Examples: (Assuming run from `pytorch/scripts` directory)
+- `python train.py config=configs/train_LearnedDMemBP.yaml`
+- `python train.py config=configs/train_LearnedDMemBP.yaml qec.d=11 qec.rounds=11 model.num_iters=10`
+- `python train.py config=configs/train_MultiDMemBP.yaml`
+- `python train.py config=configs/train_MultiDMemBP.yaml model.mlp.activation=ReLU`
 
 ## Monte Carlo benchmark app
 
-Run the Streamlit app to select trained runs, run or load cached benchmarks, and plot logical error rate vs physical error rate:
+To launch the Streamlit app for Monte Carlo benchmarking of the PyTorch decoders:
 
 ```bash
 streamlit run pytorch/benchmark/app.py
