@@ -38,7 +38,7 @@ def build_decoder_model(chkmat: np.ndarray, prior: np.ndarray, model_cfg: DictCo
             mlp_hidden_features=model_cfg.mlp.hidden_features,
             mlp_hidden_depth=model_cfg.mlp.hidden_depth,
             mlp_activation=_resolve_activation(model_cfg.mlp.activation),
-            mlp_use_norm=model_cfg.mlp.use_norm,
+            mlp_norm=model_cfg.mlp.norm,
             mlp_dropout_p=model_cfg.mlp.dropout_p,
             min_impl_method=model_cfg.min_impl_method,
             sign_impl_method=model_cfg.sign_impl_method,

@@ -6,6 +6,17 @@ import torch.nn as nn
 
 FLOAT_DTYPE = torch.float32
 
+NORM_CLS_MAP = {
+    "LayerNorm": nn.LayerNorm,
+    "RMSNorm": nn.RMSNorm,
+}
+
+
+def _resolve_norm(name: str) -> type[nn.Module]:
+    if name not in NORM_CLS_MAP:
+        raise ValueError(f"Unsupported normalization: {name!r}, expected one of {list(NORM_CLS_MAP.keys())}")
+    return NORM_CLS_MAP[name]
+
 
 class MLP(nn.Module):
     """
@@ -20,7 +31,7 @@ class MLP(nn.Module):
         hidden_depth: int,
         activation: nn.Module,
         *,
-        use_norm: bool,
+        norm: Optional[str],
         dropout_p: Optional[float],
         zero_init: bool = False,
         residual: bool = False,
@@ -43,8 +54,9 @@ class MLP(nn.Module):
             activation : nn.Module
                 Activation function to use in the hidden layers.
 
-            use_norm : bool
-                Whether to use layer normalization in the hidden layers.
+            norm : str | None
+                Normalization to use in the hidden layers. If None, no normalization is applied.
+                Allowed options are "LayerNorm" and "RMSNorm".
 
             dropout_p : float | None
                 Dropout probability for the hidden layers. If None, no dropout is applied.
@@ -54,7 +66,7 @@ class MLP(nn.Module):
 
             residual : bool
                 If True, use residual form output = x + net(x). Requires in_features == out_features.
-        
+
         Notes
         -----
         When `in_features == out_features`, one can set `zero_init=True` and `residual=True` to initialize 
@@ -74,6 +86,7 @@ class MLP(nn.Module):
         if residual and in_features != out_features:
             raise ValueError("Cannot set residual to True when in_features != out_features")
         self.residual = residual
+        norm_cls = _resolve_norm(norm) if norm is not None else None
 
         layers = []
 
@@ -81,8 +94,8 @@ class MLP(nn.Module):
         current_in = in_features
         for _ in range(hidden_depth):
             layers.append(nn.Linear(current_in, hidden_features))
-            if use_norm:
-                layers.append(nn.LayerNorm(hidden_features))
+            if norm_cls is not None:
+                layers.append(norm_cls(hidden_features))
             layers.append(activation())
             if dropout_p:
                 layers.append(nn.Dropout(dropout_p))

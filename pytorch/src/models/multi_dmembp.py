@@ -21,6 +21,14 @@ Design choices and rationale:
   component (gamma_shared=False).
 - Memory strength can be initialized to a single value (if gamma_init is a float) or sampled uniformly 
   from an interval (if gamma_init is a list of two floats).
+
+Notes:
+- Setting `mlp_norm="LayerNorm"` will subtract the mean across the message feature dimension, which can 
+  remove important sign information: It is possible that for some (CN, VN) pairs all message components 
+  are positive (they all agree that the VN is likely error-free), while for some other (CN, VN) pairs 
+  all message components are negative (they all agree that the VN is likely erroneous). LayerNorm removes 
+  this mean and can potentially degrade decoding performance. Consider setting `mlp_norm="RMSNorm"` 
+  (preserves sign) or `mlp_norm=None` (no normalization) instead.
 """
 from typing import Literal, Optional, Union
 
@@ -50,7 +58,7 @@ class MultiDMemBP(nn.Module):
         mlp_hidden_features: int,
         mlp_hidden_depth: int,
         mlp_activation: nn.Module,
-        mlp_use_norm: bool,
+        mlp_norm: Optional[str],
         mlp_dropout_p: Optional[float],
         min_impl_method: Literal["smooth", "hard"],
         sign_impl_method: Literal["smooth", "hard"],
@@ -81,8 +89,9 @@ class MultiDMemBP(nn.Module):
             mlp_activation : nn.Module
                 Activation function to use in the hidden layers of the MLP.
 
-            mlp_use_norm : bool
-                Whether to use layer normalization in the hidden layers of the MLP.
+            mlp_norm : str | None
+                Normalization to use in the hidden layers of the MLP. If None, no normalization.
+                Supported options are "LayerNorm" and "RMSNorm".
 
             mlp_dropout_p : Optional[float]
                 Dropout probability for the hidden layers of the MLP. If None, no dropout is applied.
@@ -116,7 +125,7 @@ class MultiDMemBP(nn.Module):
             hidden_features=mlp_hidden_features,
             hidden_depth=mlp_hidden_depth,
             activation=mlp_activation,
-            use_norm=mlp_use_norm,
+            norm=mlp_norm,
             dropout_p=mlp_dropout_p,
             zero_init=True,
             residual=True,
@@ -127,7 +136,7 @@ class MultiDMemBP(nn.Module):
             hidden_features=mlp_hidden_features,
             hidden_depth=mlp_hidden_depth,
             activation=mlp_activation,
-            use_norm=mlp_use_norm,
+            norm=mlp_norm,
             dropout_p=mlp_dropout_p,
             zero_init=True,
             residual=True,

@@ -17,8 +17,8 @@ model:
   mlp:
     hidden_features: 64
     hidden_depth: 2
-    activation: Tanh
-    use_norm: true
+    activation: Tanh  # options: "Sigmoid", "Tanh", "ReLU", "GELU", "SiLU".
+    norm: null  # null = no normalization; options: "LayerNorm", "RMSNorm".
     dropout_p: 0.05
 
 loss:
