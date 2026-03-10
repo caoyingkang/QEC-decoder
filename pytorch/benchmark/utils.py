@@ -1,6 +1,4 @@
 """Utility functions and constants."""
-import html
-import re
 from typing import Any, Iterable
 from pathlib import Path
 

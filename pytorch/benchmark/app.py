@@ -339,8 +339,12 @@ def main():
     )
 
     st.divider()
-    st.subheader("Logical Error Rate (per shot) vs Physical Error Rate")
-    fig1, ax1 = plt.subplots(1, 1)
+    st.subheader("Logical Error Rate (LER) vs Physical Error Rate (PER)")
+    ler_mode = st.radio(
+        "LER calculation method",
+        options=["per shot", "per round"],
+        horizontal=True,
+    )
 
     def filter_func(stat: sinter.TaskStats) -> bool:
         cond1 = stat.json_metadata["p"] in p_list
@@ -363,63 +367,45 @@ def main():
                 "linestyle": "solid",
             }
 
-    sinter.plot_error_rate(
-        ax=ax1,
-        stats=stats,
-        x_func=lambda stat: stat.json_metadata["p"],
-        filter_func=filter_func,
-        group_func=group_func,
-        plot_args_func=lambda index, group_key: {
-            "linestyle": group_key["linestyle"],
-        },
-    )
-    ax1.loglog()
-    ax1.grid(axis='y')
-    ax1.set_title(f"{code}, {noise_model}, d={d}, rounds={rounds}, basis={basis}")
-    ax1.set_ylabel("Logical Error Rate (per shot)")
-    ax1.set_xlabel("Physical Error Rate")
-    ax1.legend()
-    st.pyplot(fig1)
+    fig, ax = plt.subplots(1, 1)
+    if ler_mode == "per shot":
+        sinter.plot_error_rate(
+            ax=ax,
+            stats=stats,
+            x_func=lambda stat: stat.json_metadata["p"],
+            filter_func=filter_func,
+            group_func=group_func,
+            plot_args_func=lambda index, group_key: {
+                "linestyle": group_key["linestyle"],
+            },
+        )
+        ax.set_ylabel("LER per shot")
+    else:  # ler_mode == "per round"
+        sinter.plot_error_rate(
+            ax=ax,
+            stats=stats,
+            x_func=lambda stat: stat.json_metadata["p"],
+            filter_func=filter_func,
+            group_func=group_func,
+            failure_units_per_shot_func=lambda stat: stat.json_metadata["rounds"],
+            plot_args_func=lambda index, group_key: {
+                "linestyle": group_key["linestyle"],
+            },
+        )
+        ax.set_ylabel("LER per round")
+    ax.loglog()
+    ax.grid(axis='y')
+    ax.set_title(f"{code}, {noise_model}, d={d}, rounds={rounds}, basis={basis}")
+    ax.set_xlabel("PER")
+    ax.legend()
+    st.pyplot(fig)
 
-    buf1 = BytesIO()
-    fig1.savefig(buf1, format="png", dpi=150)
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=150)
     st.download_button(
         "Download plot as PNG",
-        data=buf1.getvalue(),
-        file_name="benchmark_LER_per_shot_vs_PER.png",
-        mime="image/png",
-    )
-
-    # Add a visual line separator between the two plots
-    st.divider()
-
-    st.subheader("Logical Error Rate (per round) vs Physical Error Rate")
-    fig2, ax2 = plt.subplots(1, 1)
-    sinter.plot_error_rate(
-        ax=ax2,
-        stats=stats,
-        x_func=lambda stat: stat.json_metadata["p"],
-        filter_func=filter_func,
-        group_func=group_func,
-        failure_units_per_shot_func=lambda stat: stat.json_metadata["rounds"],
-        plot_args_func=lambda index, group_key: {
-            "linestyle": group_key["linestyle"],
-        },
-    )
-    ax2.loglog()
-    ax2.grid(axis='y')
-    ax2.set_title(f"{code}, {noise_model}, d={d}, rounds={rounds}, basis={basis}")
-    ax2.set_ylabel("Logical Error Rate (per round)")
-    ax2.set_xlabel("Physical Error Rate")
-    ax2.legend()
-    st.pyplot(fig2)
-
-    buf2 = BytesIO()
-    fig2.savefig(buf2, format="png", dpi=150)
-    st.download_button(
-        "Download plot as PNG",
-        data=buf2.getvalue(),
-        file_name="benchmark_LER_per_round_vs_PER.png",
+        data=buf.getvalue(),
+        file_name="benchmark_LER_vs_PER.png",
         mime="image/png",
     )
 
