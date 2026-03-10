@@ -76,7 +76,7 @@ class DecodingModule(L.LightningModule):
         syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers)
         llrs = self(syndromes)  # (num_iters, batch_size, num_vars)
         loss = self.loss_fn(llrs, syndromes, observables)
-        self.log('train_loss', loss, prog_bar=True)
+        self.log('train_loss', loss, on_step=False, on_epoch=True)
         return loss
 
     def on_before_optimizer_step(self, optimizer):
@@ -103,7 +103,7 @@ class DecodingModule(L.LightningModule):
         syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers)
         llrs = self(syndromes)  # (num_iters, batch_size, num_vars)
         loss = self.loss_fn(llrs, syndromes, observables)
-        self.log('val_loss', loss, prog_bar=True)
+        self.log('val_loss', loss, on_step=False, on_epoch=True)
         self.metric.update(llrs.cpu(), syndromes.cpu(), observables.cpu())
         return loss
 
