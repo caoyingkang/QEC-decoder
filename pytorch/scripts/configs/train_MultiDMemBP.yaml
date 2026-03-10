@@ -12,10 +12,12 @@ model:
   msg_features: 16
   min_impl_method: smooth
   sign_impl_method: smooth
+  gamma_shared: true  # true = one gamma per VN, shared across message components; false = one gamma per VN and per message component
+  gamma_init: 0  # single scalar: all gamma use this value; [a, b]: sample independently and uniformly from [a, b]
   mlp:
     hidden_features: 64
     hidden_depth: 2
-    activation: ReLU
+    activation: Tanh
     use_norm: true
     dropout_p: 0.05
 

@@ -17,9 +17,12 @@ Design choices and rationale:
   independent of the other components, and the whole network reduces to LearnedDMemBP. As training 
   proceeds, the MLPs can learn to mix components, allowing information flow between the parallel 
   DMemBP instances.
-- Memory strength parameters vary per variable node, but are shared among the message components.
+- Memory strength (gamma) can be shared across message components (gamma_shared=True) or vary per
+  component (gamma_shared=False).
+- Memory strength can be initialized to a single value (if gamma_init is a float) or sampled uniformly 
+  from an interval (if gamma_init is a list of two floats).
 """
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 import numpy as np
 import torch
@@ -51,6 +54,8 @@ class MultiDMemBP(nn.Module):
         mlp_dropout_p: Optional[float],
         min_impl_method: Literal["smooth", "hard"],
         sign_impl_method: Literal["smooth", "hard"],
+        gamma_shared: bool,
+        gamma_init: Union[float, list[float]],
     ):
         """
         Parameters
@@ -87,6 +92,14 @@ class MultiDMemBP(nn.Module):
 
             sign_impl_method : Literal["smooth", "hard"]
                 Implementation method of the sign function. Options: "smooth" (based on tanh), "hard" (using torch.sign).
+
+            gamma_shared : bool
+                If True, memory strengths vary per variable node but are shared across message components.
+                If False, memory strengths vary per variable node and per message component.
+
+            gamma_init : float | list[float]
+                Initial value(s) for gamma. If a single float, all gamma values are set to it.
+                If a list of two floats [a, b], each gamma is sampled independently and uniformly from [a, b].
         """
         super().__init__()
         self.num_chks, self.num_vars = pcm.shape
@@ -185,7 +198,26 @@ class MultiDMemBP(nn.Module):
         self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=FLOAT_DTYPE))  # (num_vars,)
 
         # Initialize trainable parameter: memory strength.
-        self.gamma = nn.Parameter(torch.zeros(self.num_vars, dtype=FLOAT_DTYPE))  # (num_vars,)
+        self.gamma_shared = gamma_shared
+        self.gamma = nn.Parameter(self._init_gamma(gamma_init))  # (num_vars,) or (num_vars, msg_features)
+
+    def _init_gamma(self, gamma_init: Union[float, list[float]]) -> torch.Tensor:
+        if self.gamma_shared:
+            shape = (self.num_vars,)
+        else:
+            shape = (self.num_vars, self.msg_features)
+
+        # Support int or float. Note that bool is a subclass of int, but we don't want to treat it as such.
+        if isinstance(gamma_init, (int, float)) and not isinstance(gamma_init, bool):
+            return torch.full(shape, float(gamma_init), dtype=FLOAT_DTYPE)
+        # Support any class with __getitem__ and length 2.
+        elif hasattr(gamma_init, "__getitem__") and hasattr(gamma_init, "__len__") and len(gamma_init) == 2:
+            low, high = float(gamma_init[0]), float(gamma_init[1])
+            if low > high:
+                raise ValueError(f"Invalid interval, got {gamma_init!r}")
+            return torch.empty(shape, dtype=FLOAT_DTYPE).uniform_(low, high)
+        else:
+            raise ValueError(f"gamma_init must be a float or a list of two floats [low, high], got {gamma_init!r}")
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
         """
@@ -268,7 +300,10 @@ class MultiDMemBP(nn.Module):
 
             # Posterior LLR with memory.
             pllr = self.prior_llr.unsqueeze(0).unsqueeze(-1)  # (1, V, 1)
-            g = self.gamma.unsqueeze(0).unsqueeze(-1)  # (1, V, 1)
+            if self.gamma_shared:
+                g = self.gamma.unsqueeze(0).unsqueeze(-1)  # (1, V, 1)
+            else:
+                g = self.gamma.unsqueeze(0)  # (1, V, M)
             if t == 0:
                 llrs_all_components = incoming_sum + pllr  # (B, V, M)
             else:

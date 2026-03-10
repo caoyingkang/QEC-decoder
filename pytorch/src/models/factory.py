@@ -42,6 +42,8 @@ def build_decoder_model(chkmat: np.ndarray, prior: np.ndarray, model_cfg: DictCo
             mlp_dropout_p=model_cfg.mlp.dropout_p,
             min_impl_method=model_cfg.min_impl_method,
             sign_impl_method=model_cfg.sign_impl_method,
+            gamma_shared=model_cfg.gamma_shared,
+            gamma_init=model_cfg.gamma_init,
         )
     else:
         raise ValueError(f"Invalid model name: {model_name!r}")

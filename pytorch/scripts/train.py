@@ -29,9 +29,8 @@ RUNS_ROOT = PYTORCH_ROOT / "runs"
 def load_config() -> DictConfig:
     cli_args = OmegaConf.from_cli()
     if "config" not in cli_args:
-        raise ValueError(
-            "Config file path is required. Usage: python train.py config=<path/to/config.yaml> [overrides...]"
-        )
+        print("Error: Config file path is required. Usage: python train.py config=<path/to/config.yaml> [overrides...]")
+        exit(1)
     config_path = Path(cli_args.config)
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
