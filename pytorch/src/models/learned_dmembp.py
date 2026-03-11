@@ -4,9 +4,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from ..utils.tensor_utils import FLOAT_DTYPE
+
 EPS = 1e-6
 BIG = 1e8
-FLOAT_DTYPE = torch.float32
 
 
 class LearnedDMemBP(nn.Module):

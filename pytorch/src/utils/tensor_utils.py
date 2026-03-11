@@ -2,6 +2,10 @@ import torch
 import torch.nn.functional as F
 
 
+INT_DTYPE = torch.int32
+FLOAT_DTYPE = torch.float32
+
+
 def smooth_sign(x: torch.Tensor, *, alpha: float = 100.0) -> torch.Tensor:
     """
     Smooth version of sign function. Larger `alpha` => better approximation.

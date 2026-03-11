@@ -7,10 +7,6 @@ from .models import build_decoder_model
 from .loss import IterativeDecodingLoss
 from .metric import DecodingMetric
 
-EPS = 1e-6
-BIG = 1e8
-FLOAT_DTYPE = torch.float32
-
 
 class DecodingModule(L.LightningModule):
     def __init__(

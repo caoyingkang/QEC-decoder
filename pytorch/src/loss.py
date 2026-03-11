@@ -4,8 +4,10 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from .utils.tensor_utils import FLOAT_DTYPE
+
+
 EPS = 1e-6
-FLOAT_DTYPE = torch.float32
 
 
 class LossType(Enum):

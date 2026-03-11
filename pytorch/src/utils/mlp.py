@@ -1,10 +1,9 @@
 """Multi-layer perceptron network."""
 from typing import Optional
 
-import torch
 import torch.nn as nn
 
-FLOAT_DTYPE = torch.float32
+from .tensor_utils import FLOAT_DTYPE
 
 NORM_CLS_MAP = {
     "LayerNorm": nn.LayerNorm,
@@ -93,16 +92,16 @@ class MLP(nn.Module):
         # Hidden layers
         current_in = in_features
         for _ in range(hidden_depth):
-            layers.append(nn.Linear(current_in, hidden_features))
+            layers.append(nn.Linear(current_in, hidden_features, dtype=FLOAT_DTYPE))
             if norm_cls is not None:
-                layers.append(norm_cls(hidden_features))
+                layers.append(norm_cls(hidden_features, dtype=FLOAT_DTYPE))
             layers.append(activation())
             if dropout_p:
                 layers.append(nn.Dropout(dropout_p))
             current_in = hidden_features
 
         # Output layer (no normalization, no activation, no dropout)
-        layers.append(nn.Linear(current_in, out_features))
+        layers.append(nn.Linear(current_in, out_features, dtype=FLOAT_DTYPE))
 
         self.net = nn.Sequential(*layers)
 
