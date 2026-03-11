@@ -1,3 +1,4 @@
+"""Function for building PyTorch decoder models."""
 import numpy as np
 import torch.nn as nn
 from omegaconf import DictConfig
@@ -21,7 +22,14 @@ def _resolve_activation(name: str) -> type[nn.Module]:
     return ACTIVATION_MAP[name]
 
 
-def build_decoder_model(chkmat: np.ndarray, prior: np.ndarray, model_cfg: DictConfig) -> nn.Module:
+def build_decoder_model(
+    chkmat: np.ndarray,
+    prior: np.ndarray,
+    model_cfg: DictConfig
+) -> nn.Module:
+    """
+    Build a PyTorch decoder model for a check matrix and a prior error probability vector, according to a model configuration.
+    """
     model_name = model_cfg.name
     if model_name == "LearnedDMemBP":
         return LearnedDMemBP(
