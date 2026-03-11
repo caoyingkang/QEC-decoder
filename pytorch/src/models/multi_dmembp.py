@@ -38,12 +38,22 @@ import torch.nn as nn
 
 from ..utils.mlp import MLP
 from ..utils.tensor_utils import FLOAT_DTYPE
+from .decoder_model import DecoderModel
 
 EPS = 1e-6
 BIG = 1e8
 
+# Shape hints code:
+# B = batch_size
+# C = num_chks
+# V = num_vars
+# E = num_edges
+# M = msg_features
+# Δc = max_cn_deg
+# Δv = max_vn_deg
 
-class MultiDMemBP(nn.Module):
+
+class MultiDMemBP(DecoderModel):
     """
     Multi-dimensional Disordered Memory BP decoder.
     """
@@ -52,8 +62,8 @@ class MultiDMemBP(nn.Module):
         self,
         pcm: np.ndarray,
         prior: np.ndarray,
-        *,
         num_iters: int,
+        *,
         msg_features: int,
         mlp_hidden_features: int,
         mlp_hidden_depth: int,
@@ -110,13 +120,10 @@ class MultiDMemBP(nn.Module):
                 Initial value(s) for gamma. If a single float, all gamma values are set to it.
                 If a list of two floats [a, b], each gamma is sampled independently and uniformly from [a, b].
         """
-        super().__init__()
-        self.num_chks, self.num_vars = pcm.shape
-        if num_iters < 1:
-            raise ValueError(f"num_iters must be at least 1, but got {num_iters}")
+        super().__init__(pcm.shape[0], pcm.shape[1], num_iters)
+
         if msg_features < 1:
             raise ValueError(f"msg_features must be at least 1, but got {msg_features}")
-        self.num_iters = num_iters
         self.msg_features = msg_features
 
         self.v2c_mlp = MLP(
@@ -194,21 +201,21 @@ class MultiDMemBP(nn.Module):
             vn_cursor[j] += 1
 
         # Register index buffers.
-        self.register_buffer("edge_to_vn", torch.tensor(edge_to_vn, dtype=torch.long))  # (num_edges,)
-        self.register_buffer("cn_edge_idx", torch.tensor(cn_edge_idx, dtype=torch.long))  # (num_chks, max_cn_deg)
-        self.register_buffer("cn_mask", torch.tensor(cn_mask, dtype=torch.bool))  # (num_chks, max_cn_deg)
-        self.register_buffer("vn_edge_idx", torch.tensor(vn_edge_idx, dtype=torch.long))  # (num_vars, max_vn_deg)
-        self.register_buffer("vn_mask", torch.tensor(vn_mask, dtype=torch.bool))  # (num_vars, max_vn_deg)
-        self.register_buffer("cn_diag_mask", torch.eye(self.max_cn_deg, dtype=torch.bool))  # (max_cn_deg, max_cn_deg)
+        self.register_buffer("edge_to_vn", torch.tensor(edge_to_vn, dtype=torch.long))  # (E,)
+        self.register_buffer("cn_edge_idx", torch.tensor(cn_edge_idx, dtype=torch.long))  # (C, Δc)
+        self.register_buffer("cn_mask", torch.tensor(cn_mask, dtype=torch.bool))  # (C, Δc)
+        self.register_buffer("vn_edge_idx", torch.tensor(vn_edge_idx, dtype=torch.long))  # (V, Δv)
+        self.register_buffer("vn_mask", torch.tensor(vn_mask, dtype=torch.bool))  # (V, Δv)
+        self.register_buffer("cn_diag_mask", torch.eye(self.max_cn_deg, dtype=torch.bool))  # (Δc, Δc)
 
         # Register prior LLRs.
         prior = np.clip(prior, min=EPS, max=1 - EPS)
         prior_llr = np.log((1 - prior) / prior)
-        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=FLOAT_DTYPE))  # (num_vars,)
+        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=FLOAT_DTYPE))  # (V,)
 
         # Initialize trainable parameter: memory strength.
         self.gamma_shared = gamma_shared
-        self.gamma = nn.Parameter(self._init_gamma(gamma_init))  # (num_vars,) or (num_vars, msg_features)
+        self.gamma = nn.Parameter(self._init_gamma(gamma_init))  # (V,) or (V, M)
 
     def _init_gamma(self, gamma_init: Union[float, list[float]]) -> torch.Tensor:
         if self.gamma_shared:
@@ -229,26 +236,6 @@ class MultiDMemBP(nn.Module):
             raise ValueError(f"gamma_init must be a float or a list of two floats [low, high], got {gamma_init!r}")
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
-        """
-        Parameters
-        ----------
-            syndromes : torch.Tensor
-                Syndrome bits, shape=(batch_size, num_chks), int ∈ {0,1}
-
-        Returns
-        -------
-            llrs : torch.Tensor
-                LLR values at all BP iterations, shape=(num_iters, batch_size, num_vars), float
-        """
-        # Shape hints code:
-        # B = batch_size
-        # C = num_chks
-        # V = num_vars
-        # E = num_edges
-        # M = msg_features
-        # Δc = max_cn_deg
-        # Δv = max_vn_deg
-
         device = syndromes.device
         batch_size = syndromes.shape[0]
         synd_sgn = (1 - 2 * syndromes).to(FLOAT_DTYPE)  # (B, C)
