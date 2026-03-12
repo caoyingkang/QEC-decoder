@@ -19,6 +19,7 @@ from utils import (
     BENCHMARK_CSV_FILENAME,
     is_unique,
     load_run_config,
+    extract_pytorch_decoder_name,
     extract_pytorch_decoder_run_id,
     flatten_config,
     get_differing_keys,
@@ -135,25 +136,30 @@ def load_and_merge_stats(
     p_list: list[float],
     max_shots: int,
     max_errors: int,
-) -> list[sinter.TaskStats]:
+) -> tuple[list[sinter.TaskStats], list[Path], list[str]]:
     """
     Load and merge PyTorch decoders' stats and baseline decoders' stats into a single list.
-    If any of the CSV files does not exist or only contains partial results, call `st.warning()` 
-    and `st.stop()`.
+
+    Return `(all_stats, missing_run_dirs, missing_baseline_decoders)` where:
+    - `all_stats` is a merged list of `sinter.TaskStats`.
+    - `missing_run_dirs` is a sublist of `run_dirs` with missing or incomplete data.
+    - `missing_baseline_decoders` is a sublist of `baseline_decoders` with missing or incomplete data.
     """
     all_stats: list[sinter.TaskStats] = []
+    missing_run_dirs: list[Path] = []
+    missing_baseline_decoders: list[str] = []
 
     # Load PyTorch decoders' stats.
     for run_dir in run_dirs:
         csv_path = run_dir / BENCHMARK_CSV_FILENAME
         if not csv_path.exists():
-            st.warning("Missing data. Run benchmark first.")
-            st.stop()
+            missing_run_dirs.append(run_dir)
+            continue
         stats = sinter.read_stats_from_csv_files(csv_path)
         stats = filter_stats(stats, p_list=p_list, max_iter=max_iter)
         if not validate_stats(stats, p_list=p_list, max_shots=max_shots, max_errors=max_errors):
-            st.warning("Missing data. Run benchmark first.")
-            st.stop()
+            missing_run_dirs.append(run_dir)
+            continue
         all_stats.extend(stats)
 
     # Load baseline decoders' stats.
@@ -162,16 +168,16 @@ def load_and_merge_stats(
             code, noise_model, d, rounds, basis, decoder
         )
         if not csv_path.exists():
-            st.warning("Missing data. Run benchmark first.")
-            st.stop()
+            missing_baseline_decoders.append(decoder)
+            continue
         stats = sinter.read_stats_from_csv_files(csv_path)
         stats = filter_stats(stats, p_list=p_list, max_iter=max_iter)
         if not validate_stats(stats, p_list=p_list, max_shots=max_shots, max_errors=max_errors):
-            st.warning("Missing data. Run benchmark first.")
-            st.stop()
+            missing_baseline_decoders.append(decoder)
+            continue
         all_stats.extend(stats)
 
-    return all_stats
+    return all_stats, missing_run_dirs, missing_baseline_decoders
 
 
 def main():
@@ -319,36 +325,12 @@ def main():
                 cfg_yaml = OmegaConf.to_yaml(cfg)
                 st.code(cfg_yaml, language="yaml")
 
-    # Run benchmark button
-    if st.button("Run benchmark", type="primary"):
-        if len(selected_run_dirs) == 0 and len(selected_baseline_decoders) == 0:
-            st.warning("Please select at least one PyTorch decoder or baseline decoder.")
-            st.stop()
-
-        with st.spinner("Running benchmark..."):
-            run_benchmark(
-                code=code,
-                noise_model=noise_model,
-                d=d,
-                rounds=rounds,
-                basis=basis,
-                run_dirs=selected_run_dirs,
-                baseline_decoders=selected_baseline_decoders,
-                max_iter=max_iter,
-                p_list=p_list,
-                max_shots=max_shots,
-                max_errors=max_errors,
-                num_workers=num_workers,
-                device=device,
-            )
-            st.success("Benchmark complete.")
-
-    # Plots (require at least one decoder selected)
+    # Early exit when no decoders selected
     if len(selected_run_dirs) == 0 and len(selected_baseline_decoders) == 0:
-        st.warning("Please select at least one decoder to benchmark.")
+        st.warning("Please select at least one PyTorch decoder or baseline decoder to benchmark.")
         st.stop()
 
-    stats = load_and_merge_stats(
+    stats, missing_run_dirs, missing_baseline_decoders = load_and_merge_stats(
         code=code,
         noise_model=noise_model,
         d=d,
@@ -362,7 +344,36 @@ def main():
         max_errors=max_errors,
     )
 
-    st.divider()
+    # If data is incomplete, show warning and "Run benchmark" button
+    if len(missing_run_dirs) > 0 or len(missing_baseline_decoders) > 0:
+        missing_list = [extract_pytorch_decoder_name(r) for r in missing_run_dirs] + missing_baseline_decoders
+        missing_list_str = "\n\n".join(f"• {d}" for d in missing_list)
+        st.warning(
+            "The following decoders have missing or incomplete benchmark data:\n\n"
+            f"{missing_list_str}\n\n"
+            "Please run benchmark first."
+        )
+        if st.button("Run benchmark", type="primary"):
+            with st.spinner("Running benchmark..."):
+                run_benchmark(
+                    code=code,
+                    noise_model=noise_model,
+                    d=d,
+                    rounds=rounds,
+                    basis=basis,
+                    run_dirs=missing_run_dirs,
+                    baseline_decoders=missing_baseline_decoders,
+                    max_iter=max_iter,
+                    p_list=p_list,
+                    max_shots=max_shots,
+                    max_errors=max_errors,
+                    num_workers=num_workers,
+                    device=device,
+                )
+                st.rerun()
+        st.stop()
+
+    # Data is complete, show plots
     st.subheader("Logical Error Rate (LER) vs Physical Error Rate (PER)")
     ler_mode = st.radio(
         "LER calculation method",
