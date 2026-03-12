@@ -241,7 +241,7 @@ def main():
         )
         device = st.selectbox(
             "Device",
-            options=["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"],
+            options=["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"],
             index=0,
             help="Device to use for benchmarking PyTorch decoders.",
         )
@@ -433,7 +433,10 @@ def main():
     ax.set_title(f"{code}, {noise_model}, d={d}, rounds={rounds}, basis={basis}")
     ax.set_xlabel("PER")
     ax.legend()
-    st.pyplot(fig)
+    # Constrain plot width by placing it in a centered column (avoids full-width stretch)
+    _, plot_col, _ = st.columns([1, 3, 1])
+    with plot_col:
+        st.pyplot(fig, width="stretch")
 
     buf = BytesIO()
     fig.savefig(buf, format="png", dpi=150)
