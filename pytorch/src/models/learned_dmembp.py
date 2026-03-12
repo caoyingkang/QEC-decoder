@@ -4,7 +4,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from ..utils.tensor_utils import FLOAT_DTYPE
+from ..utils.tensor_utils import (
+    FLOAT_DTYPE,
+    smooth_min,
+    smooth_sign,
+)
 from .decoder_model import DecoderModel
 
 EPS = 1e-6
@@ -53,21 +57,12 @@ class LearnedDMemBP(DecoderModel):
         """
         super().__init__(pcm, prior, num_iters)
 
-        if min_impl_method == "smooth":
-            from ..utils.tensor_utils import smooth_min
-            self.min_func = smooth_min
-        elif min_impl_method == "hard":
-            self.min_func = torch.amin
-        else:
+        if min_impl_method not in ["smooth", "hard"]:
             raise ValueError(f"Invalid min_impl_method: {min_impl_method!r}")
-
-        if sign_impl_method == "smooth":
-            from ..utils.tensor_utils import smooth_sign
-            self.sign_func = smooth_sign
-        elif sign_impl_method == "hard":
-            self.sign_func = torch.sign
-        else:
+        if sign_impl_method not in ["smooth", "hard"]:
             raise ValueError(f"Invalid sign_impl_method: {sign_impl_method!r}")
+        self.min_impl_method = min_impl_method
+        self.sign_impl_method = sign_impl_method
 
         # Build edge list from parity-check matrix.
         edge_to_cn, edge_to_vn = np.nonzero(pcm)
@@ -123,6 +118,15 @@ class LearnedDMemBP(DecoderModel):
         self.gamma = nn.Parameter(torch.zeros(self.num_vars, dtype=FLOAT_DTYPE))  # (V,)
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
+        if self.training and self.min_impl_method == "smooth":  # Always use hard min during inference
+            min_func = smooth_min
+        else:
+            min_func = torch.amin
+        if self.training and self.sign_impl_method == "smooth":  # Always use hard sign during inference
+            sign_func = smooth_sign
+        else:
+            sign_func = torch.sign
+
         device = syndromes.device
         batch_size = syndromes.shape[0]
         synd_sgn = (1 - 2 * syndromes).to(FLOAT_DTYPE)  # (B, C) ∈ {+1,-1}
@@ -152,7 +156,7 @@ class LearnedDMemBP(DecoderModel):
             # ==================== CN update ====================
             # Gather incoming messages at all CNs.
             msgs_cn = vn_to_cn[:, self.cn_edge_idx]  # (B, C, Δc)
-            msgs_sgn = self.sign_func(msgs_cn).masked_fill(~cn_mask_3d, 1.0)  # (B, C, Δc)
+            msgs_sgn = sign_func(msgs_cn).masked_fill(~cn_mask_3d, 1.0)  # (B, C, Δc)
             msgs_abs = msgs_cn.abs().masked_fill(~cn_mask_3d, BIG)  # (B, C, Δc)
 
             # Leave-one-out sign product via 4D expansion + diagonal mask.
@@ -161,7 +165,7 @@ class LearnedDMemBP(DecoderModel):
 
             # Leave-one-out min abs via 4D expansion + diagonal mask.
             msgs_abs_4d = msgs_abs.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (B, C, Δc, Δc)
-            loo_abs_min = self.min_func(msgs_abs_4d.masked_fill(self.cn_diag_mask, BIG), dim=3)  # (B, C, Δc)
+            loo_abs_min = min_func(msgs_abs_4d.masked_fill(self.cn_diag_mask, BIG), dim=3)  # (B, C, Δc)
 
             # CN output messages.
             cn_out = synd_sgn.unsqueeze(2) * loo_sgn_prod * loo_abs_min   # (B, C, Δc)
