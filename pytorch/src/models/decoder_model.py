@@ -43,9 +43,9 @@ class DecoderModel(nn.Module):
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
-    def load_lightning_checkpoint_for_inference(self, ckpt_path: Path) -> None:
+    def load_lightning_checkpoint(self, ckpt_path: Path) -> None:
         """
-        Load parameters and buffers from a Lightning checkpoint for inference. Expect a checkpoint 
+        Load parameters and buffers from a Lightning checkpoint. Expect a checkpoint 
         saved by a `LightningModule`, with `state_dict` keys prefixed by `"decoder."`.
 
         Parameters
@@ -73,6 +73,3 @@ class DecoderModel(nn.Module):
                 state_dict[k[l:]] = v
 
         self.load_state_dict(state_dict, strict=True)
-
-        # Set model to evaluation mode.
-        self.eval()
