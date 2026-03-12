@@ -308,8 +308,9 @@ def main():
         with st.expander("View full configs"):
             selected_view_config = st.selectbox(
                 f"{model_name} config",
-                options=df_data["Run ID"],
+                options=group,
                 index=None,
+                format_func=lambda r: r.name,
                 key=f"config_viewer_{code}_{noise_model}_{d}_{rounds}_{basis}_{model_name}",
                 placeholder="Choose a run ID",
             )
@@ -325,26 +326,22 @@ def main():
             st.stop()
 
         with st.spinner("Running benchmark..."):
-            try:
-                run_benchmark(
-                    code=code,
-                    noise_model=noise_model,
-                    d=d,
-                    rounds=rounds,
-                    basis=basis,
-                    run_dirs=selected_run_dirs,
-                    baseline_decoders=selected_baseline_decoders,
-                    max_iter=max_iter,
-                    p_list=p_list,
-                    max_shots=max_shots,
-                    max_errors=max_errors,
-                    num_workers=num_workers,
-                    device=device,
-                )
-                st.success("Benchmark complete.")
-            except Exception as e:
-                st.error(str(e))
-                st.stop()
+            run_benchmark(
+                code=code,
+                noise_model=noise_model,
+                d=d,
+                rounds=rounds,
+                basis=basis,
+                run_dirs=selected_run_dirs,
+                baseline_decoders=selected_baseline_decoders,
+                max_iter=max_iter,
+                p_list=p_list,
+                max_shots=max_shots,
+                max_errors=max_errors,
+                num_workers=num_workers,
+                device=device,
+            )
+            st.success("Benchmark complete.")
 
     # Plots (require at least one decoder selected)
     if len(selected_run_dirs) == 0 and len(selected_baseline_decoders) == 0:
