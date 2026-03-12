@@ -19,7 +19,7 @@ from utils import (
     BENCHMARK_CSV_FILENAME,
     is_unique,
     load_run_config,
-    extract_pytorch_decoder_name,
+    extract_pytorch_decoder_run_id,
     flatten_config,
     get_differing_keys,
 )
@@ -65,6 +65,17 @@ def group_run_dirs_by_d_rounds_basis(run_dirs: list[Path]) -> defaultdict[tuple[
     for run_dir in run_dirs:
         cfg = load_run_config(run_dir)
         grouped[(cfg.qec.d, cfg.qec.rounds, cfg.qec.basis)].append(run_dir)
+    return grouped
+
+
+def group_run_dirs_by_decoder_model_name(run_dirs: list[Path]) -> defaultdict[str, list[Path]]:
+    """
+    Split run_dirs into groups according to decoder model name.
+    """
+    grouped = defaultdict[str, list[Path]](list)
+    for run_dir in run_dirs:
+        cfg = load_run_config(run_dir)
+        grouped[cfg.model.name].append(run_dir)
     return grouped
 
 
@@ -260,52 +271,52 @@ def main():
     d, rounds, basis = selected_d_rounds_basis_triple
     run_dirs = grouped[selected_d_rounds_basis_triple]  # Filter run_dirs by d, rounds, and basis
 
-    # Main: Table of PyTorch decoders with row selection; compare configs when there are 2+ decoders
+    # Main: Tables of PyTorch decoders (one per model type) with row selection; compare configs when 2+ runs per model
     st.subheader("Select PyTorch decoder(s)")
-    # Config comparison caption (when 2+ decoders)
-    sorted_run_dirs = sorted(run_dirs)
-    df_data = {"Decoder": [extract_pytorch_decoder_name(r) for r in sorted_run_dirs]}
-    if len(sorted_run_dirs) >= 2:
-        configs = [load_run_config(r) for r in sorted_run_dirs]
-        flat_configs = [flatten_config(OmegaConf.to_container(cfg, resolve=True)) for cfg in configs]
-        diff_keys = get_differing_keys(flat_configs)
-        sorted_diff_keys = sorted(diff_keys)
-        df_data.update({
-            k: [str(c.get(k, "N/A")) for c in flat_configs]
-            for k in sorted_diff_keys
-        })
-    else:
-        diff_keys: set[str] = set()
-    df = pd.DataFrame(df_data)
+    st.caption("One table per decoder model. "
+               "Only differing config fields are shown in each table. "
+               "Click the checkboxes to select runs to benchmark. "
+               "Click the expander below to view full configs.")
+    grouped = group_run_dirs_by_decoder_model_name(run_dirs)
+    selected_run_dirs: list[Path] = []
+    for model_name in sorted(grouped.keys()):
+        group = sorted(grouped[model_name], key=extract_pytorch_decoder_run_id)
+        df_data = {"Run ID": [r.name for r in group]}
+        if len(group) >= 2:
+            configs = [load_run_config(r) for r in group]
+            flat_configs = [flatten_config(OmegaConf.to_container(cfg, resolve=True)) for cfg in configs]
+            diff_keys = get_differing_keys(flat_configs)
+            df_data.update({
+                k: [str(c.get(k, "N/A")) for c in flat_configs]
+                for k in sorted(diff_keys)
+            })
+        df = pd.DataFrame(df_data)
 
-    if diff_keys:
-        st.caption("Only differing config fields are shown in the table. "
-                   "Click the expander below to view full configs.")
-
-    event = st.dataframe(
-        df,
-        width="stretch",
-        key=f"pytorch_decoder_selection_{code}_{noise_model}_{d}_{rounds}_{basis}",
-        on_select="rerun",
-        selection_mode="multi-row",
-        hide_index=True,
-    )
-    selected_indices = event.selection.rows or []
-    selected_run_dirs = [sorted_run_dirs[i] for i in selected_indices]
-
-    # View configs expander
-    with st.expander("View full configs"):
-        selected_view_config = st.selectbox(
-            "PyTorch decoder",
-            options=sorted_run_dirs,
-            index=None,
-            format_func=extract_pytorch_decoder_name,
-            key=f"config_viewer_{code}_{noise_model}_{d}_{rounds}_{basis}",
+        st.markdown(f"**{model_name}**")
+        event = st.dataframe(
+            df,
+            width="stretch",
+            key=f"pytorch_decoder_selection_{code}_{noise_model}_{d}_{rounds}_{basis}_{model_name}",
+            on_select="rerun",
+            selection_mode="multi-row",
+            hide_index=True,
         )
-        if selected_view_config:
-            cfg = load_run_config(selected_view_config)
-            cfg_yaml = OmegaConf.to_yaml(cfg)
-            st.code(cfg_yaml, language="yaml")
+        selected_indices = event.selection.rows or []
+        selected_run_dirs.extend([group[i] for i in selected_indices])
+
+        # View configs expander
+        with st.expander("View full configs"):
+            selected_view_config = st.selectbox(
+                f"{model_name} config",
+                options=df_data["Run ID"],
+                index=None,
+                key=f"config_viewer_{code}_{noise_model}_{d}_{rounds}_{basis}_{model_name}",
+                placeholder="Choose a run ID",
+            )
+            if selected_view_config:
+                cfg = load_run_config(selected_view_config)
+                cfg_yaml = OmegaConf.to_yaml(cfg)
+                st.code(cfg_yaml, language="yaml")
 
     # Run benchmark button
     if st.button("Run benchmark", type="primary"):
