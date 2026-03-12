@@ -51,7 +51,7 @@ class LearnedDMemBP(DecoderModel):
             sign_impl_method : Literal["smooth", "hard"]
                 Implementation method of the sign function. Options: "smooth" (based on tanh), "hard" (using torch.sign).
         """
-        super().__init__(pcm.shape[0], pcm.shape[1], num_iters)
+        super().__init__(pcm, prior, num_iters)
 
         if min_impl_method == "smooth":
             from ..utils.tensor_utils import smooth_min
@@ -104,18 +104,20 @@ class LearnedDMemBP(DecoderModel):
             vn_mask[j, k] = True
             vn_cursor[j] += 1
 
-        # Register index buffers.
-        self.register_buffer("edge_to_vn", torch.tensor(edge_to_vn, dtype=torch.long))  # (E,)
-        self.register_buffer("cn_edge_idx", torch.tensor(cn_edge_idx, dtype=torch.long))  # (C, Δc)
-        self.register_buffer("cn_mask", torch.tensor(cn_mask, dtype=torch.bool))  # (C, Δc)
-        self.register_buffer("vn_edge_idx", torch.tensor(vn_edge_idx, dtype=torch.long))  # (V, Δv)
-        self.register_buffer("vn_mask", torch.tensor(vn_mask, dtype=torch.bool))  # (V, Δv)
-        self.register_buffer("cn_diag_mask", torch.eye(self.max_cn_deg, dtype=torch.bool))  # (Δc, Δc)
+        # Register index buffers (derived from chkmat; not saved in checkpoints).
+        # Since these are derived from chkmat, they are not part of the model's state_dict, and will not be saved in checkpoints.
+        self.register_buffer("edge_to_vn", torch.tensor(edge_to_vn, dtype=torch.long), persistent=False)  # (E,)
+        self.register_buffer("cn_edge_idx", torch.tensor(cn_edge_idx, dtype=torch.long), persistent=False)  # (C, Δc)
+        self.register_buffer("cn_mask", torch.tensor(cn_mask, dtype=torch.bool), persistent=False)  # (C, Δc)
+        self.register_buffer("vn_edge_idx", torch.tensor(vn_edge_idx, dtype=torch.long), persistent=False)  # (V, Δv)
+        self.register_buffer("vn_mask", torch.tensor(vn_mask, dtype=torch.bool), persistent=False)  # (V, Δv)
+        self.register_buffer("cn_diag_mask", torch.eye(self.max_cn_deg, dtype=torch.bool), persistent=False)  # (Δc, Δc)
 
         # Register prior LLRs.
+        # Since prior_llr is derived from prior, it is not part of the model's state_dict, and will not be saved in checkpoints.
         prior = np.clip(prior, min=EPS, max=1 - EPS)
         prior_llr = np.log((1 - prior) / prior)
-        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=FLOAT_DTYPE))  # (V,)
+        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=FLOAT_DTYPE), persistent=False)  # (V,)
 
         # Initialize trainable parameter: memory strength.
         self.gamma = nn.Parameter(torch.zeros(self.num_vars, dtype=FLOAT_DTYPE))  # (V,)

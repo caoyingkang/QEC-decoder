@@ -1,4 +1,7 @@
 """Base class for PyTorch iterative decoder models."""
+from pathlib import Path
+
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -7,24 +10,26 @@ class DecoderModel(nn.Module):
     """
     Base class for PyTorch iterative decoder models.
 
-    This is the nn.Module that implements the neural network architecture. Every decoder model
+    This is the `torch.nn.Module` that implements the neural network architecture. Every decoder model
     should inherit from this class, and is assumed to have an iterative (recurrent) nature: the 
     forward pass is made of multiple iterations, with each iteration producing an LLR value for 
     each variable node.
     """
 
-    def __init__(self, num_chks: int, num_vars: int, num_iters: int):
+    def __init__(self, pcm: np.ndarray, prior: np.ndarray, num_iters: int):
         """Initialize the PyTorch iterative decoder model."""
         super().__init__()
-        self.num_chks = num_chks
-        self.num_vars = num_vars
+        self.pcm = pcm
+        self.prior = prior
+        self.num_chks: int = pcm.shape[0]
+        self.num_vars: int = pcm.shape[1]
         if num_iters < 1:
             raise ValueError(f"num_iters must be at least 1, but got {num_iters}")
         self.num_iters = num_iters
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass.
+        Forward pass. Subclasses must implement this method.
 
         Parameters
         ----------
@@ -37,3 +42,37 @@ class DecoderModel(nn.Module):
                 LLR outputs at all iterations, shape=(num_iters, batch_size, num_vars), float
         """
         raise NotImplementedError("Subclasses must implement this method.")
+
+    def load_lightning_checkpoint_for_inference(self, ckpt_path: Path) -> None:
+        """
+        Load parameters and buffers from a Lightning checkpoint for inference. Expect a checkpoint 
+        saved by a `LightningModule`, with `state_dict` keys prefixed by `"decoder."`.
+
+        Parameters
+        ----------
+        ckpt_path : Path
+            Path to the Lightning checkpoint file.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the checkpoint file does not exist.
+
+        RuntimeError
+            If the checkpoint state_dict keys do not exactly match this model.
+        """
+        if not ckpt_path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
+        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+
+        prefix = "decoder."
+        l = len(prefix)
+        state_dict = {}
+        for k, v in ckpt["state_dict"].items():
+            if k.startswith(prefix):
+                state_dict[k[l:]] = v
+
+        self.load_state_dict(state_dict, strict=True)
+
+        # Set model to evaluation mode.
+        self.eval()
