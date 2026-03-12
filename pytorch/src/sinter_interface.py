@@ -39,7 +39,7 @@ class PyTorchSinterDecoder(sinter.Decoder):
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
 
-        self._pcm_tensor = torch.tensor(model.pcm, dtype=INT_DTYPE, device=device)
+        self._pcm_tensor = torch.tensor(model.pcm, dtype=INT_DTYPE, device="cpu")
 
         # Move model to device.
         self.model.to(device)
@@ -57,13 +57,13 @@ class PyTorchSinterDecoder(sinter.Decoder):
         """
         unpacked = np.unpackbits(bit_packed_detection_event_data, axis=1, bitorder="little")
         unpacked = unpacked[:, :self.num_chks]
-        syndromes = torch.tensor(unpacked, dtype=INT_DTYPE, device=self.device)
 
+        syndromes = torch.tensor(unpacked, dtype=INT_DTYPE, device=self.device)
         with torch.no_grad():
             llrs = self.model(syndromes)
 
-        ehat, _ = llrs_to_ehat(llrs, syndromes, self._pcm_tensor)
-        ehat_np = ehat.cpu().numpy().astype(np.uint8)
+        ehat, _ = llrs_to_ehat(llrs.cpu(), syndromes.cpu(), self._pcm_tensor)
+        ehat_np = ehat.numpy().astype(np.uint8)
 
         observable_predict = (ehat_np @ self.obsmat.T) % 2
         return np.packbits(observable_predict, axis=1, bitorder="little")
