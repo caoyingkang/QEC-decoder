@@ -3,12 +3,14 @@ Streamlit app for Monte Carlo benchmarking of PyTorch decoders.
 Run with: `streamlit run pytorch/benchmark/app.py`
 """
 from io import BytesIO
+import os
 from pathlib import Path
 from collections import defaultdict
 
 import pandas as pd
 import matplotlib.pyplot as plt
 import sinter
+import torch
 import streamlit as st
 from omegaconf import OmegaConf
 
@@ -206,13 +208,25 @@ def main():
             "Max number of shots",
             value=DEFAULT_MAX_SHOTS,
             min_value=1,
-            help="Stops Monte Carlo sampling after taking this many shots."
+            help="Stop Monte Carlo sampling after taking this many shots."
         )
         max_errors = st.number_input(
             "Max number of failures",
             value=DEFAULT_MAX_ERRORS,
             min_value=1,
-            help="Stops Monte Carlo sampling after having seen this many failures."
+            help="Stop Monte Carlo sampling after having seen this many failures."
+        )
+        num_workers = st.number_input(
+            "Number of CPU workers",
+            value=max(1, (os.cpu_count() or 1) - 1),
+            min_value=1,
+            help="Number of CPU workers for benchmarking baseline decoders (and PyTorch decoders if not using GPU).",
+        )
+        device = st.selectbox(
+            "Device",
+            options=["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"],
+            index=0,
+            help="Device to use for benchmarking PyTorch decoders.",
         )
 
     # Main: Select QEC parameters
@@ -313,6 +327,8 @@ def main():
                     p_list=p_list,
                     max_shots=max_shots,
                     max_errors=max_errors,
+                    num_workers=num_workers,
+                    device=device,
                 )
                 st.success("Benchmark complete.")
             except Exception as e:
