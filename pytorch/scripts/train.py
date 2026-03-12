@@ -19,6 +19,7 @@ import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 from omegaconf import OmegaConf, DictConfig
+from omegaconf.errors import ConfigKeyError
 from qecdec import RotatedSurfaceCode_Memory
 
 PYTORCH_ROOT = Path(__file__).resolve().parent.parent
@@ -34,10 +35,20 @@ def load_config() -> DictConfig:
     config_path = Path(cli_args.config)
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
+    del cli_args.config
     base_cfg = OmegaConf.load(config_path)
-    cfg = OmegaConf.merge(base_cfg, cli_args)
+    OmegaConf.set_struct(base_cfg, True)  # forbid creation of new keys
+
+    try:
+        cfg = OmegaConf.merge(base_cfg, cli_args)
+    except ConfigKeyError as e:
+        print(f"Invalid CLI override(s). Only keys that exist in the base config can be overridden.\n {e}")
+        exit(1)
+
     if cfg.data.num_workers is None:
         cfg.data.num_workers = os.cpu_count()
+
+    OmegaConf.set_readonly(cfg, True)  # forbid modification from now on
     return cfg
 
 
