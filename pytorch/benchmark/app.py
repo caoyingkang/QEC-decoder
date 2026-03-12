@@ -233,18 +233,24 @@ def main():
             min_value=1,
             help="Stop Monte Carlo sampling after having seen this many failures."
         )
-        num_workers = st.number_input(
-            "Number of workers",
-            value=max(1, (os.cpu_count() or 1) - 1),
-            min_value=1,
-            help="Number of workers used for benchmarking.",
-        )
         device = st.selectbox(
             "Device",
             options=["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"],
             index=0,
             help="Device to use for benchmarking PyTorch decoders.",
         )
+        if device == "cuda":
+            default_num_workers = 1
+        else:
+            default_num_workers = max(1, (os.cpu_count() or 1) - 1)
+        num_workers = st.number_input(
+            "Number of workers",
+            value=default_num_workers,
+            min_value=1,
+            help="Number of workers used for benchmarking.",
+        )
+        if device == "cuda" and num_workers > 1:
+            st.warning("It is not recommended to use more than 1 worker for benchmarking on GPU.")
 
     # Main: Select QEC parameters
     st.subheader("Select QEC parameters")
