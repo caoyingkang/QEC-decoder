@@ -234,14 +234,14 @@ def main():
             help="Stop Monte Carlo sampling after having seen this many failures."
         )
         num_workers = st.number_input(
-            "Number of CPU workers",
+            "Number of workers",
             value=max(1, (os.cpu_count() or 1) - 1),
             min_value=1,
-            help="Number of CPU workers for benchmarking baseline decoders (and PyTorch decoders if not using GPU).",
+            help="Number of workers used for benchmarking.",
         )
         device = st.selectbox(
             "Device",
-            options=["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"],
+            options=["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"],
             index=0,
             help="Device to use for benchmarking PyTorch decoders.",
         )

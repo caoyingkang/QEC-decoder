@@ -65,18 +65,11 @@ def run_pytorch_decoder_benchmark(
     num_workers: int,
     device: str,
 ):
-    """
-    Benchmark a PyTorch decoder from a training run directory.
-
-    When `device != "cpu"`, `num_workers` will be ignored and forced to 1.
-    """
     if not is_consistent(run_dir, code, noise_model, d, rounds, basis):
         raise ValueError(
             f"Run dir {run_dir} has inconsistent QEC config with the selected "
             f"code, noise_model, d, rounds, and basis."
         )
-    if device != "cpu":
-        num_workers = 1
     csv_path = run_dir / BENCHMARK_CSV_FILENAME
 
     tasks: list[sinter.Task] = []
