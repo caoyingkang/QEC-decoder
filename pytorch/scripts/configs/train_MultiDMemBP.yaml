@@ -41,7 +41,7 @@ tb_logger:
   log_graph: false
 
 data:
-  batch_size: 256
+  batch_size: 64
   num_workers: null   # null = use os.cpu_count() at runtime
 
 trainer:
