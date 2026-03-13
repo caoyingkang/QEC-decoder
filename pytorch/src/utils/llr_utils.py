@@ -1,7 +1,7 @@
 """Utilities for LLR processing in iterative decoders."""
 import torch
 
-from .tensor_utils import INT_DTYPE
+from .tensor_utils import INT_DTYPE, FLOAT_DTYPE
 
 
 def llrs_to_ehat(
@@ -15,16 +15,18 @@ def llrs_to_ehat(
     Use syndrome-matched early stopping: if the decoder converges (syndrome
     matches) at an earlier iteration, use that; otherwise use the last iteration.
 
+    Assume that the input tensors are on the same device.
+
     Parameters
     ----------
     llrs : torch.Tensor
-        LLR values at all iterations, shape=(num_iters, batch_size, num_vars).
+        LLR values at all iterations, shape=(num_iters, batch_size, num_vars), float.
 
     syndromes : torch.Tensor
-        Syndrome bits, shape=(batch_size, num_chks), int ∈ {0,1}.
+        Syndrome bits, shape=(batch_size, num_chks), int.
 
     chkmat : torch.Tensor
-        Check matrix, shape=(num_chks, num_vars), integer ∈ {0,1}.
+        Check matrix, shape=(num_chks, num_vars), int if device is CPU, float if device is GPU.
 
     Returns
     -------
@@ -35,10 +37,16 @@ def llrs_to_ehat(
         Boolean mask, shape=(batch_size,), True if syndrome matched at some iteration.
     """
     num_iters, batch_size, num_vars = llrs.shape
-    hard_decisions = (llrs < 0).to(INT_DTYPE)  # (num_iters, B, V), int
 
-    # For each shot, check if the decoder converges, i.e., whether the syndrome is matched at any iteration
-    synd_pred = torch.matmul(hard_decisions, chkmat.T) % 2  # (num_iters, B, C), int
+    if llrs.is_cpu:
+        hard_decisions = (llrs < 0).to(INT_DTYPE)  # (num_iters, B, V), int
+        synd_pred = torch.matmul(hard_decisions, chkmat.T) % 2  # (num_iters, B, C), int
+    else:
+        # cuda does not support matrix multiplication for integer tensors
+        hard_decisions = (llrs < 0).to(FLOAT_DTYPE)  # (num_iters, B, V), float
+        synd_pred_raw = torch.matmul(hard_decisions, chkmat.T)  # (num_iters, B, C), float
+        synd_pred = torch.round(synd_pred_raw).to(INT_DTYPE) % 2  # (num_iters, B, C), int
+
     synd_matched_mask = torch.all(synd_pred == syndromes.unsqueeze(0), dim=2)  # (num_iters, B), bool
     converged_mask = torch.any(synd_matched_mask, dim=0)  # (B,), bool
 
