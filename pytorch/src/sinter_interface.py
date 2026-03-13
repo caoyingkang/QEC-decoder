@@ -13,7 +13,7 @@ from .utils.tensor_utils import INT_DTYPE, FLOAT_DTYPE
 
 class PyTorchSinterDecoder(sinter.Decoder):
     """Wrap a `DecoderModel` as a `sinter.Decoder` for use in `sinter.collect`."""
-    PROFILING = True
+    PROFILING = False
     PROFILING_INTERVAL = 50
 
     def __init__(
@@ -114,10 +114,11 @@ class PyTorchSinterDecoder(sinter.Decoder):
 
             if self._calls % self.PROFILING_INTERVAL == 0:
                 total_time = sum(self._timing.values())
-                print(f"[Batch sizes] mean={np.mean(self._batch_sizes):.3f} |"
-                      f"min={np.min(self._batch_sizes):.3f} |"
-                      f"max={np.max(self._batch_sizes):.3f} |"
-                      f"std={np.std(self._batch_sizes):.3f}")
+                print("[Batch sizes]\n"
+                      f"min={np.min(self._batch_sizes)} | "
+                      f"max={np.max(self._batch_sizes)} | "
+                      f"mean={np.mean(self._batch_sizes):.2f} | "
+                      f"std={np.std(self._batch_sizes):.2f}")
                 print(f"[Time for {self.PROFILING_INTERVAL} batches]\n"
                       f"preprocess={self._timing['preprocess']:.3f}s | "
                       f"model={self._timing['model']:.3f}s | "
