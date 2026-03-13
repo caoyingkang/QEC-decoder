@@ -4,12 +4,10 @@ qec:
   d: 7
   rounds: 7
   basis: Z
-  p: 0.01
+  p_range: [0.008, 0.01, 0.015, 0.02]
 
 data:
-  raw_sample_shots: 150000
-  split_ratio: 0.8
-  remove_trivial_syndrome_shots: true
-  remove_bp_easy_shots: false
-
-seed: 42
+  train_size: 100000
+  val_size: 10000
+  hard_sample_ratio: 0.5
+  bp_max_iter: 10  # used for classifying BP-hard vs BP-easy shots
