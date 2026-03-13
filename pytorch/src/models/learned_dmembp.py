@@ -4,12 +4,26 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from ..utils.tensor_utils import (
+    FLOAT_DTYPE,
+    smooth_min,
+    smooth_sign,
+)
+from .decoder_model import DecoderModel
+
 EPS = 1e-6
 BIG = 1e8
-FLOAT_DTYPE = torch.float32
+
+# Shape hints code:
+# B = batch_size
+# C = num_chks
+# V = num_vars
+# E = num_edges
+# Δc = max_cn_deg
+# Δv = max_vn_deg
 
 
-class LearnedDMemBP(nn.Module):
+class LearnedDMemBP(DecoderModel):
     """
     Disordered Memory BP decoder with trainable memory strength.
     """
@@ -18,8 +32,8 @@ class LearnedDMemBP(nn.Module):
         self,
         pcm: np.ndarray,
         prior: np.ndarray,
-        *,
         num_iters: int,
+        *,
         min_impl_method: Literal["smooth", "hard"],
         sign_impl_method: Literal["smooth", "hard"],
     ):
@@ -41,25 +55,14 @@ class LearnedDMemBP(nn.Module):
             sign_impl_method : Literal["smooth", "hard"]
                 Implementation method of the sign function. Options: "smooth" (based on tanh), "hard" (using torch.sign).
         """
-        super().__init__()
-        self.num_chks, self.num_vars = pcm.shape
-        self.num_iters = num_iters
+        super().__init__(pcm, prior, num_iters)
 
-        if min_impl_method == "smooth":
-            from ..utils.tensor_utils import smooth_min
-            self.min_func = smooth_min
-        elif min_impl_method == "hard":
-            self.min_func = torch.amin
-        else:
+        if min_impl_method not in ["smooth", "hard"]:
             raise ValueError(f"Invalid min_impl_method: {min_impl_method!r}")
-
-        if sign_impl_method == "smooth":
-            from ..utils.tensor_utils import smooth_sign
-            self.sign_func = smooth_sign
-        elif sign_impl_method == "hard":
-            self.sign_func = torch.sign
-        else:
+        if sign_impl_method not in ["smooth", "hard"]:
             raise ValueError(f"Invalid sign_impl_method: {sign_impl_method!r}")
+        self.min_impl_method = min_impl_method
+        self.sign_impl_method = sign_impl_method
 
         # Build edge list from parity-check matrix.
         edge_to_cn, edge_to_vn = np.nonzero(pcm)
@@ -96,39 +99,39 @@ class LearnedDMemBP(nn.Module):
             vn_mask[j, k] = True
             vn_cursor[j] += 1
 
-        # Register index buffers.
-        self.register_buffer("edge_to_vn", torch.tensor(edge_to_vn, dtype=torch.long)) # (num_edges,)
-        self.register_buffer("cn_edge_idx", torch.tensor(cn_edge_idx, dtype=torch.long)) # (num_chks, max_cn_deg)
-        self.register_buffer("cn_mask", torch.tensor(cn_mask, dtype=torch.bool)) # (num_chks, max_cn_deg)
-        self.register_buffer("vn_edge_idx", torch.tensor(vn_edge_idx, dtype=torch.long)) # (num_vars, max_vn_deg)
-        self.register_buffer("vn_mask", torch.tensor(vn_mask, dtype=torch.bool)) # (num_vars, max_vn_deg)
-        self.register_buffer("cn_diag_mask", torch.eye(self.max_cn_deg, dtype=torch.bool)) # (max_cn_deg, max_cn_deg)
+        # Register index buffers (derived from chkmat; not saved in checkpoints).
+        # Since these are derived from chkmat, they are not part of the model's state_dict, and will not be saved in checkpoints.
+        self.register_buffer("edge_to_vn", torch.tensor(edge_to_vn, dtype=torch.long), persistent=False)  # (E,)
+        self.register_buffer("cn_edge_idx", torch.tensor(cn_edge_idx, dtype=torch.long), persistent=False)  # (C, Δc)
+        self.register_buffer("cn_mask", torch.tensor(cn_mask, dtype=torch.bool), persistent=False)  # (C, Δc)
+        self.register_buffer("vn_edge_idx", torch.tensor(vn_edge_idx, dtype=torch.long), persistent=False)  # (V, Δv)
+        self.register_buffer("vn_mask", torch.tensor(vn_mask, dtype=torch.bool), persistent=False)  # (V, Δv)
+        self.register_buffer("cn_diag_mask", torch.eye(self.max_cn_deg, dtype=torch.bool), persistent=False)  # (Δc, Δc)
 
         # Register prior LLRs.
+        # Since prior_llr is derived from prior, it is not part of the model's state_dict, and will not be saved in checkpoints.
         prior = np.clip(prior, min=EPS, max=1 - EPS)
         prior_llr = np.log((1 - prior) / prior)
-        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=FLOAT_DTYPE))  # (num_vars,)
+        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=FLOAT_DTYPE), persistent=False)  # (V,)
 
         # Initialize trainable parameter: memory strength.
-        self.gamma = nn.Parameter(torch.zeros(self.num_vars, dtype=FLOAT_DTYPE))  # (num_vars,)
+        self.gamma = nn.Parameter(torch.zeros(self.num_vars, dtype=FLOAT_DTYPE))  # (V,)
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
-        """
-        Parameters
-        ----------
-            syndromes : torch.Tensor
-                Syndrome bits, shape=(batch_size, num_chks), int ∈ {0,1}
+        if self.training and self.min_impl_method == "smooth":  # Always use hard min during inference
+            min_func = smooth_min
+        else:
+            min_func = torch.amin
+        if self.training and self.sign_impl_method == "smooth":  # Always use hard sign during inference
+            sign_func = smooth_sign
+        else:
+            sign_func = torch.sign
 
-        Returns
-        -------
-            llrs : torch.Tensor
-                LLR values at all BP iterations, shape=(num_iters, batch_size, num_vars), float
-        """
         device = syndromes.device
         batch_size = syndromes.shape[0]
-        synd_sgn = (1 - 2 * syndromes).to(FLOAT_DTYPE)  # (batch_size, num_chks) ∈ {+1,-1}
+        synd_sgn = (1 - 2 * syndromes).to(FLOAT_DTYPE)  # (B, C) ∈ {+1,-1}
 
-        # Edge message arrays.
+        # Edge message arrays: (B, E + 1)
         # vn_to_cn[:, e], 0 <= e < num_edges, is the message along edge e from VN to CN.
         # cn_to_vn[:, e], 0 <= e < num_edges, is the message along edge e from CN to VN.
         # vn_to_cn[:, num_edges] is a dummy slot, so that vn_to_cn[:, self.cn_edge_idx] will not raise out-of-bounds error.
@@ -140,11 +143,11 @@ class LearnedDMemBP(nn.Module):
         vn_to_cn[:, :self.num_edges] = self.prior_llr[self.edge_to_vn]
 
         # Pre-expand flattened index tensors for scatter.
-        cn_flat_idx = self.cn_edge_idx.reshape(1, -1).expand(batch_size, -1)  # (batch_size, num_chks * max_cn_deg)
-        vn_flat_idx = self.vn_edge_idx.reshape(1, -1).expand(batch_size, -1)  # (batch_size, num_vars * max_vn_deg)
+        cn_flat_idx = self.cn_edge_idx.reshape(1, -1).expand(batch_size, -1)  # (B, C * Δc)
+        vn_flat_idx = self.vn_edge_idx.reshape(1, -1).expand(batch_size, -1)  # (B, V * Δv)
 
-        cn_mask_3d = self.cn_mask.unsqueeze(0)  # (1, num_chks, max_cn_deg)
-        vn_mask_3d = self.vn_mask.unsqueeze(0)  # (1, num_vars, max_vn_deg)
+        cn_mask_3d = self.cn_mask.unsqueeze(0)  # (1, C, Δc)
+        vn_mask_3d = self.vn_mask.unsqueeze(0)  # (1, V, Δv)
 
         llrs_list: list[torch.Tensor] = []
         prev_llrs = None
@@ -152,20 +155,20 @@ class LearnedDMemBP(nn.Module):
         for t in range(self.num_iters):
             # ==================== CN update ====================
             # Gather incoming messages at all CNs.
-            msgs_cn = vn_to_cn[:, self.cn_edge_idx]  # (batch_size, num_chks, max_cn_deg)
-            msgs_sgn = self.sign_func(msgs_cn).masked_fill(~cn_mask_3d, 1.0)  # (batch_size, num_chks, max_cn_deg)
-            msgs_abs = msgs_cn.abs().masked_fill(~cn_mask_3d, BIG)  # (batch_size, num_chks, max_cn_deg)
+            msgs_cn = vn_to_cn[:, self.cn_edge_idx]  # (B, C, Δc)
+            msgs_sgn = sign_func(msgs_cn).masked_fill(~cn_mask_3d, 1.0)  # (B, C, Δc)
+            msgs_abs = msgs_cn.abs().masked_fill(~cn_mask_3d, BIG)  # (B, C, Δc)
 
             # Leave-one-out sign product via 4D expansion + diagonal mask.
-            msgs_sgn_4d = msgs_sgn.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (batch_size, num_chks, max_cn_deg, max_cn_deg)
-            loo_sgn_prod = msgs_sgn_4d.masked_fill(self.cn_diag_mask, 1.0).prod(dim=3)  # (batch_size, num_chks, max_cn_deg)
+            msgs_sgn_4d = msgs_sgn.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (B, C, Δc, Δc)
+            loo_sgn_prod = msgs_sgn_4d.masked_fill(self.cn_diag_mask, 1.0).prod(dim=3)  # (B, C, Δc)
 
             # Leave-one-out min abs via 4D expansion + diagonal mask.
-            msgs_abs_4d = msgs_abs.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (batch_size, num_chks, max_cn_deg, max_cn_deg)
-            loo_abs_min = self.min_func(msgs_abs_4d.masked_fill(self.cn_diag_mask, BIG), dim=3)  # (batch_size, num_chks, max_cn_deg)
+            msgs_abs_4d = msgs_abs.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (B, C, Δc, Δc)
+            loo_abs_min = min_func(msgs_abs_4d.masked_fill(self.cn_diag_mask, BIG), dim=3)  # (B, C, Δc)
 
             # CN output messages.
-            cn_out = synd_sgn.unsqueeze(2) * loo_sgn_prod * loo_abs_min   # (batch_size, num_chks, max_cn_deg)
+            cn_out = synd_sgn.unsqueeze(2) * loo_sgn_prod * loo_abs_min   # (B, C, Δc)
 
             # Scatter CN outputs to edge array.
             # The values in cn_to_vn[:, num_edges] will be non-deterministic, but it's okay because they will be masked out during VN update.
@@ -173,28 +176,28 @@ class LearnedDMemBP(nn.Module):
 
             # ==================== VN update ====================
             # Gather incoming messages at all VNs.
-            msgs_vn = cn_to_vn[:, self.vn_edge_idx]  # (batch_size, num_vars, max_vn_deg)
-            msgs_vn = msgs_vn.masked_fill(~vn_mask_3d, 0.0)  # (batch_size, num_vars, max_vn_deg)
+            msgs_vn = cn_to_vn[:, self.vn_edge_idx]  # (B, V, Δv)
+            msgs_vn = msgs_vn.masked_fill(~vn_mask_3d, 0.0)  # (B, V, Δv)
 
             # Sum incoming messages per VN.
-            incoming_sum = msgs_vn.sum(dim=2)  # (batch_size, num_vars)
+            incoming_sum = msgs_vn.sum(dim=2)  # (B, V)
 
             # Posterior LLR with memory.
             if t == 0:
-                llrs = incoming_sum + self.prior_llr  # (batch_size, num_vars)
+                llrs = incoming_sum + self.prior_llr  # (B, V)
             else:
                 llrs = incoming_sum + \
                     (1.0 - self.gamma) * self.prior_llr + \
-                    self.gamma * prev_llrs  # (batch_size, num_vars)
+                    self.gamma * prev_llrs  # (B, V)
 
             llrs_list.append(llrs)
             prev_llrs = llrs
 
             if t < self.num_iters - 1:  # skip VN→CN messages in the last iteration
                 # VN output messages.
-                vn_out = llrs.unsqueeze(2) - msgs_vn  # (batch_size, num_vars, max_vn_deg)
+                vn_out = llrs.unsqueeze(2) - msgs_vn  # (B, V, Δv)
                 # Scatter VN outputs to edge array.
                 # The values in vn_to_cn[:, num_edges] will be non-deterministic, but it's okay because they will be masked out during CN update.
                 vn_to_cn.scatter_(1, vn_flat_idx, vn_out.reshape(batch_size, -1))
 
-        return torch.stack(llrs_list, dim=0)  # (num_iters, batch_size, num_vars)
+        return torch.stack(llrs_list, dim=0)  # (num_iters, B, V)

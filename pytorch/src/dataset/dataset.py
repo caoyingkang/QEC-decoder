@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-INT_DTYPE = torch.int32
+from ..utils.tensor_utils import INT_DTYPE
 
 
 class DecodingDataset(Dataset):

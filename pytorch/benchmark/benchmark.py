@@ -1,12 +1,11 @@
 """Main functions for benchmarking."""
-import os
 from pathlib import Path
 
 from baselines_benchmark import (
     run_MWPM_benchmark,
     run_BP_benchmark,
 )
-from learned_dmembp_benchmark import run_LearnedDMemBP_benchmark
+from pytorch_decoder_benchmark import run_pytorch_decoder_benchmark
 
 
 def run_benchmark(
@@ -22,14 +21,12 @@ def run_benchmark(
     p_list: list[float],
     max_shots: int,
     max_errors: int,
-    num_workers: int | None = None,
+    num_workers: int,
+    device: str,
 ):
-    if num_workers is None:
-        num_workers = max(1, (os.cpu_count() or 1) - 1)
-
     # Benchmark PyTorch decoders
     for run_dir in run_dirs:
-        run_LearnedDMemBP_benchmark(
+        run_pytorch_decoder_benchmark(
             code=code,
             noise_model=noise_model,
             d=d,
@@ -41,6 +38,7 @@ def run_benchmark(
             max_shots=max_shots,
             max_errors=max_errors,
             num_workers=num_workers,
+            device=device,
         )
 
     # Benchmark baseline decoders

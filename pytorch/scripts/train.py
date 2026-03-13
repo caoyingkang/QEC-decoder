@@ -1,3 +1,16 @@
+"""
+Python script to train a PyTorch decoder.
+
+Usage:
+    python train.py config=<path/to/config.yaml> [overrides...]
+
+Examples: (Assuming run in the pytorch/scripts directory)
+    python train.py config=configs/train_LearnedDMemBP.yaml
+    python train.py config=configs/train_LearnedDMemBP.yaml qec.d=11 qec.rounds=11 model.num_iters=10
+    python train.py config=configs/train_MultiDMemBP.yaml
+    python train.py config=configs/train_MultiDMemBP.yaml model.mlp.activation=ReLU
+"""
+
 import sys
 import os
 from pathlib import Path
@@ -6,21 +19,36 @@ import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 from omegaconf import OmegaConf, DictConfig
+from omegaconf.errors import ConfigKeyError
 from qecdec import RotatedSurfaceCode_Memory
 
 PYTORCH_ROOT = Path(__file__).resolve().parent.parent
 DATASETS_ROOT = PYTORCH_ROOT / "datasets"
 RUNS_ROOT = PYTORCH_ROOT / "runs"
-DEFAULT_CONFIG_PATH = PYTORCH_ROOT / "configs" / (Path(__file__).stem + ".yaml")
 
 
 def load_config() -> DictConfig:
     cli_args = OmegaConf.from_cli()
-    config_path = Path(cli_args.config) if "config" in cli_args else DEFAULT_CONFIG_PATH
+    if "config" not in cli_args:
+        print("Error: Config file path is required. Usage: python train.py config=<path/to/config.yaml> [overrides...]")
+        exit(1)
+    config_path = Path(cli_args.config)
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    del cli_args.config
     base_cfg = OmegaConf.load(config_path)
-    cfg = OmegaConf.merge(base_cfg, cli_args)
+    OmegaConf.set_struct(base_cfg, True)  # forbid creation of new keys
+
+    try:
+        cfg = OmegaConf.merge(base_cfg, cli_args)
+    except ConfigKeyError as e:
+        print(f"Invalid CLI override(s). Only keys that exist in the base config can be overridden.\n {e}")
+        exit(1)
+
     if cfg.data.num_workers is None:
         cfg.data.num_workers = os.cpu_count()
+
+    OmegaConf.set_readonly(cfg, True)  # forbid modification from now on
     return cfg
 
 

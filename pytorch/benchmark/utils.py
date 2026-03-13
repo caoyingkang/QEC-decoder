@@ -47,9 +47,17 @@ def is_consistent(run_dir: Path, code: str, noise_model: str, d: int, rounds: in
 def extract_pytorch_decoder_name(run_dir: Path) -> str:
     """
     Extract the name of the PyTorch decoder from the run_dir.
-    For example, 'pytorch/runs/RotatedSurfaceCode_Phenomenological/d=5_rounds=5_basis=Z/LearnedDMemBP/run_0' -> 'LearnedDMemBP/run_0'.
+    For example, '.../LearnedDMemBP/run_0' -> 'LearnedDMemBP/run_0'.
     """
     return "/".join(run_dir.parts[-2:])
+
+
+def extract_pytorch_decoder_run_id(run_dir: Path) -> int:
+    """
+    Extract the PyTorch decoder run id from the run_dir.
+    For example, '.../LearnedDMemBP/run_0' -> 0.
+    """
+    return int(run_dir.name.split("_")[-1])
 
 
 def flatten_config(cfg: dict[str, Any], prefix: str = "") -> dict[str, Any]:
