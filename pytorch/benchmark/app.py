@@ -85,10 +85,14 @@ def filter_stats(
     *,
     p_list: list[float],
     max_iter: int,
+    max_shots: int,
+    max_errors: int,
 ) -> list[sinter.TaskStats]:
     """
-    Filter the list of `sinter.TaskStats` to only include those consistent 
-    with the given `p_list` and `max_iter`.
+    Filter the list of `sinter.TaskStats` to only include those elements `s` such that:
+    - `s.json_metadata["p"]` is in `p_list`
+    - `s.json_metadata["max_iter"] == max_iter` if the key "max_iter" exists in `s.json_metadata`
+    - either `s.shots >= max_shots` or `s.errors >= max_errors`
     """
     filtered: list[sinter.TaskStats] = []
     for s in stats:
@@ -96,31 +100,10 @@ def filter_stats(
             continue
         if "max_iter" in s.json_metadata and s.json_metadata["max_iter"] != max_iter:
             continue
+        if s.shots < max_shots and s.errors < max_errors:
+            continue
         filtered.append(s)
     return filtered
-
-
-def validate_stats(
-    stats: list[sinter.TaskStats],
-    *,
-    p_list: list[float],
-    max_shots: int,
-    max_errors: int,
-) -> bool:
-    """
-    Validate that: 
-    - The list `stats` covers all p in `p_list` and no other p.
-    - Each element of `stats` has enough shots to meet `max_shots` or enough errors to meet `max_errors`.
-
-    Return `True` if validation succeeds, `False` otherwise.
-    """
-    covered_p: set[float] = set(s.json_metadata["p"] for s in stats)
-    if covered_p != set(p_list):
-        return False
-    for s in stats:
-        if s.shots < max_shots and s.errors < max_errors:
-            return False
-    return True
 
 
 def load_and_merge_stats(
@@ -156,8 +139,14 @@ def load_and_merge_stats(
             missing_run_dirs.append(run_dir)
             continue
         stats = sinter.read_stats_from_csv_files(csv_path)
-        stats = filter_stats(stats, p_list=p_list, max_iter=max_iter)
-        if not validate_stats(stats, p_list=p_list, max_shots=max_shots, max_errors=max_errors):
+        stats = filter_stats(
+            stats,
+            p_list=p_list,
+            max_iter=max_iter,
+            max_shots=max_shots,
+            max_errors=max_errors,
+        )
+        if set(s.json_metadata["p"] for s in stats) != set(p_list):
             missing_run_dirs.append(run_dir)
             continue
         all_stats.extend(stats)
@@ -171,8 +160,14 @@ def load_and_merge_stats(
             missing_baseline_decoders.append(decoder)
             continue
         stats = sinter.read_stats_from_csv_files(csv_path)
-        stats = filter_stats(stats, p_list=p_list, max_iter=max_iter)
-        if not validate_stats(stats, p_list=p_list, max_shots=max_shots, max_errors=max_errors):
+        stats = filter_stats(
+            stats,
+            p_list=p_list,
+            max_iter=max_iter,
+            max_shots=max_shots,
+            max_errors=max_errors,
+        )
+        if set(s.json_metadata["p"] for s in stats) != set(p_list):
             missing_baseline_decoders.append(decoder)
             continue
         all_stats.extend(stats)
@@ -376,6 +371,7 @@ def main():
                     num_workers=num_workers,
                     device=device,
                 )
+                st.success("Benchmark completed successfully.")
                 st.rerun()
         st.stop()
 
