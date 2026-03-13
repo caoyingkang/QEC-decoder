@@ -25,9 +25,9 @@ class IterativeDecodingLoss:
     2. The second part quantifies how the estimated error pattern predicts the observable (i.e., is there a logical error?).
 
     More specifically, suppose we want to calculate the loss for a single shot (`llr`, `syndrome`, `observable`). The loss from part 1 is 
-    `loss1 = mean(loss_syn)`, where `loss_syn[i] = BCEWithLogitsLoss(-syndrome_pred_llr[i], syndrome[i])`, where `syndrome_pred_llr[i]` is the 
+    `loss1 = sum(loss_syn)`, where `loss_syn[i] = BCEWithLogitsLoss(-syndrome_pred_llr[i], syndrome[i])`, where `syndrome_pred_llr[i]` is the 
     LLR value of the `i`-th syndrome bit calculated from the LLR values of those error bits corresponding to the `i`-th row of `chkmat`. 
-    Similarly, the loss from part 2 is `loss2 = mean(loss_obs)`, where `loss_obs[i] = BCEWithLogitsLoss(-observable_pred_llr[i], observable[i])`, 
+    Similarly, the loss from part 2 is `loss2 = sum(loss_obs)`, where `loss_obs[i] = BCEWithLogitsLoss(-observable_pred_llr[i], observable[i])`, 
     where `observable_pred_llr[i]` is the LLR value of the `i`-th observable bit calculated from the LLR values of those error bits corresponding 
     to the `i`-th row of `obsmat`. Finally, the total loss is `loss = ß * loss1 + (1-ß) * loss2`, where `ß` ∈ [0,1] is a hyperparameter that 
     controls the relative importance of the two parts.
@@ -157,7 +157,7 @@ class IterativeDecodingLoss:
             -synd_pred_llr,
             syndromes.to(FLOAT_DTYPE).unsqueeze(dim=0).expand_as(synd_pred_llr),
             reduction="none"
-        ).mean(dim=2)  # (num_iters, batch_size)
+        ).sum(dim=2)  # (num_iters, batch_size)
         return loss
 
     def _get_observable_loss(
@@ -180,5 +180,5 @@ class IterativeDecodingLoss:
             -obs_pred_llr,
             observables.to(FLOAT_DTYPE).unsqueeze(dim=0).expand_as(obs_pred_llr),
             reduction="none"
-        ).mean(dim=2)  # (num_iters, batch_size)
+        ).sum(dim=2)  # (num_iters, batch_size)
         return loss
