@@ -1,5 +1,5 @@
 """
-Multi-dimensional Disordered Memory BP decoder.
+Multi-dimensional Disordered Memory BP decoder (MultiDMemBP).
 
 This module extends LearnedDMemBP by replacing scalar messages with vector-valued messages
 of dimension `msg_features`. Each component of the vector undergoes the same DMemBP updates 
@@ -12,11 +12,10 @@ majority vote is performed.
 Design choices and rationale:
 - There are two separate MLPs, one for each message direction (VN-to-CN and CN-to-VN). All messages
   in the same direction share the same MLP to reduce the number of trainable parameters.
-- The MLPs are augmented with residual connections and are initialized to all-zero weights and biases,
-  so that the MLPs start as identity functions. In this case, each message component is completely 
-  independent of the other components, and the whole network reduces to LearnedDMemBP. As training 
-  proceeds, the MLPs can learn to mix components, allowing information flow between the parallel 
-  DMemBP instances.
+- The MLPs are augmented with residual connections, i.e., output = x + MLP(x). This makes sure that
+  MultiDMemBP is a strict extension of LearnedDMemBP: when the linear layers take all-zero weights 
+  and biases, MultiDMemBP behaves as multiple independent LearnedDMemBP instances. As training 
+  proceeds, the MLPs can learn to mix components.
 - Memory strength (gamma) can be shared across message components (gamma_shared=True) or vary per
   component (gamma_shared=False).
 - Memory strength can be initialized to a single value (if gamma_init is a float) or sampled uniformly 
@@ -71,7 +70,7 @@ class MultiDMemBP(DecoderModel):
         msg_features: int,
         mlp_hidden_features: int,
         mlp_hidden_depth: int,
-        mlp_activation: nn.Module,
+        mlp_activation: str,
         mlp_norm: Optional[str],
         mlp_dropout_p: Optional[float],
         min_impl_method: Literal["smooth", "hard"],
@@ -100,7 +99,7 @@ class MultiDMemBP(DecoderModel):
             mlp_hidden_depth : int
                 Number of hidden layers of the MLP. Must be at least 1.
 
-            mlp_activation : nn.Module
+            mlp_activation : str
                 Activation function to use in the hidden layers of the MLP.
 
             mlp_norm : str | None
@@ -138,7 +137,6 @@ class MultiDMemBP(DecoderModel):
             activation=mlp_activation,
             norm=mlp_norm,
             dropout_p=mlp_dropout_p,
-            zero_init=True,
             residual=True,
         )
         self.c2v_mlp = MLP(
@@ -149,7 +147,6 @@ class MultiDMemBP(DecoderModel):
             activation=mlp_activation,
             norm=mlp_norm,
             dropout_p=mlp_dropout_p,
-            zero_init=True,
             residual=True,
         )
 
