@@ -8,7 +8,7 @@ qec:
 
 model:
   name: MultiDMemBP
-  num_iters: 5
+  num_iters: 10
   msg_features: 16
   min_impl_method: smooth
   sign_impl_method: smooth
