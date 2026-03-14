@@ -13,20 +13,22 @@ class DecodingDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
 
-    def setup(self, stage: str):        
+    def setup(self, stage: str):
         if stage == "fit":
             self.train_ds = DecodingDataset.load_from_file(self.data_dir / "train_dataset.pt")
             self.val_ds = DecodingDataset.load_from_file(self.data_dir / "val_dataset.pt")
-
             print(f">>>>>> Size of train_dataset: {len(self.train_ds)}")
+            print(f">>>>>> Size of val_dataset: {len(self.val_ds)}")
+        elif stage == "validate":
+            self.val_ds = DecodingDataset.load_from_file(self.data_dir / "val_dataset.pt")
             print(f">>>>>> Size of val_dataset: {len(self.val_ds)}")
         else:
             raise NotImplementedError(f"Stage {stage} is not supported")
 
     def train_dataloader(self):
         return DataLoader(
-            self.train_ds, 
-            batch_size=self.batch_size, 
+            self.train_ds,
+            batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
             persistent_workers=True,

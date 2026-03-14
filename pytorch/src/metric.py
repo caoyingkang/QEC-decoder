@@ -60,10 +60,10 @@ class DecodingMetric(Metric):
         obs_correct_mask = torch.all(obs_pred == observables, dim=1)  # (batch_size,), bool
 
         # Update states
-        self.wrong_syndrome += torch.sum(~converged_mask)
-        self.wrong_observable += torch.sum(~obs_correct_mask)
-        self.wrong_either += torch.sum(~converged_mask | ~obs_correct_mask)
-        self.total += batch_size
+        self.wrong_syndrome = self.wrong_syndrome + torch.sum(~converged_mask)
+        self.wrong_observable = self.wrong_observable + torch.sum(~obs_correct_mask)
+        self.wrong_either = self.wrong_either + torch.sum(~converged_mask | ~obs_correct_mask)
+        self.total = self.total + batch_size
 
     def compute(self) -> dict[str, float]:
         return {

@@ -15,7 +15,11 @@ import sys
 from pathlib import Path
 
 import lightning as L
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.callbacks import (
+    EarlyStopping,
+    ModelCheckpoint,
+    LearningRateMonitor,
+)
 from lightning.pytorch.loggers import TensorBoardLogger
 from omegaconf import OmegaConf, DictConfig
 from omegaconf.errors import ConfigKeyError
@@ -138,6 +142,7 @@ def main():
         save_top_k=1,
         mode="min",
     )
+    lr_monitor_callback = LearningRateMonitor(logging_interval="epoch")
     tb_logger = TensorBoardLogger(
         save_dir=run_dir,
         name="tb_logs",
@@ -152,9 +157,14 @@ def main():
             early_stopping_callback,
             epoch_summary_callback,
             model_checkpoint_callback,
+            lr_monitor_callback,
         ],
         logger=tb_logger,
     )
+    # Run full validation before training
+    trainer.validate(decoder, datamodule=datamodule)
+
+    # Start training
     trainer.fit(decoder, datamodule=datamodule)
 
 
