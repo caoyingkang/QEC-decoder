@@ -23,6 +23,7 @@ def run_benchmark(
     max_errors: int,
     num_workers: int,
     device: str,
+    bypass: bool,
 ):
     # Benchmark PyTorch decoders
     for run_dir in run_dirs:
@@ -39,6 +40,7 @@ def run_benchmark(
             max_errors=max_errors,
             num_workers=num_workers,
             device=device,
+            bypass=bypass,
         )
 
     # Benchmark baseline decoders

@@ -64,6 +64,7 @@ def run_pytorch_decoder_benchmark(
     max_errors: int,
     num_workers: int,
     device: str,
+    bypass: bool,
 ):
     if not is_consistent(run_dir, code, noise_model, d, rounds, basis):
         raise ValueError(
@@ -93,6 +94,7 @@ def run_pytorch_decoder_benchmark(
             model,
             expmt.obsmat,
             device=device,
+            bypass=bypass,
         )
         tasks.append(
             sinter.Task(
@@ -106,6 +108,7 @@ def run_pytorch_decoder_benchmark(
                     "p": p,
                     "decoder": extract_pytorch_decoder_name(run_dir),
                     "max_iter": max_iter,
+                    "bypass": bypass,
                 },
             )
         )

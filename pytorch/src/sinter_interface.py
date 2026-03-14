@@ -22,6 +22,7 @@ class PyTorchSinterDecoder(sinter.Decoder):
         obsmat: np.ndarray,
         *,
         device: str,
+        bypass: bool,
     ):
         """
         Parameters
@@ -35,11 +36,15 @@ class PyTorchSinterDecoder(sinter.Decoder):
 
         device : str
             Device for inference ("cuda", "cpu", etc.).
+
+        bypass : bool
+            If True, always return all-zero predictions for shots with all-zero syndrome.
         """
         self.model = model
         self.obsmat = obsmat
         self.num_chks = model.num_chks
         self.device = device
+        self.bypass = bypass
 
         if device == "cpu":
             self._chkmat_tensor = torch.tensor(model.pcm, dtype=INT_DTYPE, device=device)
@@ -99,6 +104,11 @@ class PyTorchSinterDecoder(sinter.Decoder):
                 t3 = time.perf_counter()
 
         ehat_np = ehat.cpu().numpy().astype(np.uint8)
+
+        if self.bypass:
+            mask = np.all(unpacked == 0, axis=1)
+            ehat_np[mask] = 0
+
         observable_predict = (ehat_np @ self.obsmat.T) % 2
         result = np.packbits(observable_predict, axis=1, bitorder="little")
 
