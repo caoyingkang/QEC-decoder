@@ -2,17 +2,16 @@
 Python script to train a PyTorch decoder.
 
 Usage:
-    python train.py config=<path/to/config.yaml> [overrides...]
+    python train.py --config <path/to/config.yaml> [overrides...]
 
 Examples: (Assuming run in the pytorch/scripts directory)
-    python train.py config=configs/train_LearnedDMemBP.yaml
-    python train.py config=configs/train_LearnedDMemBP.yaml qec.d=11 qec.rounds=11 model.num_iters=10
-    python train.py config=configs/train_MultiDMemBP.yaml
-    python train.py config=configs/train_MultiDMemBP.yaml model.mlp.activation=ReLU
+    python train.py --config configs/train_LearnedDMemBP.yaml
+    python train.py --config configs/train_MultiDMemBP.yaml qec.d=11 qec.rounds=11 model.mlp.activation=ReLU
 """
 
-import sys
+import argparse
 import os
+import sys
 from pathlib import Path
 
 import lightning as L
@@ -27,20 +26,15 @@ DATASETS_ROOT = PYTORCH_ROOT / "datasets"
 RUNS_ROOT = PYTORCH_ROOT / "runs"
 
 
-def load_config() -> DictConfig:
-    cli_args = OmegaConf.from_cli()
-    if "config" not in cli_args:
-        print("Error: Config file path is required. Usage: python train.py config=<path/to/config.yaml> [overrides...]")
-        exit(1)
-    config_path = Path(cli_args.config)
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-    del cli_args.config
-    base_cfg = OmegaConf.load(config_path)
+def load_config(path: Path, overrides: list[str]) -> DictConfig:
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+    base_cfg = OmegaConf.load(path)
     OmegaConf.set_struct(base_cfg, True)  # forbid creation of new keys
+    overrides_cfg = OmegaConf.from_cli(overrides)
 
     try:
-        cfg = OmegaConf.merge(base_cfg, cli_args)
+        cfg = OmegaConf.merge(base_cfg, overrides_cfg)
     except ConfigKeyError as e:
         print(f"Invalid CLI override(s). Only keys that exist in the base config can be overridden.\n {e}")
         exit(1)
@@ -88,7 +82,11 @@ def get_run_dir(cfg: DictConfig) -> Path:
 
 
 def main():
-    cfg = load_config()
+    parser = argparse.ArgumentParser(description="Train a PyTorch decoder")
+    parser.add_argument("--config", required=True, type=str, help="Path to config YAML file")
+    args, overrides = parser.parse_known_args()
+
+    cfg = load_config(Path(args.config), overrides)
     qec_cfg = cfg.qec
     print(">>>>>> Config:")
     print(OmegaConf.to_yaml(cfg))
