@@ -14,8 +14,11 @@ import os
 import sys
 from pathlib import Path
 
+from tabulate import tabulate
+import humanize
 import lightning as L
 from lightning.pytorch.callbacks import (
+    ModelSummary,
     EarlyStopping,
     ModelCheckpoint,
     LearningRateMonitor,
@@ -85,6 +88,23 @@ def get_run_dir(cfg: DictConfig) -> Path:
     return base_dir / f"run_{new_id}"
 
 
+def print_params(module: L.LightningModule):
+    table_data = []
+    for name, param in module.named_parameters():
+        table_data.append([
+            name,
+            str(param.dtype).split('.')[-1],
+            list(param.size()),
+            f"{param.numel():,}",
+            humanize.naturalsize(param.numel() * param.element_size(), binary=True),
+        ])
+    print(tabulate(
+        table_data,
+        headers=["name", "dtype", "size", "numel", "memory"],
+        tablefmt="fancy_grid"
+    ))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train a PyTorch decoder")
     parser.add_argument("--config", required=True, type=str, help="Path to config YAML file")
@@ -121,6 +141,8 @@ def main():
         loss_cfg=cfg.loss,
         optim_cfg=cfg.optim,
     )
+    print(">>>>>> Parameters:")
+    print_params(decoder)
     datamodule = DecodingDataModule(
         data_dir,
         batch_size=cfg.data.batch_size,
@@ -133,7 +155,6 @@ def main():
         verbose=True,
         mode="min",
     )
-    epoch_summary_callback = EpochSummary()
     model_checkpoint_callback = ModelCheckpoint(
         dirpath=run_dir / "checkpoints",
         filename="best_model",
@@ -142,7 +163,6 @@ def main():
         save_top_k=1,
         mode="min",
     )
-    lr_monitor_callback = LearningRateMonitor(logging_interval="epoch")
     tb_logger = TensorBoardLogger(
         save_dir=run_dir,
         name="tb_logs",
@@ -154,15 +174,16 @@ def main():
         max_epochs=cfg.trainer.max_epochs,
         enable_progress_bar=cfg.trainer.enable_progress_bar,
         callbacks=[
+            ModelSummary(max_depth=-1),
+            EpochSummary(),
+            LearningRateMonitor(logging_interval="epoch"),
             early_stopping_callback,
-            epoch_summary_callback,
             model_checkpoint_callback,
-            lr_monitor_callback,
         ],
         logger=tb_logger,
     )
     # Run full validation before training
-    trainer.validate(decoder, datamodule=datamodule)
+    # trainer.validate(decoder, datamodule=datamodule)
 
     # Start training
     trainer.fit(decoder, datamodule=datamodule)
