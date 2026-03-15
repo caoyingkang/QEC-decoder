@@ -96,7 +96,7 @@ class PyTorchSinterDecoder(sinter.Decoder):
                     torch.cuda.synchronize()
                 t2 = time.perf_counter()
 
-            ehat, _ = llrs_to_ehat(llrs, syndromes, self._chkmat_tensor)
+            ehat, _, _ = llrs_to_ehat(llrs, syndromes, self._chkmat_tensor)
 
             if self.PROFILING:
                 if self.device.startswith("cuda"):

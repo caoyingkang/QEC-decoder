@@ -8,7 +8,7 @@ def llrs_to_ehat(
     llrs: torch.Tensor,
     syndromes: torch.Tensor,
     chkmat: torch.Tensor,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Convert LLR output from iterative decoder to final error predictions.
 
@@ -35,6 +35,10 @@ def llrs_to_ehat(
 
     converged_mask : torch.Tensor
         Boolean mask, shape=(batch_size,), True if syndrome matched at some iteration.
+
+    output_iters : torch.Tensor
+        Output iteration index for each shot, shape=(batch_size,), int. For converged shots,
+        this is the first iteration where syndrome matched; otherwise num_iters - 1.
     """
     num_iters, batch_size, num_vars = llrs.shape
 
@@ -62,4 +66,4 @@ def llrs_to_ehat(
     # Get the output error pattern for each shot
     index = output_iters.reshape(1, batch_size, 1).expand(1, batch_size, num_vars)  # (1, B, V), int
     ehat = torch.gather(hard_decisions, dim=0, index=index).squeeze(0)  # (B, V), int
-    return ehat, converged_mask
+    return ehat, converged_mask, output_iters
