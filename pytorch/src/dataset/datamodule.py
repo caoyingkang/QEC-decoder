@@ -17,11 +17,14 @@ class DecodingDataModule(L.LightningDataModule):
         if stage == "fit":
             self.train_ds = DecodingDataset.load_from_file(self.data_dir / "train_dataset.pt")
             self.val_ds = DecodingDataset.load_from_file(self.data_dir / "val_dataset.pt")
-            print(f">>>>>> Size of train_dataset: {len(self.train_ds)}")
-            print(f">>>>>> Size of val_dataset: {len(self.val_ds)}")
+            print(f">>>>>> Summary of train_dataset:")
+            self.train_ds.print_summary()
+            print(f">>>>>> Summary of val_dataset:")
+            self.val_ds.print_summary()
         elif stage == "validate":
             self.val_ds = DecodingDataset.load_from_file(self.data_dir / "val_dataset.pt")
-            print(f">>>>>> Size of val_dataset: {len(self.val_ds)}")
+            print(f">>>>>> Summary of val_dataset:")
+            self.val_ds.print_summary()
         else:
             raise NotImplementedError(f"Stage {stage} is not supported")
 
