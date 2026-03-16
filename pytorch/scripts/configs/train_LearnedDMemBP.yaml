@@ -33,7 +33,7 @@ tb_logger:
 
 data:
   batch_size: 64
-  num_workers: null   # null = use os.cpu_count() at runtime
+  num_workers: null   # null = use cpu_count - 1
 
 trainer:
   accelerator: auto  # auto = auto-detect available accelerator

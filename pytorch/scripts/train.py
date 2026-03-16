@@ -47,7 +47,7 @@ def load_config(path: Path, overrides: list[str]) -> DictConfig:
         exit(1)
 
     if cfg.data.num_workers is None:
-        cfg.data.num_workers = os.cpu_count()
+        cfg.data.num_workers = max(1, (os.cpu_count() or 1) - 1)
 
     OmegaConf.set_readonly(cfg, True)  # forbid modification from now on
     return cfg
@@ -152,7 +152,6 @@ def main():
         monitor="val_loss",
         min_delta=cfg.early_stopping.min_delta,
         patience=cfg.early_stopping.patience,
-        verbose=True,
         mode="min",
     )
     model_checkpoint_callback = ModelCheckpoint(
@@ -174,25 +173,29 @@ def main():
         max_epochs=cfg.trainer.max_epochs,
         enable_progress_bar=cfg.trainer.enable_progress_bar,
         callbacks=[
-            ModelSummary(max_depth=-1),
-            EpochSummary(),
+            ModelSummary(max_depth=-1),  # on_fit_start()
+            TrainingProgressSummary(),  # on_sanity_check_end() and on_train_epoch_end()
             LearningRateMonitor(logging_interval="epoch"),
             early_stopping_callback,
             model_checkpoint_callback,
         ],
         logger=tb_logger,
+        enable_model_summary=False,  # We've already added model summary as a callback
+        num_sanity_val_steps=-1,  # Run full validation before training
+        # fast_dev_run=True,
     )
-    # Run full validation before training
-    # trainer.validate(decoder, datamodule=datamodule)
 
     # Start training
     trainer.fit(decoder, datamodule=datamodule)
+
+    if early_stopping_callback.stopping_reason_message:
+        print(f"Early stopping reason: {early_stopping_callback.stopping_reason_message}")
 
 
 if __name__ == "__main__":
     sys.path.append(str(PYTORCH_ROOT))
     from src.dataset import DecodingDataModule
     from src.lightning_module import DecodingModule
-    from src.callbacks import EpochSummary
+    from src.callbacks import TrainingProgressSummary
 
     main()
