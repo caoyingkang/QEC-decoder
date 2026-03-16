@@ -25,6 +25,8 @@ from lightning.pytorch.callbacks import (
     LearningRateMonitor,
 )
 from lightning.pytorch.loggers import TensorBoardLogger
+from lightning.pytorch.profilers import PyTorchProfiler
+import torch
 from omegaconf import OmegaConf, DictConfig
 from omegaconf.errors import ConfigKeyError
 from qecdec import RotatedSurfaceCode_Memory
@@ -109,6 +111,7 @@ def print_params(module: L.LightningModule):
 def main():
     parser = argparse.ArgumentParser(description="Train a PyTorch decoder")
     parser.add_argument("--config", required=True, type=str, help="Path to config YAML file")
+    parser.add_argument("--profile", action="store_true", help="Enable profiling")
     args, overrides = parser.parse_known_args()
 
     cfg = load_config(Path(args.config), overrides)
@@ -169,9 +172,19 @@ def main():
         version="",
         log_graph=cfg.tb_logger.log_graph,
     )
+    profiler = PyTorchProfiler(
+        on_trace_ready=torch.profiler.tensorboard_trace_handler(str(run_dir / "tb_logs" / "profiler")),
+        track_memory=True,
+        with_stack=True,
+        record_shapes=True,
+        schedule=torch.profiler.schedule(wait=2, warmup=3, active=5),
+    ) if args.profile else None
     trainer = L.Trainer(
         accelerator=cfg.trainer.accelerator,
-        max_epochs=cfg.trainer.max_epochs,
+        max_epochs=cfg.trainer.max_epochs if profiler is None else 1,
+        limit_train_batches=None if profiler is None else 10,
+        limit_val_batches=None if profiler is None else 10,
+        num_sanity_val_steps=-1 if profiler is None else 0,  # Pre-train validation
         enable_progress_bar=cfg.trainer.enable_progress_bar,
         callbacks=[
             ModelSummary(max_depth=-1),
@@ -181,8 +194,7 @@ def main():
         ],
         logger=tb_logger,
         enable_model_summary=False,  # We've already added model summary as a callback
-        num_sanity_val_steps=-1,  # Run full validation before training
-        # fast_dev_run=True,
+        profiler=profiler,
     )
 
     # Start training

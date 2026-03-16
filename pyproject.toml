@@ -28,6 +28,7 @@ pytorch = [
     "torchmetrics",
     "lightning",
     "tensorboard",
+    "torch-tb-profiler",
     "omegaconf",
     "streamlit",
     "tabulate",
