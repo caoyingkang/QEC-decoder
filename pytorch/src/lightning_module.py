@@ -72,7 +72,7 @@ class DecodingModule(L.LightningModule):
         syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers)
         llrs = self(syndromes)  # (num_iters, batch_size, num_vars)
         loss = self.loss_fn(llrs, syndromes, observables)
-        self.log('train_loss', loss, on_step=False, on_epoch=True)
+        self.log('train_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
     def on_before_optimizer_step(self, optimizer):
@@ -99,7 +99,7 @@ class DecodingModule(L.LightningModule):
         syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers)
         llrs = self(syndromes)  # (num_iters, batch_size, num_vars)
         loss = self.loss_fn(llrs, syndromes, observables)
-        self.log('val_loss', loss, on_step=False, on_epoch=True)
+        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
         self.metric.update(llrs.cpu(), syndromes.cpu(), observables.cpu())
         return loss
 
@@ -107,6 +107,21 @@ class DecodingModule(L.LightningModule):
         val_metrics = self.metric.compute()
         self.log_dict(val_metrics)
         self.metric.reset()
+
+        if self.trainer.sanity_checking:
+            self.print("\n--- Pre-Train Validation Summary ---")
+        else:
+            self.print(f"\n--- Epoch {self.trainer.current_epoch} Validation Summary ---")
+        self.print(f"Val Loss: {self.trainer.callback_metrics['val_loss']:.5f}")
+        self.print("Val Metrics:")
+        self.print(f"  Convergence Rate: {val_metrics['convergence_rate'] * 100:.2f}%")
+        self.print(f"  Logical Success Rate: {val_metrics['logical_success_rate'] * 100:.2f}%")
+        self.print(f"  Strict Success Rate: {val_metrics['strict_success_rate'] * 100:.2f}%")
+        self.print(f"  Accidental Success Rate: {val_metrics['accidental_success_rate'] * 100:.2f}%")
+        self.print(f"  Success Rate on Convergence: {val_metrics['success_rate_on_convergence'] * 100:.2f}%")
+        self.print(f"  Average Iterations: {val_metrics['avg_iters']:.2f}")
+        self.print(f"  Average Iterations on Convergence: {val_metrics['avg_iters_on_convergence']:.2f}")
+        self.print()
 
     def configure_optimizers(self):
         optcfg = self.hparams.optim_cfg
