@@ -5,7 +5,7 @@ from omegaconf import DictConfig
 
 from .models import build_decoder_model
 from .loss import IterativeDecodingLoss
-from .metric import DecodingMetric
+from .metric import IterativeDecodingMetric
 
 
 class DecodingModule(L.LightningModule):
@@ -60,7 +60,7 @@ class DecodingModule(L.LightningModule):
             beta=loss_cfg.beta,
             skip_iters=loss_cfg.skip_iters,
         )
-        self.metric = DecodingMetric(chkmat, obsmat)
+        self.metric = IterativeDecodingMetric(chkmat, obsmat)
 
         # Set example input array for tensorboard to log model graph.
         self.example_input_array = torch.randint(0, 2, (1, chkmat.shape[0]))

@@ -6,7 +6,7 @@ from .utils.llr_utils import llrs_to_ehat
 from .utils.tensor_utils import INT_DTYPE
 
 
-class DecodingMetric(Metric):
+class IterativeDecodingMetric(Metric):
     """
     A `torchmetrics.Metric` that evaluates iterative decoder's performance.
     """
