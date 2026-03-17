@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 import torch
 import lightning as L
@@ -18,6 +20,7 @@ class DecodingModule(L.LightningModule):
         model_cfg: DictConfig,
         loss_cfg: DictConfig,
         optim_cfg: DictConfig,
+        compile_mode: Optional[str],
     ):
         """
         Parameters
@@ -39,6 +42,10 @@ class DecodingModule(L.LightningModule):
 
             optim_cfg : DictConfig
                 Configuration for the optimizer.
+
+            compile_mode : Optional[str]
+                Mode in torch.compile to optimize the decoder model and the loss function.
+                If None, no compilation is performed.
         """
         super().__init__()
         self.save_hyperparameters(ignore=['chkmat', 'obsmat', 'prior'])
@@ -53,13 +60,19 @@ class DecodingModule(L.LightningModule):
 
         # Build decoder model.
         self.decoder = build_decoder_model(chkmat, prior, model_cfg)
+        if compile_mode is not None:
+            self.decoder.compile(mode=compile_mode, fullgraph=True)
 
-        # Set up loss function and metric.
+        # Set up loss function.
         self.loss_fn = IterativeDecodingLoss(
             chkmat, obsmat,
             beta=loss_cfg.beta,
             skip_iters=loss_cfg.skip_iters,
         )
+        if compile_mode is not None:
+            self.loss_fn.compile(mode=compile_mode, fullgraph=True)
+
+        # Set up metric.
         self.metric = IterativeDecodingMetric(chkmat, obsmat)
 
         # Set example input array for tensorboard to log model graph.

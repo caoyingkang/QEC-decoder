@@ -144,6 +144,7 @@ def main():
         model_cfg=cfg.model,
         loss_cfg=cfg.loss,
         optim_cfg=cfg.optim,
+        compile_mode=cfg.compile_mode,
     )
     print(">>>>>> Parameters:")
     print_params(decoder)
@@ -177,13 +178,13 @@ def main():
         track_memory=True,
         with_stack=True,
         record_shapes=True,
-        schedule=torch.profiler.schedule(wait=2, warmup=3, active=5),
+        schedule=torch.profiler.schedule(skip_first=10, wait=5, warmup=5, active=10, repeat=1),
     ) if args.profile else None
     trainer = L.Trainer(
         accelerator=cfg.trainer.accelerator,
         max_epochs=cfg.trainer.max_epochs if profiler is None else 1,
-        limit_train_batches=None if profiler is None else 10,
-        limit_val_batches=None if profiler is None else 10,
+        limit_train_batches=None if profiler is None else 30,
+        limit_val_batches=None if profiler is None else 30,
         num_sanity_val_steps=-1 if profiler is None else 0,  # Pre-train validation
         enable_progress_bar=cfg.trainer.enable_progress_bar,
         callbacks=[
