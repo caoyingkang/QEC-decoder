@@ -8,7 +8,6 @@ import torch
 
 from .models import DecoderModel
 from .utils.llr_utils import llrs_to_ehat
-from .utils.tensor_utils import INT_DTYPE, FLOAT_DTYPE
 
 
 class PyTorchSinterDecoder(sinter.Decoder):
@@ -47,9 +46,9 @@ class PyTorchSinterDecoder(sinter.Decoder):
         self.bypass = bypass
 
         if device == "cpu":
-            self._chkmat_tensor = torch.tensor(model.pcm, dtype=INT_DTYPE, device=device)
+            self._chkmat_tensor = torch.tensor(model.pcm, dtype=torch.int32, device=device)
         else:
-            self._chkmat_tensor = torch.tensor(model.pcm, dtype=FLOAT_DTYPE, device=device)
+            self._chkmat_tensor = torch.tensor(model.pcm, dtype=torch.float32, device=device)
 
         # Move model to device.
         self.model.to(device)
@@ -81,7 +80,7 @@ class PyTorchSinterDecoder(sinter.Decoder):
 
         unpacked = np.unpackbits(bit_packed_detection_event_data, axis=1, bitorder="little")
         unpacked = unpacked[:, :self.num_chks]
-        syndromes = torch.from_numpy(unpacked).to(dtype=INT_DTYPE, device=self.device)
+        syndromes = torch.from_numpy(unpacked).to(dtype=torch.int32, device=self.device)
 
         if self.PROFILING:
             if self.device.startswith("cuda"):

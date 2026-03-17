@@ -4,9 +4,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from ..utils.tensor_utils import INT_DTYPE
-
-
 class DecodingDataset(Dataset):
     """
     A PyTorch Dataset. Each item is a (syndrome, observable) pair with integer dtype.
@@ -31,8 +28,8 @@ class DecodingDataset(Dataset):
         assert syndromes.ndim == 2 and observables.ndim == 2
         assert syndromes.shape[0] == observables.shape[0]
 
-        self.syndromes = torch.as_tensor(syndromes, dtype=INT_DTYPE)
-        self.observables = torch.as_tensor(observables, dtype=INT_DTYPE)
+        self.syndromes = torch.as_tensor(syndromes, dtype=torch.int32)
+        self.observables = torch.as_tensor(observables, dtype=torch.int32)
 
     @classmethod
     def load_from_file(cls, file: str | Path):

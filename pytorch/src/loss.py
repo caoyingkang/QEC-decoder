@@ -3,9 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .utils.tensor_utils import FLOAT_DTYPE
-
-
 EPS = 1e-6
 
 
@@ -159,7 +156,7 @@ class IterativeDecodingLoss(nn.Module):
 
         return F.binary_cross_entropy_with_logits(
             -synd_pred_llr,
-            syndromes.to(FLOAT_DTYPE).unsqueeze(0).expand_as(synd_pred_llr),
+            syndromes.float().unsqueeze(0).expand_as(synd_pred_llr),
             reduction="none",
         )  # (I, B, C)
 
@@ -180,6 +177,6 @@ class IterativeDecodingLoss(nn.Module):
 
         return F.binary_cross_entropy_with_logits(
             -obser_pred_llr,
-            observables.to(FLOAT_DTYPE).unsqueeze(0).expand_as(obser_pred_llr),
+            observables.float().unsqueeze(0).expand_as(obser_pred_llr),
             reduction="none",
         )  # (I, B, O)

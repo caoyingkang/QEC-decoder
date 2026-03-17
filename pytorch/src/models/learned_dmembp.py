@@ -4,11 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from ..utils.tensor_utils import (
-    FLOAT_DTYPE,
-    smooth_min,
-    smooth_sign,
-)
+from ..utils.tensor_utils import smooth_min, smooth_sign
 from .decoder_model import DecoderModel
 
 EPS = 1e-6
@@ -112,10 +108,10 @@ class LearnedDMemBP(DecoderModel):
         # Since prior_llr is derived from prior, it is not part of the model's state_dict, and will not be saved in checkpoints.
         prior = np.clip(prior, min=EPS, max=1 - EPS)
         prior_llr = np.log((1 - prior) / prior)
-        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=FLOAT_DTYPE), persistent=False)  # (V,)
+        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=torch.float32), persistent=False)  # (V,)
 
         # Initialize trainable parameter: memory strength.
-        self.gamma = nn.Parameter(torch.zeros(self.num_vars, dtype=FLOAT_DTYPE))  # (V,)
+        self.gamma = nn.Parameter(torch.zeros(self.num_vars))  # (V,)
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
         if self.training and self.min_impl_method == "smooth":  # Always use hard min during inference
@@ -129,15 +125,15 @@ class LearnedDMemBP(DecoderModel):
 
         device = syndromes.device
         batch_size = syndromes.shape[0]
-        synd_sgn = (1 - 2 * syndromes).to(FLOAT_DTYPE)  # (B, C) ∈ {+1,-1}
+        synd_sgn = (1 - 2 * syndromes).float()  # (B, C) ∈ {+1,-1}
 
         # Edge message arrays: (B, E + 1)
         # vn_to_cn[:, e], 0 <= e < num_edges, is the message along edge e from VN to CN.
         # cn_to_vn[:, e], 0 <= e < num_edges, is the message along edge e from CN to VN.
         # vn_to_cn[:, num_edges] is a dummy slot, so that vn_to_cn[:, self.cn_edge_idx] will not raise out-of-bounds error.
         # cn_to_vn[:, num_edges] is a dummy slot, so that cn_to_vn[:, self.vn_edge_idx] will not raise out-of-bounds error.
-        vn_to_cn = torch.zeros(batch_size, self.num_edges + 1, device=device, dtype=FLOAT_DTYPE)
-        cn_to_vn = torch.zeros(batch_size, self.num_edges + 1, device=device, dtype=FLOAT_DTYPE)
+        vn_to_cn = torch.zeros(batch_size, self.num_edges + 1, device=device)
+        cn_to_vn = torch.zeros(batch_size, self.num_edges + 1, device=device)
 
         # Initialize VN→CN messages with prior LLRs.
         vn_to_cn[:, :self.num_edges] = self.prior_llr[self.edge_to_vn]

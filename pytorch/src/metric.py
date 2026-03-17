@@ -3,7 +3,6 @@ import torch
 from torchmetrics import Metric
 
 from .utils.llr_utils import llrs_to_ehat
-from .utils.tensor_utils import INT_DTYPE
 
 
 class IterativeDecodingMetric(Metric):
@@ -26,8 +25,8 @@ class IterativeDecodingMetric(Metric):
                 Observable matrix, shape=(num_obsers, num_vars), integer ∈ {0,1} or bool
         """
         super().__init__()
-        self.chkmat = torch.as_tensor(chkmat, dtype=INT_DTYPE)
-        self.obsmat = torch.as_tensor(obsmat, dtype=INT_DTYPE)
+        self.chkmat = torch.as_tensor(chkmat, dtype=torch.int32)
+        self.obsmat = torch.as_tensor(obsmat, dtype=torch.int32)
 
         # Total number of shots
         self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")

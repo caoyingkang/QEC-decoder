@@ -3,8 +3,6 @@ from typing import Optional
 
 import torch.nn as nn
 
-from .tensor_utils import FLOAT_DTYPE
-
 
 ACTIVATION_CLS_MAP = {
     "Sigmoid": nn.Sigmoid,
@@ -103,16 +101,16 @@ class MLP(nn.Module):
         # Hidden layers
         current_in = in_features
         for _ in range(hidden_depth):
-            layers.append(nn.Linear(current_in, hidden_features, dtype=FLOAT_DTYPE))
+            layers.append(nn.Linear(current_in, hidden_features))
             if norm is not None:
-                layers.append(norm_cls(hidden_features, dtype=FLOAT_DTYPE))
+                layers.append(norm_cls(hidden_features))
             layers.append(activation_cls())
             if dropout_p:
                 layers.append(nn.Dropout(dropout_p))
             current_in = hidden_features
 
         # Output layer (no normalization, no activation, no dropout)
-        layers.append(nn.Linear(current_in, out_features, dtype=FLOAT_DTYPE))
+        layers.append(nn.Linear(current_in, out_features))
 
         self.net = nn.Sequential(*layers)
 

@@ -1,9 +1,6 @@
 """Utilities for LLR processing in iterative decoders."""
 import torch
 
-from .tensor_utils import INT_DTYPE, FLOAT_DTYPE
-
-
 def llrs_to_ehat(
     llrs: torch.Tensor,
     syndromes: torch.Tensor,
@@ -43,13 +40,13 @@ def llrs_to_ehat(
     num_iters, batch_size, num_vars = llrs.shape
 
     if llrs.is_cpu:
-        hard_decisions = (llrs < 0).to(INT_DTYPE)  # (num_iters, B, V), int
+        hard_decisions = (llrs < 0).int()  # (num_iters, B, V), int
         synd_pred = torch.matmul(hard_decisions, chkmat.T) % 2  # (num_iters, B, C), int
     else:
         # cuda does not support matrix multiplication for integer tensors
-        hard_decisions = (llrs < 0).to(FLOAT_DTYPE)  # (num_iters, B, V), float
+        hard_decisions = (llrs < 0).float()  # (num_iters, B, V), float
         synd_pred_raw = torch.matmul(hard_decisions, chkmat.T)  # (num_iters, B, C), float
-        synd_pred = torch.round(synd_pred_raw).to(INT_DTYPE) % 2  # (num_iters, B, C), int
+        synd_pred = torch.round(synd_pred_raw).int() % 2  # (num_iters, B, C), int
 
     synd_matched_mask = torch.all(synd_pred == syndromes.unsqueeze(0), dim=2)  # (num_iters, B), bool
     converged_mask = torch.any(synd_matched_mask, dim=0)  # (B,), bool

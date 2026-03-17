@@ -36,11 +36,7 @@ import torch
 import torch.nn as nn
 
 from ..utils.mlp import MLP
-from ..utils.tensor_utils import (
-    FLOAT_DTYPE,
-    smooth_min,
-    smooth_sign,
-)
+from ..utils.tensor_utils import smooth_min, smooth_sign
 from .decoder_model import DecoderModel
 
 EPS = 1e-6
@@ -205,7 +201,7 @@ class MultiDMemBP(DecoderModel):
         # Since prior_llr is derived from prior, it is not part of the model's state_dict, and will not be saved in checkpoints.
         prior = np.clip(prior, min=EPS, max=1 - EPS)
         prior_llr = np.log((1 - prior) / prior)
-        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=FLOAT_DTYPE), persistent=False)  # (V,)
+        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=torch.float32), persistent=False)  # (V,)
 
         # Initialize trainable parameter: memory strength.
         self.gamma_shared = gamma_shared
@@ -219,13 +215,13 @@ class MultiDMemBP(DecoderModel):
 
         # Support int or float. Note that bool is a subclass of int, but we don't want to treat it as such.
         if isinstance(gamma_init, (int, float)) and not isinstance(gamma_init, bool):
-            return torch.full(shape, float(gamma_init), dtype=FLOAT_DTYPE)
+            return torch.full(shape, float(gamma_init), dtype=torch.float32)
         # Support any class with __getitem__ and length 2.
         elif hasattr(gamma_init, "__getitem__") and hasattr(gamma_init, "__len__") and len(gamma_init) == 2:
             low, high = float(gamma_init[0]), float(gamma_init[1])
             if low > high:
                 raise ValueError(f"Invalid interval, got {gamma_init!r}")
-            return torch.empty(shape, dtype=FLOAT_DTYPE).uniform_(low, high)
+            return torch.empty(shape).uniform_(low, high)
         else:
             raise ValueError(f"gamma_init must be a float or a list of two floats [low, high], got {gamma_init!r}")
 
@@ -241,12 +237,12 @@ class MultiDMemBP(DecoderModel):
 
         device = syndromes.device
         batch_size = syndromes.shape[0]
-        synd_sgn = (1 - 2 * syndromes).to(FLOAT_DTYPE)  # (B, C)
+        synd_sgn = (1 - 2 * syndromes).float()  # (B, C)
         mf = self.msg_features
 
         # Edge message arrays: (B, E + 1, M)
-        vn_to_cn = torch.zeros(batch_size, self.num_edges + 1, mf, device=device, dtype=FLOAT_DTYPE)
-        cn_to_vn = torch.zeros(batch_size, self.num_edges + 1, mf, device=device, dtype=FLOAT_DTYPE)
+        vn_to_cn = torch.zeros(batch_size, self.num_edges + 1, mf, device=device)
+        cn_to_vn = torch.zeros(batch_size, self.num_edges + 1, mf, device=device)
 
         # Initialize VN→CN messages with prior LLRs (broadcast to all components).
         vn_to_cn[:, :self.num_edges, :] = self.prior_llr[self.edge_to_vn].unsqueeze(0).unsqueeze(-1)
