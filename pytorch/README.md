@@ -5,8 +5,8 @@ This subproject provides training scripts and a web interface for Monte Carlo be
 ## Training
 
 Examples: (Assuming run from `pytorch/scripts` directory)
-- `python train.py --config configs/train_LearnedDMemBP.yaml`
-- `python train.py --config configs/train_MultiDMemBP.yaml qec.d=11 qec.rounds=11 model.mlp.activation=ReLU`
+- `python train.py --config configs/train_LearnedDMemBP_d=5.yaml`
+- `python train.py --config configs/train_MultiDMemBP_d=5.yaml model.mlp.activation=ReLU`
 
 ## Monte Carlo benchmark app
 
