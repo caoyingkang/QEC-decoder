@@ -93,17 +93,30 @@ def get_run_dir(cfg: DictConfig) -> Path:
 
 def print_params(module: L.LightningModule):
     table_data = []
+    total_numel = 0
+    total_bytes = 0
     for name, param in module.named_parameters():
+        numel = param.numel()
+        bytes = numel * param.element_size()
+        total_numel += numel
+        total_bytes += bytes
         table_data.append([
             name,
             str(param.dtype).split('.')[-1],
             list(param.size()),
-            f"{param.numel():,}",
-            humanize.naturalsize(param.numel() * param.element_size(), binary=True),
+            f"{numel:,}",
+            humanize.naturalsize(bytes, binary=True),
         ])
+    table_data.append([
+        "Total",
+        "",
+        "",
+        f"{total_numel:,}",
+        humanize.naturalsize(total_bytes, binary=True),
+    ])
     print(tabulate(
         table_data,
-        headers=["name", "dtype", "size", "numel", "memory"],
+        headers=["name", "dtype", "size", "numel", "bytes"],
         tablefmt="fancy_grid"
     ))
 
@@ -174,7 +187,8 @@ def main():
         log_graph=cfg.tb_logger.log_graph,
     )
     profiler = PyTorchProfiler(
-        on_trace_ready=torch.profiler.tensorboard_trace_handler(str(run_dir / "tb_logs" / "profiler")),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler(str(run_dir / "tb_logs" / "profile")),
+        profile_memory=True,
         track_memory=True,
         with_stack=True,
         record_shapes=True,
