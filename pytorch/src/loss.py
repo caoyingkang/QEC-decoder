@@ -106,7 +106,7 @@ class IterativeDecodingLoss(nn.Module):
         self,
         llrs: torch.Tensor,
         syndromes: torch.Tensor,
-        observables: torch.Tensor
+        observables: torch.Tensor,
     ) -> torch.Tensor:
         """
         Parameters
@@ -142,7 +142,7 @@ class IterativeDecodingLoss(nn.Module):
     def _get_syndrome_loss(
         self,
         tanhhalfllrs: torch.Tensor,  # (I, B, V), float
-        syndromes: torch.Tensor  # (B, C), int ∈ {0,1}
+        syndromes: torch.Tensor,  # (B, C), int ∈ {0,1}
     ) -> torch.Tensor:
         # Gather LLRs of variables in the support of each check.
         gathered = tanhhalfllrs[:, :, self.chk_supp]  # (I, B, C, Wc)
@@ -163,7 +163,7 @@ class IterativeDecodingLoss(nn.Module):
     def _get_observable_loss(
         self,
         tanhhalfllrs: torch.Tensor,  # (I, B, V), float
-        observables: torch.Tensor  # (B, O), int ∈ {0,1}
+        observables: torch.Tensor,  # (B, O), int ∈ {0,1}
     ) -> torch.Tensor:
         # Gather LLRs of variables in the support of each observable.
         gathered = tanhhalfllrs[:, :, self.obs_supp]  # (I, B, O, Wo)

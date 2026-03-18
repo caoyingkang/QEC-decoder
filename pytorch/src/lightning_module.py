@@ -82,8 +82,8 @@ class DecodingModule(L.LightningModule):
         return self.decoder(syndromes)
 
     def training_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
-        syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers)
-        llrs = self(syndromes)  # (num_iters, batch_size, num_vars)
+        syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
+        llrs = self(syndromes)  # (num_iters, batch_size, num_vars), float
         loss = self.loss_fn(llrs, syndromes, observables)
         self.log('train_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
@@ -109,11 +109,11 @@ class DecodingModule(L.LightningModule):
                     )
 
     def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
-        syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers)
-        llrs = self(syndromes)  # (num_iters, batch_size, num_vars)
+        syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
+        llrs = self(syndromes)  # (num_iters, batch_size, num_vars), float
         loss = self.loss_fn(llrs, syndromes, observables)
         self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.metric.update(llrs.cpu(), syndromes.cpu(), observables.cpu())
+        self.metric.update(llrs, syndromes, observables)
         return loss
 
     def on_validation_epoch_end(self):

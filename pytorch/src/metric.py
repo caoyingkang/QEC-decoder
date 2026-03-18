@@ -3,6 +3,15 @@ import torch
 from torchmetrics import Metric
 
 from .utils.llr_utils import llrs_to_ehat
+from .utils.tensor_utils import matmul_GF2
+
+
+# Shape hints code:
+# B = batch_size
+# C = num_chks
+# O = num_obsers
+# V = num_vars
+# I = num_iters
 
 
 class IterativeDecodingMetric(Metric):
@@ -25,8 +34,9 @@ class IterativeDecodingMetric(Metric):
                 Observable matrix, shape=(num_obsers, num_vars), integer ∈ {0,1} or bool
         """
         super().__init__()
-        self.chkmat = torch.as_tensor(chkmat, dtype=torch.int32)
-        self.obsmat = torch.as_tensor(obsmat, dtype=torch.int32)
+
+        self.register_buffer("chkmat", torch.tensor(chkmat, dtype=torch.float32), persistent=False)  # (C, V)
+        self.register_buffer("obsmat", torch.tensor(obsmat, dtype=torch.float32), persistent=False)  # (O, V)
 
         # Total number of shots
         self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
@@ -51,21 +61,21 @@ class IterativeDecodingMetric(Metric):
         Parameters
         ----------
             llrs : torch.Tensor
-                LLR values at all iterations, shape=(num_iters, batch_size, num_vars), float, device=cpu
+                LLR output from all iterations, shape=(num_iters, batch_size, num_vars), float
 
             syndromes : torch.Tensor
-                Syndrome bits, shape=(batch_size, num_chks), int ∈ {0,1}, device=cpu
+                Syndrome bits, shape=(batch_size, num_chks), int ∈ {0,1}
 
             observables : torch.Tensor
-                Observable bits, shape=(batch_size, num_obsers), int ∈ {0,1}, device=cpu
+                Observable bits, shape=(batch_size, num_obsers), int ∈ {0,1}
         """
         batch_size = syndromes.size(0)
         ehat, converged_mask, output_iters = llrs_to_ehat(llrs, syndromes, self.chkmat)
-        decoding_iters = output_iters + 1  # (batch_size,), int
+        decoding_iters = output_iters + 1  # (B,), long
 
         # For each shot, check if the decoder predicts the observables correctly
-        obser_pred = torch.matmul(ehat, self.obsmat.T) % 2  # (batch_size, num_obsers), int ∈ {0,1}
-        correct_mask = torch.all(obser_pred == observables, dim=1)  # (batch_size,), bool
+        obser_pred = matmul_GF2(ehat, self.obsmat.T)  # (B, O), int ∈ {0,1}
+        correct_mask = torch.all(obser_pred == observables, dim=1)  # (B,), bool
 
         # Update states
         self.total += batch_size
@@ -77,11 +87,11 @@ class IterativeDecodingMetric(Metric):
 
     def compute(self) -> dict[str, float]:
         return {
-            "convergence_rate": self.converged.float() / self.total,
-            "logical_success_rate": self.correct.float() / self.total,
-            "strict_success_rate": self.converged_and_correct.float() / self.total,
-            "accidental_success_rate": (self.correct - self.converged_and_correct).float() / self.total,
-            "success_rate_on_convergence": self.converged_and_correct.float() / self.converged,
-            "avg_iters": self.iters_sum.float() / self.total,
-            "avg_iters_on_convergence": self.iters_sum_on_converged.float() / self.converged,
+            "convergence_rate": self.converged.float() / self.total.float(),
+            "logical_success_rate": self.correct.float() / self.total.float(),
+            "strict_success_rate": self.converged_and_correct.float() / self.total.float(),
+            "accidental_success_rate": (self.correct - self.converged_and_correct).float() / self.total.float(),
+            "success_rate_on_convergence": self.converged_and_correct.float() / self.converged.float(),
+            "avg_iters": self.iters_sum.float() / self.total.float(),
+            "avg_iters_on_convergence": self.iters_sum_on_converged.float() / self.converged.float(),
         }
