@@ -43,15 +43,18 @@ class DecoderModel(nn.Module):
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
-    def load_lightning_checkpoint(self, ckpt_path: Path) -> None:
+    def load_lightning_checkpoint(self, ckpt_path: Path, skip_keys: list[str] = []) -> None:
         """
         Load parameters and buffers from a Lightning checkpoint. Expect a checkpoint 
-        saved by a `LightningModule`, with `state_dict` keys prefixed by `"decoder."`.
+        saved by a `LightningModule`, with `state_dict` keys prefixed by `"model."`.
 
         Parameters
         ----------
         ckpt_path : Path
             Path to the Lightning checkpoint file.
+
+        skip_keys : list[str]
+            List of keys (without prefix) to skip loading.
 
         Raises
         ------
@@ -65,11 +68,13 @@ class DecoderModel(nn.Module):
             raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
         ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
 
-        prefix = "decoder."
+        prefix = "model."
         l = len(prefix)
-        state_dict = {}
+        current_state_dict = self.state_dict()
+        new_state_dict = {}
         for k, v in ckpt["state_dict"].items():
             if k.startswith(prefix):
-                state_dict[k[l:]] = v
+                key = k[l:]
+                new_state_dict[key] = current_state_dict[key] if key in skip_keys else v
 
-        self.load_state_dict(state_dict, strict=True)
+        self.load_state_dict(new_state_dict, strict=True)

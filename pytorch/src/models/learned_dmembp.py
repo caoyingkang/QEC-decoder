@@ -105,10 +105,11 @@ class LearnedDMemBP(DecoderModel):
         self.register_buffer("cn_diag_mask", torch.eye(self.max_cn_deg, dtype=torch.bool), persistent=False)  # (Δc, Δc)
 
         # Register prior LLRs.
-        # Since prior_llr is derived from prior, it is not part of the model's state_dict, and will not be saved in checkpoints.
+        # We mark it as part of the model's state_dict, and will save it in checkpoints. In this way, one has the option to
+        # use the prior_llr the model was trained with to benchmark its performance on other prior probabilities.
         prior = np.clip(prior, min=EPS, max=1 - EPS)
         prior_llr = np.log((1 - prior) / prior)
-        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=torch.float32), persistent=False)  # (V,)
+        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=torch.float32), persistent=True)  # (V,)
 
         # Initialize trainable parameter: memory strength.
         self.gamma = nn.Parameter(torch.zeros(self.num_vars))  # (V,)

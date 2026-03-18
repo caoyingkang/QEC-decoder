@@ -59,9 +59,9 @@ class DecodingModule(L.LightningModule):
         assert chkmat.shape[1] == obsmat.shape[1] == prior.shape[0]
 
         # Build decoder model.
-        self.decoder = build_decoder_model(chkmat, prior, model_cfg)
+        self.model = build_decoder_model(chkmat, prior, model_cfg)
         if compile_mode is not None:
-            self.decoder.compile(mode=compile_mode, fullgraph=True)
+            self.model.compile(mode=compile_mode, fullgraph=True)
 
         # Set up loss function.
         self.loss_fn = IterativeDecodingLoss(
@@ -79,7 +79,7 @@ class DecodingModule(L.LightningModule):
         self.example_input_array = torch.randint(0, 2, (1, chkmat.shape[0]))
 
     def forward(self, syndromes: torch.Tensor):
-        return self.decoder(syndromes)
+        return self.model(syndromes)
 
     def training_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
@@ -91,7 +91,7 @@ class DecodingModule(L.LightningModule):
     def on_before_optimizer_step(self, optimizer):
         global_step = self.trainer.global_step
         if global_step % 100 == 1:  # Log every 100 steps to avoid slowing down training
-            for name, p in self.decoder.named_parameters():
+            for name, p in self.model.named_parameters():
                 # Inspect parameter values distribution
                 self.logger.experiment.add_histogram(
                     tag=f"params/{name}",
@@ -139,7 +139,7 @@ class DecodingModule(L.LightningModule):
     def configure_optimizers(self):
         optcfg = self.hparams.optim_cfg
         lrcfg = optcfg.lr_scheduler
-        optimizer = torch.optim.Adam(self.decoder.parameters(), lr=optcfg.lr)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=optcfg.lr)
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             factor=lrcfg.factor,

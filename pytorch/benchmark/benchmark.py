@@ -24,6 +24,7 @@ def run_benchmark(
     num_workers: int,
     device: str,
     bypass: bool,
+    use_prior_in_ckpt: bool,
 ):
     # Benchmark PyTorch decoders
     for run_dir in run_dirs:
@@ -41,6 +42,7 @@ def run_benchmark(
             num_workers=num_workers,
             device=device,
             bypass=bypass,
+            use_prior_in_ckpt=use_prior_in_ckpt,
         )
 
     # Benchmark baseline decoders
