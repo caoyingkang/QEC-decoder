@@ -34,6 +34,7 @@ class DecodingDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
+            pin_memory=True,
             persistent_workers=True,
         )
 
@@ -43,5 +44,6 @@ class DecodingDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
+            pin_memory=True,
             persistent_workers=True,
         )
