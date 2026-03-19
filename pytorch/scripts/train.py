@@ -3,10 +3,12 @@ Python script to train a PyTorch decoder.
 
 Usage:
     python train.py --config <path/to/config.yaml> [overrides...]
+    python train.py --config <path/to/config.yaml> --profile
 
 Examples: (Assuming run in the pytorch/scripts directory)
-    python train.py --config configs/train_LearnedDMemBP.yaml
-    python train.py --config configs/train_MultiDMemBP.yaml qec.d=11 qec.rounds=11 model.mlp.activation=ReLU
+    python train.py --config configs/train_LearnedDMemBP_d=5.yaml
+    python train.py --config configs/train_MultiDMemBP_d=5.yaml loss.beta=0.0 model.mlp.activation=ReLU
+    python train.py --config configs/train_MultiDMemBP_d=5.yaml --profile
 """
 
 import argparse
@@ -40,6 +42,7 @@ def load_config(path: Path, overrides: list[str]) -> DictConfig:
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
     base_cfg = OmegaConf.load(path)
+    OmegaConf.resolve(base_cfg)
     OmegaConf.set_struct(base_cfg, True)  # forbid creation of new keys
     overrides_cfg = OmegaConf.from_cli(overrides)
 
@@ -127,7 +130,8 @@ def main():
     parser.add_argument("--profile", action="store_true", help="Enable profiling")
     args, overrides = parser.parse_known_args()
 
-    cfg = load_config(Path(args.config), overrides)
+    config_path = Path(args.config).resolve()
+    cfg = load_config(config_path, overrides)
     qec_cfg = cfg.qec
     print(">>>>>> Config:")
     print(OmegaConf.to_yaml(cfg))

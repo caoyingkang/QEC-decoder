@@ -149,20 +149,50 @@ def collect_dataset(
     return syndromes, observables
 
 
+def sample_test_dataset(
+    *,
+    d: int,
+    rounds: int,
+    basis: str,
+    p_range: list[float],
+    target_size: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Collect a test dataset by randomly sampling from the circuit. No filtering is applied.
+    Sample evenly across `p_range`: each p gets approximately `target_size // len(p_range)` shots.
+    """
+    shots_per_p = target_size // len(p_range)
+    remainder = target_size % len(p_range)
+    synd_list: list[np.ndarray] = []
+    obs_list: list[np.ndarray] = []
+    for i, p in enumerate(p_range):
+        shots = shots_per_p + (1 if i < remainder else 0)
+        expmt = RotatedSurfaceCode_Memory(
+            d=d,
+            rounds=rounds,
+            basis=basis,
+            data_qubit_error_rate=p,
+            meas_error_rate=p,
+        )
+        sampler = expmt.dem.compile_sampler()
+        synd, obs = sample_shots(sampler, shots)
+        synd_list.append(synd)
+        obs_list.append(obs)
+    syndromes = np.concatenate(synd_list, axis=0)
+    observables = np.concatenate(obs_list, axis=0)
+    return syndromes, observables
+
+
 def build_dataset_for_config(config_dir: Path, force: bool) -> None:
     """
-    Build train/val datasets for a single config directory.
+    Build train/val/test datasets for a single config directory.
 
     If `force` is True, rebuild even if datasets already exist.
     """
     config_path = config_dir / "config.yaml"
     train_path = config_dir / "train_dataset.pt"
     val_path = config_dir / "val_dataset.pt"
-
-    if not force and train_path.exists() and val_path.exists():
-        print(f">>>>>> Skipping {config_dir} (datasets already exist).")
-        return
-    print(f">>>>>> Building datasets inside {config_dir}.")
+    test_path = config_dir / "test_dataset.pt"
 
     cfg = OmegaConf.load(config_path)
     OmegaConf.resolve(cfg)
@@ -172,39 +202,60 @@ def build_dataset_for_config(config_dir: Path, force: bool) -> None:
     p_range: list[float] = list(cfg.qec.p_range)
     train_size = cfg.data.train_size
     val_size = cfg.data.val_size
-    total_size = train_size + val_size
+    test_size = cfg.data.test_size
     hard_sample_ratio = cfg.data.hard_sample_ratio
     bp_max_iter = cfg.data.bp_max_iter
 
     if cfg.qec.code != "RotatedSurfaceCode" or cfg.qec.noise_model != "Phenomenological":
         raise ValueError(f"Unsupported combination: {cfg.qec.code} + {cfg.qec.noise_model}")
 
-    # Collect total_size shots, about hard_sample_ratio fraction of which are hard
-    syndromes, observables = collect_dataset(
-        d=d,
-        rounds=rounds,
-        basis=basis,
-        p_range=p_range,
-        target_size=total_size,
-        hard_sample_ratio=hard_sample_ratio,
-        bp_max_iter=bp_max_iter,
-    )
+    if not force and train_path.exists() and val_path.exists():
+        print(f">>>>>> Skipping train and val datasets inside {config_dir}.")
+    else:
+        print(f">>>>>> Building train and val datasets inside {config_dir}.")
 
-    assert total_size == syndromes.shape[0] == observables.shape[0]
+        # Collect train_size + val_size shots, about hard_sample_ratio fraction of which are hard
+        syndromes, observables = collect_dataset(
+            d=d,
+            rounds=rounds,
+            basis=basis,
+            p_range=p_range,
+            target_size=train_size + val_size,
+            hard_sample_ratio=hard_sample_ratio,
+            bp_max_iter=bp_max_iter,
+        )
 
-    # Split into train and val
-    train_syndromes = syndromes[:train_size]
-    train_observables = observables[:train_size]
-    val_syndromes = syndromes[train_size:]
-    val_observables = observables[train_size:]
+        assert train_size + val_size == syndromes.shape[0] == observables.shape[0]
 
-    # Save datasets
-    train_dataset = DecodingDataset(train_syndromes, train_observables)
-    val_dataset = DecodingDataset(val_syndromes, val_observables)
-    train_dataset.save_to_file(train_path, overwrite_ok=True)
-    val_dataset.save_to_file(val_path, overwrite_ok=True)
-    print(f"Train dataset size: {len(train_dataset)}, saved to {train_path}.")
-    print(f"Val dataset size: {len(val_dataset)}, saved to {val_path}.")
+        # Split into train and val
+        train_syndromes = syndromes[:train_size]
+        train_observables = observables[:train_size]
+        val_syndromes = syndromes[train_size:]
+        val_observables = observables[train_size:]
+
+        # Save train and val datasets
+        train_dataset = DecodingDataset(train_syndromes, train_observables)
+        val_dataset = DecodingDataset(val_syndromes, val_observables)
+        train_dataset.save_to_file(train_path, overwrite_ok=True)
+        val_dataset.save_to_file(val_path, overwrite_ok=True)
+        print(f"Train dataset size: {len(train_dataset)}, saved to {train_path}.")
+        print(f"Val dataset size: {len(val_dataset)}, saved to {val_path}.")
+
+    if not force and test_path.exists():
+        print(f">>>>>> Skipping test dataset inside {config_dir}.")
+    else:
+        print(f">>>>>> Building test dataset inside {config_dir}.")
+
+        test_syndromes, test_observables = sample_test_dataset(
+            d=d,
+            rounds=rounds,
+            basis=basis,
+            p_range=p_range,
+            target_size=test_size,
+        )
+        test_dataset = DecodingDataset(test_syndromes, test_observables)
+        test_dataset.save_to_file(test_path, overwrite_ok=True)
+        print(f"Test dataset size: {len(test_dataset)}, saved to {test_path}.")
 
 
 def main():

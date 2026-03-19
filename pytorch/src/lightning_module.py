@@ -136,6 +136,26 @@ class DecodingModule(L.LightningModule):
         self.print(f"  Average Iterations on Convergence: {val_metrics['avg_iters_on_convergence']:.2f}")
         self.print()
 
+    def test_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
+        syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
+        llrs = self(syndromes)  # (num_iters, batch_size, num_vars), float
+        self.metric.update(llrs, syndromes, observables)
+
+    def on_test_epoch_end(self):
+        test_metrics = self.metric.compute()
+        self.log_dict(test_metrics)
+        self.metric.reset()
+
+        self.print("\n--- Test Summary ---")
+        self.print(f"  Convergence Rate: {test_metrics['convergence_rate'] * 100:.2f}%")
+        self.print(f"  Logical Success Rate: {test_metrics['logical_success_rate'] * 100:.2f}%")
+        self.print(f"  Strict Success Rate: {test_metrics['strict_success_rate'] * 100:.2f}%")
+        self.print(f"  Accidental Success Rate: {test_metrics['accidental_success_rate'] * 100:.2f}%")
+        self.print(f"  Success Rate on Convergence: {test_metrics['success_rate_on_convergence'] * 100:.2f}%")
+        self.print(f"  Average Iterations: {test_metrics['avg_iters']:.2f}")
+        self.print(f"  Average Iterations on Convergence: {test_metrics['avg_iters_on_convergence']:.2f}")
+        self.print()
+
     def configure_optimizers(self):
         optcfg = self.hparams.optim_cfg
         lrcfg = optcfg.lr_scheduler
