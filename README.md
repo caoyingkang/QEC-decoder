@@ -13,7 +13,7 @@ The ultimate goal is a fast real-time decoder implementable on FPGA with submicr
 
 ### Dependencies and installation
 
-- Python >= 3.8.
+- Python >= 3.10.
 - [Install rust](https://www.rust-lang.org/tools/install).
 - Download the repository and create a Python virtual environment:
   ```
