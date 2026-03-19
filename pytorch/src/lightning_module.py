@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 import torch
 import lightning as L
@@ -5,7 +7,7 @@ from omegaconf import DictConfig
 
 from .models import build_decoder_model
 from .loss import IterativeDecodingLoss
-from .metric import DecodingMetric
+from .metric import IterativeDecodingMetric
 
 
 class DecodingModule(L.LightningModule):
@@ -18,6 +20,7 @@ class DecodingModule(L.LightningModule):
         model_cfg: DictConfig,
         loss_cfg: DictConfig,
         optim_cfg: DictConfig,
+        compile_mode: Optional[str],
     ):
         """
         Parameters
@@ -39,6 +42,10 @@ class DecodingModule(L.LightningModule):
 
             optim_cfg : DictConfig
                 Configuration for the optimizer.
+
+            compile_mode : Optional[str]
+                Mode in torch.compile to optimize the decoder model and the loss function.
+                If None, no compilation is performed.
         """
         super().__init__()
         self.save_hyperparameters(ignore=['chkmat', 'obsmat', 'prior'])
@@ -52,33 +59,39 @@ class DecodingModule(L.LightningModule):
         assert chkmat.shape[1] == obsmat.shape[1] == prior.shape[0]
 
         # Build decoder model.
-        self.decoder = build_decoder_model(chkmat, prior, model_cfg)
+        self.model = build_decoder_model(chkmat, prior, model_cfg)
+        if compile_mode is not None:
+            self.model.compile(mode=compile_mode, fullgraph=True)
 
-        # Set up loss function and metric.
+        # Set up loss function.
         self.loss_fn = IterativeDecodingLoss(
             chkmat, obsmat,
             beta=loss_cfg.beta,
             skip_iters=loss_cfg.skip_iters,
         )
-        self.metric = DecodingMetric(chkmat, obsmat)
+        if compile_mode is not None:
+            self.loss_fn.compile(mode=compile_mode, fullgraph=True)
+
+        # Set up metric.
+        self.metric = IterativeDecodingMetric(chkmat, obsmat)
 
         # Set example input array for tensorboard to log model graph.
         self.example_input_array = torch.randint(0, 2, (1, chkmat.shape[0]))
 
     def forward(self, syndromes: torch.Tensor):
-        return self.decoder(syndromes)
+        return self.model(syndromes)
 
     def training_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
-        syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers)
-        llrs = self(syndromes)  # (num_iters, batch_size, num_vars)
+        syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
+        llrs = self(syndromes)  # (num_iters, batch_size, num_vars), float
         loss = self.loss_fn(llrs, syndromes, observables)
-        self.log('train_loss', loss, on_step=False, on_epoch=True)
+        self.log('train_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
     def on_before_optimizer_step(self, optimizer):
         global_step = self.trainer.global_step
         if global_step % 100 == 1:  # Log every 100 steps to avoid slowing down training
-            for name, p in self.decoder.named_parameters():
+            for name, p in self.model.named_parameters():
                 # Inspect parameter values distribution
                 self.logger.experiment.add_histogram(
                     tag=f"params/{name}",
@@ -96,11 +109,11 @@ class DecodingModule(L.LightningModule):
                     )
 
     def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
-        syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers)
-        llrs = self(syndromes)  # (num_iters, batch_size, num_vars)
+        syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
+        llrs = self(syndromes)  # (num_iters, batch_size, num_vars), float
         loss = self.loss_fn(llrs, syndromes, observables)
-        self.log('val_loss', loss, on_step=False, on_epoch=True)
-        self.metric.update(llrs.cpu(), syndromes.cpu(), observables.cpu())
+        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.metric.update(llrs, syndromes, observables)
         return loss
 
     def on_validation_epoch_end(self):
@@ -108,10 +121,25 @@ class DecodingModule(L.LightningModule):
         self.log_dict(val_metrics)
         self.metric.reset()
 
+        if self.trainer.sanity_checking:
+            self.print("\n--- Pre-Train Validation Summary ---")
+        else:
+            self.print(f"\n--- Epoch {self.trainer.current_epoch} Validation Summary ---")
+        self.print(f"Val Loss: {self.trainer.callback_metrics['val_loss']:.5f}")
+        self.print("Val Metrics:")
+        self.print(f"  Convergence Rate: {val_metrics['convergence_rate'] * 100:.2f}%")
+        self.print(f"  Logical Success Rate: {val_metrics['logical_success_rate'] * 100:.2f}%")
+        self.print(f"  Strict Success Rate: {val_metrics['strict_success_rate'] * 100:.2f}%")
+        self.print(f"  Accidental Success Rate: {val_metrics['accidental_success_rate'] * 100:.2f}%")
+        self.print(f"  Success Rate on Convergence: {val_metrics['success_rate_on_convergence'] * 100:.2f}%")
+        self.print(f"  Average Iterations: {val_metrics['avg_iters']:.2f}")
+        self.print(f"  Average Iterations on Convergence: {val_metrics['avg_iters_on_convergence']:.2f}")
+        self.print()
+
     def configure_optimizers(self):
         optcfg = self.hparams.optim_cfg
         lrcfg = optcfg.lr_scheduler
-        optimizer = torch.optim.Adam(self.decoder.parameters(), lr=optcfg.lr)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=optcfg.lr)
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             factor=lrcfg.factor,

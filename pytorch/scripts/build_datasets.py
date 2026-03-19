@@ -3,28 +3,27 @@ from pathlib import Path
 
 import numpy as np
 from omegaconf import OmegaConf
-from qecdec import RotatedSurfaceCode_Memory
+from stim import CompiledDemSampler
+from qecdec import BPDecoder, RotatedSurfaceCode_Memory
 
 PYTORCH_ROOT = Path(__file__).resolve().parent.parent
 DATASETS_ROOT = PYTORCH_ROOT / "datasets"
 
-SKIP_IF_EXISTS = True # TODO: use CLI argument
 
 def find_config_dirs() -> list[Path]:
-    """Find all subdirectories containing config.yaml."""
+    """Find all subdirectories of DATASETS_ROOT containing config.yaml."""
     config_dirs: list[Path] = []
     for path in DATASETS_ROOT.rglob("config.yaml"):
         config_dirs.append(path.parent)
     return config_dirs
 
 
-def sample_shots(expmt: RotatedSurfaceCode_Memory, num_shots: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
-    sampler = expmt.dem.compile_sampler(seed=seed)
-    syndromes, observables, _ = sampler.sample(num_shots)
-    return syndromes.astype(np.int32), observables.astype(np.int32)
+def sample_shots(sampler: CompiledDemSampler, shots: int) -> tuple[np.ndarray, np.ndarray]:
+    syndromes, observables, _ = sampler.sample(shots)
+    return syndromes.astype(np.uint8), observables.astype(np.uint8)
 
 
-def remove_trivial_syndrome_shots(syndromes: np.ndarray, observables: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def remove_trivial_shots(syndromes: np.ndarray, observables: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Remove shots that have all-zero syndrome.
     """
@@ -32,78 +31,196 @@ def remove_trivial_syndrome_shots(syndromes: np.ndarray, observables: np.ndarray
     return syndromes[mask], observables[mask]
 
 
-def remove_bp_easy_shots(syndromes: np.ndarray, observables: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def classify_hard_easy(
+    syndromes: np.ndarray,
+    observables: np.ndarray,
+    *,
+    chkmat: np.ndarray,
+    prior: np.ndarray,
+    bp_max_iter: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Remove shots that are correctly decoded by vanilla BP decoder in at most 5 iterations.
+    Classify shots as hard (BP does not converge) or easy (BP converges).
+    Return (hard_syndromes, hard_observables, easy_syndromes, easy_observables).
     """
-    # TODO: implement this
-    raise NotImplementedError("Not implemented yet.")
+    bp = BPDecoder(chkmat, prior, max_iter=bp_max_iter)
+    ehat = bp.decode_batch(syndromes)
+    synd_pred = (ehat @ chkmat.T) % 2
+    hard_mask = np.any(synd_pred != syndromes, axis=1)
+    return (
+        syndromes[hard_mask],
+        observables[hard_mask],
+        syndromes[~hard_mask],
+        observables[~hard_mask],
+    )
 
 
-def build_dataset_for_config(config_dir: Path) -> None:
-    """Build train/val datasets for a single config directory if they do not exist."""
+def collect_dataset(
+    *,
+    d: int,
+    rounds: int,
+    basis: str,
+    p_range: list[float],
+    target_size: int,
+    hard_sample_ratio: float,
+    bp_max_iter: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Collect a dataset of `target_size`, about `hard_sample_ratio` fraction of which
+    are hard (i.e., BP does not converge within `bp_max_iter` iterations), after 
+    filtering out trivial shots (i.e., shots with all-zero syndrome). The returned 
+    syndromes and observables are shuffled.
+    """
+    target_hard = int(target_size * hard_sample_ratio)
+    target_easy = target_size - target_hard
+
+    hard_syndromes_list: list[np.ndarray] = []
+    hard_observables_list: list[np.ndarray] = []
+    hard_shots = 0
+    easy_syndromes_list: list[np.ndarray] = []
+    easy_observables_list: list[np.ndarray] = []
+    easy_shots = 0
+
+    # Collect shots until we have the target number of hard and easy shots
+    while hard_shots < target_hard or easy_shots < target_easy:
+        synd_list: list[np.ndarray] = []
+        obs_list: list[np.ndarray] = []
+        for p in p_range:
+            expmt = RotatedSurfaceCode_Memory(
+                d=d,
+                rounds=rounds,
+                basis=basis,
+                data_qubit_error_rate=p,
+                meas_error_rate=p,
+            )
+            sampler = expmt.dem.compile_sampler()
+            s, o, _ = sampler.sample(10000)
+            synd_list.append(s)
+            obs_list.append(o)
+        syn = np.concatenate(synd_list, axis=0, dtype=np.uint8)
+        obs = np.concatenate(obs_list, axis=0, dtype=np.uint8)
+        syn, obs = remove_trivial_shots(syn, obs)
+
+        if syn.shape[0] > 0:
+            h_syn, h_obs, e_syn, e_obs = classify_hard_easy(
+                syn, obs,
+                chkmat=expmt.chkmat,
+                prior=expmt.prior,
+                bp_max_iter=bp_max_iter
+            )
+            if hard_shots < target_hard and h_syn.shape[0] > 0:
+                hard_syndromes_list.append(h_syn)
+                hard_observables_list.append(h_obs)
+                hard_shots += h_syn.shape[0]
+            if easy_shots < target_easy and e_syn.shape[0] > 0:
+                easy_syndromes_list.append(e_syn)
+                easy_observables_list.append(e_obs)
+                easy_shots += e_syn.shape[0]
+
+    hard_syndromes = np.concatenate(hard_syndromes_list, axis=0)
+    hard_observables = np.concatenate(hard_observables_list, axis=0)
+    easy_syndromes = np.concatenate(easy_syndromes_list, axis=0)
+    easy_observables = np.concatenate(easy_observables_list, axis=0)
+
+    assert hard_shots == hard_syndromes.shape[0] == hard_observables.shape[0]
+    assert easy_shots == easy_syndromes.shape[0] == easy_observables.shape[0]
+
+    # If oversampled, randomly select the target number of shots
+    rng = np.random.default_rng()
+    if hard_shots > target_hard:
+        idx = rng.choice(hard_shots, size=target_hard, replace=False)
+        hard_syndromes = hard_syndromes[idx]
+        hard_observables = hard_observables[idx]
+    if easy_shots > target_easy:
+        idx = rng.choice(easy_shots, size=target_easy, replace=False)
+        easy_syndromes = easy_syndromes[idx]
+        easy_observables = easy_observables[idx]
+
+    # Concatenate hard and easy shots
+    syndromes = np.concatenate([hard_syndromes, easy_syndromes], axis=0)
+    observables = np.concatenate([hard_observables, easy_observables], axis=0)
+    assert target_size == syndromes.shape[0] == observables.shape[0]
+
+    # Shuffle the shots
+    idx = rng.permutation(target_size)
+    syndromes = syndromes[idx]
+    observables = observables[idx]
+
+    return syndromes, observables
+
+
+def build_dataset_for_config(config_dir: Path, force: bool) -> None:
+    """
+    Build train/val datasets for a single config directory.
+
+    If `force` is True, rebuild even if datasets already exist.
+    """
     config_path = config_dir / "config.yaml"
     train_path = config_dir / "train_dataset.pt"
     val_path = config_dir / "val_dataset.pt"
 
-    if SKIP_IF_EXISTS and train_path.exists() and val_path.exists():
-        print(f"Skipping {config_dir} (datasets already exist)")
+    if not force and train_path.exists() and val_path.exists():
+        print(f">>>>>> Skipping {config_dir} (datasets already exist).")
         return
-    print(f"Building datasets inside {config_dir}...")
+    print(f">>>>>> Building datasets inside {config_dir}.")
 
     cfg = OmegaConf.load(config_path)
-    qec_cfg = cfg.qec
-    data_cfg = cfg.data
-    seed = cfg.seed
+    OmegaConf.resolve(cfg)
+    d = cfg.qec.d
+    rounds = cfg.qec.rounds
+    basis = cfg.qec.basis
+    p_range: list[float] = list(cfg.qec.p_range)
+    train_size = cfg.data.train_size
+    val_size = cfg.data.val_size
+    total_size = train_size + val_size
+    hard_sample_ratio = cfg.data.hard_sample_ratio
+    bp_max_iter = cfg.data.bp_max_iter
 
-    if qec_cfg.code == "RotatedSurfaceCode" and qec_cfg.noise_model == "Phenomenological":
-        expmt = RotatedSurfaceCode_Memory(
-            d=qec_cfg.d,
-            rounds=qec_cfg.rounds,
-            basis=qec_cfg.basis,
-            data_qubit_error_rate=qec_cfg.p,
-            meas_error_rate=qec_cfg.p,
-        )
-    else:
-        raise ValueError(f"Unsupported combination: {qec_cfg.code} + {qec_cfg.noise_model}")
+    if cfg.qec.code != "RotatedSurfaceCode" or cfg.qec.noise_model != "Phenomenological":
+        raise ValueError(f"Unsupported combination: {cfg.qec.code} + {cfg.qec.noise_model}")
 
-    # –––– sample shots from noisy circuit ––––
-    raw_sample_shots = data_cfg.raw_sample_shots
-    syndromes, observables = sample_shots(expmt, raw_sample_shots, seed)
-    print(f"Sampled {raw_sample_shots} shots from the noisy circuit.")
+    # Collect total_size shots, about hard_sample_ratio fraction of which are hard
+    syndromes, observables = collect_dataset(
+        d=d,
+        rounds=rounds,
+        basis=basis,
+        p_range=p_range,
+        target_size=total_size,
+        hard_sample_ratio=hard_sample_ratio,
+        bp_max_iter=bp_max_iter,
+    )
 
-    # –––– remove trivial syndromes ––––
-    if data_cfg.remove_trivial_syndrome_shots:
-        syndromes, observables = remove_trivial_syndrome_shots(syndromes, observables)
-        print(f"Retained {len(syndromes)} shots after removing trivial syndrome shots.")
+    assert total_size == syndromes.shape[0] == observables.shape[0]
 
-    # –––– remove BP easy shots ––––
-    if data_cfg.remove_bp_easy_shots:
-        syndromes, observables = remove_bp_easy_shots(syndromes, observables)
-        print(f"Retained {len(syndromes)} shots after removing BP easy shots.")
+    # Split into train and val
+    train_syndromes = syndromes[:train_size]
+    train_observables = observables[:train_size]
+    val_syndromes = syndromes[train_size:]
+    val_observables = observables[train_size:]
 
-    # –––– split dataset into train and val ––––
-    train_size = int(len(syndromes) * data_cfg.split_ratio)
-    train_dataset = DecodingDataset(syndromes[:train_size], observables[:train_size])
-    val_dataset = DecodingDataset(syndromes[train_size:], observables[train_size:])
-    print(f"Size of train dataset: {len(train_dataset)}")
-    print(f"Size of val dataset: {len(val_dataset)}")
-
-    # –––– save datasets ––––
+    # Save datasets
+    train_dataset = DecodingDataset(train_syndromes, train_observables)
+    val_dataset = DecodingDataset(val_syndromes, val_observables)
     train_dataset.save_to_file(train_path, overwrite_ok=True)
     val_dataset.save_to_file(val_path, overwrite_ok=True)
-    print(f"Saved datasets.")
+    print(f"Train dataset size: {len(train_dataset)}, saved to {train_path}.")
+    print(f"Val dataset size: {len(val_dataset)}, saved to {val_path}.")
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force", action="store_true", help="Rebuild even if datasets exist")
+    args = parser.parse_args()
+    force = args.force
+
     config_dirs = find_config_dirs()
     if len(config_dirs) == 0:
         print(f"No config.yaml files found in {DATASETS_ROOT}")
         return
 
-    print(f"Found {len(config_dirs)} config directories")
     for config_dir in config_dirs:
-        build_dataset_for_config(config_dir)
+        build_dataset_for_config(config_dir, force=force)
 
 
 if __name__ == "__main__":

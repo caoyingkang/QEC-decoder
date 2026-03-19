@@ -3,12 +3,28 @@ from typing import Optional
 
 import torch.nn as nn
 
-from .tensor_utils import FLOAT_DTYPE
+
+ACTIVATION_CLS_MAP = {
+    "Sigmoid": nn.Sigmoid,
+    "Tanh": nn.Tanh,
+    "ReLU": nn.ReLU,
+    "GELU": nn.GELU,
+    "SiLU": nn.SiLU,
+}
+
+XAVIER_ACTIVATIONS = {"Sigmoid", "Tanh"}
+KAIMING_ACTIVATIONS = {"ReLU", "GELU", "SiLU"}
 
 NORM_CLS_MAP = {
     "LayerNorm": nn.LayerNorm,
     "RMSNorm": nn.RMSNorm,
 }
+
+
+def _resolve_activation(name: str) -> type[nn.Module]:
+    if name not in ACTIVATION_CLS_MAP:
+        raise ValueError(f"Invalid activation: {name!r}, expected one of {list(ACTIVATION_CLS_MAP.keys())}")
+    return ACTIVATION_CLS_MAP[name]
 
 
 def _resolve_norm(name: str) -> type[nn.Module]:
@@ -28,12 +44,11 @@ class MLP(nn.Module):
         out_features: int,
         hidden_features: int,
         hidden_depth: int,
-        activation: nn.Module,
+        activation: str,
         *,
         norm: Optional[str],
         dropout_p: Optional[float],
-        zero_init: bool = False,
-        residual: bool = False,
+        residual: bool,
     ):
         """
         Parameters
@@ -50,7 +65,7 @@ class MLP(nn.Module):
             hidden_depth : int
                 Number of hidden layers. Must be at least 1.
 
-            activation : nn.Module
+            activation : str
                 Activation function to use in the hidden layers.
 
             norm : str | None
@@ -60,16 +75,8 @@ class MLP(nn.Module):
             dropout_p : float | None
                 Dropout probability for the hidden layers. If None, no dropout is applied.
 
-            zero_init : bool
-                If True, initialize all linear layers with zero weights and biases.
-
             residual : bool
                 If True, use residual form output = x + net(x). Requires in_features == out_features.
-
-        Notes
-        -----
-        When `in_features == out_features`, one can set `zero_init=True` and `residual=True` to initialize 
-        the MLP as an identity function.
         """
         super().__init__()
         if in_features < 1:
@@ -85,35 +92,50 @@ class MLP(nn.Module):
         if residual and in_features != out_features:
             raise ValueError("Cannot set residual to True when in_features != out_features")
         self.residual = residual
-        norm_cls = _resolve_norm(norm) if norm is not None else None
+        activation_cls = _resolve_activation(activation)
+        if norm is not None:
+            norm_cls = _resolve_norm(norm)
 
         layers = []
 
         # Hidden layers
         current_in = in_features
         for _ in range(hidden_depth):
-            layers.append(nn.Linear(current_in, hidden_features, dtype=FLOAT_DTYPE))
-            if norm_cls is not None:
-                layers.append(norm_cls(hidden_features, dtype=FLOAT_DTYPE))
-            layers.append(activation())
+            layers.append(nn.Linear(current_in, hidden_features))
+            if norm is not None:
+                layers.append(norm_cls(hidden_features))
+            layers.append(activation_cls())
             if dropout_p:
                 layers.append(nn.Dropout(dropout_p))
             current_in = hidden_features
 
         # Output layer (no normalization, no activation, no dropout)
-        layers.append(nn.Linear(current_in, out_features, dtype=FLOAT_DTYPE))
+        layers.append(nn.Linear(current_in, out_features))
 
         self.net = nn.Sequential(*layers)
 
-        if zero_init:
-            self._init_zeros()
+        self._init_params(activation, hidden_depth)
 
-    def _init_zeros(self):
-        """Set all Linear layer parameters (weight, bias) to zero."""
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.zeros_(m.weight)
-                nn.init.zeros_(m.bias)
+    def _init_params(
+        self,
+        activation: str,
+        hidden_depth: int,
+    ):
+        linears = [m for m in self.modules() if isinstance(m, nn.Linear)]
+        assert len(linears) == hidden_depth + 1
+
+        for i, m in enumerate(linears):
+            if i < hidden_depth:  # Hidden layers: Kaiming for ReLU/GELU/SiLU, Xavier for Sigmoid/Tanh
+                if activation in KAIMING_ACTIVATIONS:
+                    nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+                elif activation in XAVIER_ACTIVATIONS:
+                    nn.init.xavier_normal_(m.weight)
+                else:
+                    raise NotImplementedError
+            else:  # Output layer: Xavier (no activation)
+                nn.init.xavier_normal_(m.weight)
+            # Initialize biases to zero
+            nn.init.zeros_(m.bias)
 
     def forward(self, x):
         if self.residual:

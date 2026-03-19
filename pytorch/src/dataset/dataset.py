@@ -4,9 +4,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from ..utils.tensor_utils import INT_DTYPE
-
-
 class DecodingDataset(Dataset):
     """
     A PyTorch Dataset. Each item is a (syndrome, observable) pair with integer dtype.
@@ -31,8 +28,8 @@ class DecodingDataset(Dataset):
         assert syndromes.ndim == 2 and observables.ndim == 2
         assert syndromes.shape[0] == observables.shape[0]
 
-        self.syndromes = torch.as_tensor(syndromes, dtype=INT_DTYPE)
-        self.observables = torch.as_tensor(observables, dtype=INT_DTYPE)
+        self.syndromes = torch.as_tensor(syndromes, dtype=torch.int32)
+        self.observables = torch.as_tensor(observables, dtype=torch.int32)
 
     @classmethod
     def load_from_file(cls, file: str | Path):
@@ -64,3 +61,17 @@ class DecodingDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.syndromes[idx], self.observables[idx]
+
+    def print_summary(self):
+        shots = len(self.syndromes)
+        sbits_per_shot = self.syndromes.shape[1]
+        obits_per_shot = self.observables.shape[1]
+        sbits_total = shots * sbits_per_shot
+        obits_total = shots * obits_per_shot
+        sbits_ones = torch.sum(self.syndromes == 1)
+        obits_ones = torch.sum(self.observables == 1)
+        print(f"Number of shots: {shots}")
+        print(f"Number of syndrome bits per shot: {sbits_per_shot}")
+        print(f"Number of observable bits per shot: {obits_per_shot}")
+        print(f"Out of {shots} x {sbits_per_shot} syndrome bits, {sbits_ones} are one. ({sbits_ones / sbits_total * 100:.2f}%)")
+        print(f"Out of {shots} x {obits_per_shot} observable bits, {obits_ones} are one. ({obits_ones / obits_total * 100:.2f}%)")

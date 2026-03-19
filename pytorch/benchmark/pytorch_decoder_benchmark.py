@@ -27,12 +27,17 @@ def _load_decoder_model_from_run_dir(
     prior: np.ndarray,
     run_dir: Path,
     max_iter: int,
+    *,
+    use_prior_in_ckpt: bool,
 ) -> DecoderModel:
     """
     Load a `DecoderModel` from a training run directory.
 
     Expect the directory `run_dir` to contain `config.yaml` and `checkpoints/best_model.ckpt`.
     Use `max_iter` as the number of iterations for inference (overriding config.yaml).
+
+    If `use_prior_in_ckpt` is True, load and use the prior LLRs from the checkpoint. Otherwise, 
+    use the prior passed as an argument.
     """
     config_path = run_dir / "config.yaml"
     if not config_path.exists():
@@ -46,7 +51,10 @@ def _load_decoder_model_from_run_dir(
     model_cfg.num_iters = max_iter
 
     model = build_decoder_model(chkmat, prior, model_cfg)
-    model.load_lightning_checkpoint(ckpt_path)
+    if use_prior_in_ckpt:
+        model.load_lightning_checkpoint(ckpt_path, skip_keys=[])
+    else:
+        model.load_lightning_checkpoint(ckpt_path, skip_keys=["prior_llr"])
     return model
 
 
@@ -64,6 +72,8 @@ def run_pytorch_decoder_benchmark(
     max_errors: int,
     num_workers: int,
     device: str,
+    bypass: bool,
+    use_prior_in_ckpt: bool,
 ):
     if not is_consistent(run_dir, code, noise_model, d, rounds, basis):
         raise ValueError(
@@ -87,12 +97,14 @@ def run_pytorch_decoder_benchmark(
             expmt.prior,
             run_dir,
             max_iter,
+            use_prior_in_ckpt=use_prior_in_ckpt,
         )
         custom_decoder_id = f"custom_decoder_{len(custom_decoders)}"
         custom_decoders[custom_decoder_id] = PyTorchSinterDecoder(
             model,
             expmt.obsmat,
             device=device,
+            bypass=bypass,
         )
         tasks.append(
             sinter.Task(
@@ -106,6 +118,8 @@ def run_pytorch_decoder_benchmark(
                     "p": p,
                     "decoder": extract_pytorch_decoder_name(run_dir),
                     "max_iter": max_iter,
+                    "bypass": bypass,
+                    "use_prior_in_ckpt": use_prior_in_ckpt,
                 },
             )
         )

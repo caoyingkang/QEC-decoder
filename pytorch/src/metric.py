@@ -3,12 +3,20 @@ import torch
 from torchmetrics import Metric
 
 from .utils.llr_utils import llrs_to_ehat
-from .utils.tensor_utils import INT_DTYPE
+from .utils.tensor_utils import matmul_GF2
 
 
-class DecodingMetric(Metric):
+# Shape hints code:
+# B = batch_size
+# C = num_chks
+# O = num_obsers
+# V = num_vars
+# I = num_iters
+
+
+class IterativeDecodingMetric(Metric):
     """
-    A PyTorch Metric that calculates decoding performance metrics on CPU.
+    A `torchmetrics.Metric` that evaluates iterative decoder's performance.
     """
 
     def __init__(
@@ -26,13 +34,22 @@ class DecodingMetric(Metric):
                 Observable matrix, shape=(num_obsers, num_vars), integer ∈ {0,1} or bool
         """
         super().__init__()
-        self.chkmat = torch.tensor(chkmat, dtype=INT_DTYPE)
-        self.obsmat = torch.tensor(obsmat, dtype=INT_DTYPE)
 
-        self.add_state("wrong_syndrome", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.add_state("wrong_observable", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.add_state("wrong_either", default=torch.tensor(0), dist_reduce_fx="sum")
+        self.register_buffer("chkmat", torch.tensor(chkmat, dtype=torch.float32), persistent=False)  # (C, V)
+        self.register_buffer("obsmat", torch.tensor(obsmat, dtype=torch.float32), persistent=False)  # (O, V)
+
+        # Total number of shots
         self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
+        # Number of shots where the decoder converged (i.e., syndrome matched)
+        self.add_state("converged", default=torch.tensor(0), dist_reduce_fx="sum")
+        # Number of shots where the decoder predicted observables correctly
+        self.add_state("correct", default=torch.tensor(0), dist_reduce_fx="sum")
+        # Number of shots where the decoder converged and predicted observables correctly
+        self.add_state("converged_and_correct", default=torch.tensor(0), dist_reduce_fx="sum")
+        # Sum of the number of decoding iterations for all shots
+        self.add_state("iters_sum", default=torch.tensor(0), dist_reduce_fx="sum")
+        # Sum of the number of decoding iterations for all converged shots
+        self.add_state("iters_sum_on_converged", default=torch.tensor(0), dist_reduce_fx="sum")
 
     def update(
         self,
@@ -44,30 +61,37 @@ class DecodingMetric(Metric):
         Parameters
         ----------
             llrs : torch.Tensor
-                LLR values at all iterations, shape=(num_iters, batch_size, num_vars), float, device=cpu
+                LLR output from all iterations, shape=(num_iters, batch_size, num_vars), float
 
             syndromes : torch.Tensor
-                Syndrome bits, shape=(batch_size, num_chks), int ∈ {0,1}, device=cpu
+                Syndrome bits, shape=(batch_size, num_chks), int ∈ {0,1}
 
             observables : torch.Tensor
-                Observable bits, shape=(batch_size, num_obsers), int ∈ {0,1}, device=cpu
+                Observable bits, shape=(batch_size, num_obsers), int ∈ {0,1}
         """
         batch_size = syndromes.size(0)
-        ehat, converged_mask = llrs_to_ehat(llrs, syndromes, self.chkmat)
+        ehat, converged_mask, output_iters = llrs_to_ehat(llrs, syndromes, self.chkmat)
+        decoding_iters = output_iters + 1  # (B,), long
 
         # For each shot, check if the decoder predicts the observables correctly
-        obs_pred = torch.matmul(ehat, self.obsmat.T) % 2  # (batch_size, num_obsers), int ∈ {0,1}
-        obs_correct_mask = torch.all(obs_pred == observables, dim=1)  # (batch_size,), bool
+        obser_pred = matmul_GF2(ehat, self.obsmat.T)  # (B, O), int ∈ {0,1}
+        correct_mask = torch.all(obser_pred == observables, dim=1)  # (B,), bool
 
         # Update states
-        self.wrong_syndrome += torch.sum(~converged_mask)
-        self.wrong_observable += torch.sum(~obs_correct_mask)
-        self.wrong_either += torch.sum(~converged_mask | ~obs_correct_mask)
         self.total += batch_size
+        self.converged += torch.sum(converged_mask)
+        self.correct += torch.sum(correct_mask)
+        self.converged_and_correct += torch.sum(converged_mask & correct_mask)
+        self.iters_sum += torch.sum(decoding_iters)
+        self.iters_sum_on_converged += torch.sum(decoding_iters[converged_mask])
 
     def compute(self) -> dict[str, float]:
         return {
-            "wrong_syndrome_rate": self.wrong_syndrome.float() / self.total.float(),
-            "wrong_observable_rate": self.wrong_observable.float() / self.total.float(),
-            "wrong_either_rate": self.wrong_either.float() / self.total.float(),
+            "convergence_rate": self.converged.float() / self.total.float(),
+            "logical_success_rate": self.correct.float() / self.total.float(),
+            "strict_success_rate": self.converged_and_correct.float() / self.total.float(),
+            "accidental_success_rate": (self.correct - self.converged_and_correct).float() / self.total.float(),
+            "success_rate_on_convergence": self.converged_and_correct.float() / self.converged.float(),
+            "avg_iters": self.iters_sum.float() / self.total.float(),
+            "avg_iters_on_convergence": self.iters_sum_on_converged.float() / self.converged.float(),
         }

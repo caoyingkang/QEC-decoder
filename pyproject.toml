@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "qecdec"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
@@ -12,7 +12,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-    "numpy~=2.2",
+    "numpy==2.2.*",
     "matplotlib",
     "plotly",
     "nbformat",
@@ -23,7 +23,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-pytorch = ["torch", "torchmetrics", "lightning", "tensorboard", "omegaconf", "streamlit"]
+pytorch = [
+    "torch",
+    "torchmetrics",
+    "lightning",
+    "tensorboard",
+    "torch-tb-profiler",
+    "omegaconf",
+    "streamlit",
+    "tabulate",
+    "humanize",
+]
 
 [tool.maturin]
 python-source = "python"

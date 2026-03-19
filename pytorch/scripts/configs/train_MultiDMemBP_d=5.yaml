@@ -8,11 +8,11 @@ qec:
 
 model:
   name: MultiDMemBP
-  num_iters: 5
+  num_iters: 10
   msg_features: 16
-  min_impl_method: smooth
-  sign_impl_method: smooth
-  gamma_shared: true  # true = one gamma per VN, shared across message components; false = one gamma per VN and per message component
+  min_impl_method: hard
+  sign_impl_method: hard
+  gamma_shared: false  # true = one gamma per VN, shared across message components; false = one gamma per VN and per message component
   gamma_init: 0  # single scalar: all gamma use this value; [a, b]: sample independently and uniformly from [a, b]
   mlp:
     hidden_features: 64
@@ -22,7 +22,7 @@ model:
     dropout_p: 0.05
 
 loss:
-  beta: 0.8
+  beta: 0.5
   skip_iters: 0
 
 optim:
@@ -41,10 +41,12 @@ tb_logger:
   log_graph: false
 
 data:
-  batch_size: 64
-  num_workers: null   # null = use os.cpu_count() at runtime
+  batch_size: 256
+  num_workers: null   # null = use cpu_count - 1
 
 trainer:
   accelerator: auto  # auto = auto-detect available accelerator
   max_epochs: 50
   enable_progress_bar: true
+
+compile_mode: default  # options: null, default, reduce-overhead, max-autotune

@@ -1,5 +1,5 @@
 """
-Multi-dimensional Disordered Memory BP decoder.
+Multi-dimensional Disordered Memory BP decoder (MultiDMemBP).
 
 This module extends LearnedDMemBP by replacing scalar messages with vector-valued messages
 of dimension `msg_features`. Each component of the vector undergoes the same DMemBP updates 
@@ -12,11 +12,10 @@ majority vote is performed.
 Design choices and rationale:
 - There are two separate MLPs, one for each message direction (VN-to-CN and CN-to-VN). All messages
   in the same direction share the same MLP to reduce the number of trainable parameters.
-- The MLPs are augmented with residual connections and are initialized to all-zero weights and biases,
-  so that the MLPs start as identity functions. In this case, each message component is completely 
-  independent of the other components, and the whole network reduces to LearnedDMemBP. As training 
-  proceeds, the MLPs can learn to mix components, allowing information flow between the parallel 
-  DMemBP instances.
+- The MLPs are augmented with residual connections, i.e., output = x + MLP(x). This makes sure that
+  MultiDMemBP is a strict extension of LearnedDMemBP: when the linear layers take all-zero weights 
+  and biases, MultiDMemBP behaves as multiple independent LearnedDMemBP instances. As training 
+  proceeds, the MLPs can learn to mix components.
 - Memory strength (gamma) can be shared across message components (gamma_shared=True) or vary per
   component (gamma_shared=False).
 - Memory strength can be initialized to a single value (if gamma_init is a float) or sampled uniformly 
@@ -38,9 +37,10 @@ import torch.nn as nn
 
 from ..utils.mlp import MLP
 from ..utils.tensor_utils import (
-    FLOAT_DTYPE,
-    smooth_min,
     smooth_sign,
+    smooth_min,
+    leave_one_out_sign_product,
+    leave_one_out_min,
 )
 from .decoder_model import DecoderModel
 
@@ -71,7 +71,7 @@ class MultiDMemBP(DecoderModel):
         msg_features: int,
         mlp_hidden_features: int,
         mlp_hidden_depth: int,
-        mlp_activation: nn.Module,
+        mlp_activation: str,
         mlp_norm: Optional[str],
         mlp_dropout_p: Optional[float],
         min_impl_method: Literal["smooth", "hard"],
@@ -100,7 +100,7 @@ class MultiDMemBP(DecoderModel):
             mlp_hidden_depth : int
                 Number of hidden layers of the MLP. Must be at least 1.
 
-            mlp_activation : nn.Module
+            mlp_activation : str
                 Activation function to use in the hidden layers of the MLP.
 
             mlp_norm : str | None
@@ -111,10 +111,14 @@ class MultiDMemBP(DecoderModel):
                 Dropout probability for the hidden layers of the MLP. If None, no dropout is applied.
 
             min_impl_method : Literal["smooth", "hard"]
-                Implementation method of the min function. Options: "smooth" (based on softmin), "hard" (using torch.amin).
+                Implementation method of the min function during training. 
+                Options: "smooth" (based on softmin) or "hard".
+                Note that during inference, we always use "hard" min.
 
             sign_impl_method : Literal["smooth", "hard"]
-                Implementation method of the sign function. Options: "smooth" (based on tanh), "hard" (using torch.sign).
+                Implementation method of the sign function during training.
+                Options: "smooth" (based on tanh), "hard".
+                Note that during inference, we always use "hard" sign.
 
             gamma_shared : bool
                 If True, memory strengths vary per variable node but are shared across message components.
@@ -138,7 +142,6 @@ class MultiDMemBP(DecoderModel):
             activation=mlp_activation,
             norm=mlp_norm,
             dropout_p=mlp_dropout_p,
-            zero_init=True,
             residual=True,
         )
         self.c2v_mlp = MLP(
@@ -149,7 +152,6 @@ class MultiDMemBP(DecoderModel):
             activation=mlp_activation,
             norm=mlp_norm,
             dropout_p=mlp_dropout_p,
-            zero_init=True,
             residual=True,
         )
 
@@ -202,13 +204,19 @@ class MultiDMemBP(DecoderModel):
         self.register_buffer("cn_mask", torch.tensor(cn_mask, dtype=torch.bool), persistent=False)  # (C, Δc)
         self.register_buffer("vn_edge_idx", torch.tensor(vn_edge_idx, dtype=torch.long), persistent=False)  # (V, Δv)
         self.register_buffer("vn_mask", torch.tensor(vn_mask, dtype=torch.bool), persistent=False)  # (V, Δv)
-        self.register_buffer("cn_diag_mask", torch.eye(self.max_cn_deg, dtype=torch.bool), persistent=False)  # (Δc, Δc)
+        if min_impl_method == "smooth" or sign_impl_method == "smooth":
+            self.register_buffer(
+                "cn_diag_mask_5d",
+                torch.eye(self.max_cn_deg, dtype=torch.bool).unsqueeze(0).unsqueeze(0).unsqueeze(-1),
+                persistent=False,
+            )  # (1, 1, Δc, Δc, 1)
 
         # Register prior LLRs.
-        # Since prior_llr is derived from prior, it is not part of the model's state_dict, and will not be saved in checkpoints.
+        # We mark it as part of the model's state_dict, and will save it in checkpoints. In this way, one has the option to
+        # use the prior_llr the model was trained with to benchmark its performance on other prior probabilities.
         prior = np.clip(prior, min=EPS, max=1 - EPS)
         prior_llr = np.log((1 - prior) / prior)
-        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=FLOAT_DTYPE), persistent=False)  # (V,)
+        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=torch.float32), persistent=True)  # (V,)
 
         # Initialize trainable parameter: memory strength.
         self.gamma_shared = gamma_shared
@@ -222,34 +230,25 @@ class MultiDMemBP(DecoderModel):
 
         # Support int or float. Note that bool is a subclass of int, but we don't want to treat it as such.
         if isinstance(gamma_init, (int, float)) and not isinstance(gamma_init, bool):
-            return torch.full(shape, float(gamma_init), dtype=FLOAT_DTYPE)
+            return torch.full(shape, float(gamma_init), dtype=torch.float32)
         # Support any class with __getitem__ and length 2.
         elif hasattr(gamma_init, "__getitem__") and hasattr(gamma_init, "__len__") and len(gamma_init) == 2:
             low, high = float(gamma_init[0]), float(gamma_init[1])
             if low > high:
                 raise ValueError(f"Invalid interval, got {gamma_init!r}")
-            return torch.empty(shape, dtype=FLOAT_DTYPE).uniform_(low, high)
+            return torch.empty(shape).uniform_(low, high)
         else:
             raise ValueError(f"gamma_init must be a float or a list of two floats [low, high], got {gamma_init!r}")
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
-        if self.training and self.min_impl_method == "smooth":  # Always use hard min during inference
-            min_func = smooth_min
-        else:
-            min_func = torch.amin
-        if self.training and self.sign_impl_method == "smooth":  # Always use hard sign during inference
-            sign_func = smooth_sign
-        else:
-            sign_func = torch.sign
-
         device = syndromes.device
         batch_size = syndromes.shape[0]
-        synd_sgn = (1 - 2 * syndromes).to(FLOAT_DTYPE)  # (B, C)
+        synd_sgn = (1 - 2 * syndromes).float()  # (B, C)
         mf = self.msg_features
 
         # Edge message arrays: (B, E + 1, M)
-        vn_to_cn = torch.zeros(batch_size, self.num_edges + 1, mf, device=device, dtype=FLOAT_DTYPE)
-        cn_to_vn = torch.zeros(batch_size, self.num_edges + 1, mf, device=device, dtype=FLOAT_DTYPE)
+        vn_to_cn = torch.zeros(batch_size, self.num_edges + 1, mf, device=device)
+        cn_to_vn = torch.zeros(batch_size, self.num_edges + 1, mf, device=device)
 
         # Initialize VN→CN messages with prior LLRs (broadcast to all components).
         vn_to_cn[:, :self.num_edges, :] = self.prior_llr[self.edge_to_vn].unsqueeze(0).unsqueeze(-1)
@@ -268,17 +267,23 @@ class MultiDMemBP(DecoderModel):
             # ==================== CN update ====================
             # Gather incoming messages at all CNs.
             msgs_cn = vn_to_cn[:, self.cn_edge_idx, :]  # (B, C, Δc, M)
-            msgs_sgn = sign_func(msgs_cn).masked_fill(~cn_mask_4d, 1.0)  # (B, C, Δc, M)
+
+            # Leave-one-out sign product.
+            if self.training and self.sign_impl_method == "smooth":  # 5D expansion + diagonal mask
+                msgs_sgn = smooth_sign(msgs_cn).masked_fill(~cn_mask_4d, 1.0)  # (B, C, Δc, M)
+                msgs_sgn_5d = msgs_sgn.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1, -1)  # (B, C, Δc, Δc, M)
+                loo_sgn_prod = msgs_sgn_5d.masked_fill(self.cn_diag_mask_5d, 1.0).prod(dim=3)  # (B, C, Δc, M)
+            else:  # Hard sign
+                msgs_cn_masked = msgs_cn.masked_fill(~cn_mask_4d, 1.0)  # (B, C, Δc, M)
+                loo_sgn_prod = leave_one_out_sign_product(msgs_cn_masked, dim=2)  # (B, C, Δc, M)
+
+            # Leave-one-out min abs.
             msgs_abs = msgs_cn.abs().masked_fill(~cn_mask_4d, BIG)  # (B, C, Δc, M)
-
-            # Leave-one-out sign product via 5D expansion + diagonal mask.
-            msgs_sgn_5d = msgs_sgn.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1, -1)  # (B, C, Δc, Δc, M)
-            cn_diag_mask_5d = self.cn_diag_mask.unsqueeze(0).unsqueeze(0).unsqueeze(-1)  # (1, 1, Δc, Δc, 1)
-            loo_sgn_prod = msgs_sgn_5d.masked_fill(cn_diag_mask_5d, 1.0).prod(dim=3)  # (B, C, Δc, M)
-
-            # Leave-one-out min abs via 5D expansion + diagonal mask.
-            msgs_abs_5d = msgs_abs.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1, -1)  # (B, C, Δc, Δc, M)
-            loo_abs_min = min_func(msgs_abs_5d.masked_fill(cn_diag_mask_5d, BIG), dim=3)  # (B, C, Δc, M)
+            if self.training and self.min_impl_method == "smooth":  # 5D expansion + diagonal mask
+                msgs_abs_5d = msgs_abs.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1, -1)  # (B, C, Δc, Δc, M)
+                loo_abs_min = smooth_min(msgs_abs_5d.masked_fill(self.cn_diag_mask_5d, BIG), dim=3)  # (B, C, Δc, M)
+            else:  # Hard min
+                loo_abs_min = leave_one_out_min(msgs_abs, dim=2)  # (B, C, Δc, M)
 
             # CN output messages.
             cn_out = synd_sgn.unsqueeze(-1).unsqueeze(-1) * loo_sgn_prod * loo_abs_min  # (B, C, Δc, M)

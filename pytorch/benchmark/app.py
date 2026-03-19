@@ -87,18 +87,26 @@ def filter_stats(
     max_iter: int,
     max_shots: int,
     max_errors: int,
+    bypass: bool,
+    use_prior_in_ckpt: bool,
 ) -> list[sinter.TaskStats]:
     """
     Filter the list of `sinter.TaskStats` to only include those elements `s` such that:
     - `s.json_metadata["p"]` is in `p_list`
-    - `s.json_metadata["max_iter"] == max_iter` if the key "max_iter" exists in `s.json_metadata`
+    - `s.json_metadata["max_iter"] == max_iter` if the key `"max_iter"` exists in `s.json_metadata`
+    - `s.json_metadata["bypass"] == bypass` if the key `"bypass"` exists in `s.json_metadata`
+    - `s.json_metadata["use_prior_in_ckpt"] == use_prior_in_ckpt` if the key `"use_prior_in_ckpt"` exists in `s.json_metadata`
     - either `s.shots >= max_shots` or `s.errors >= max_errors`
     """
     filtered: list[sinter.TaskStats] = []
     for s in stats:
         if s.json_metadata["p"] not in p_list:
             continue
-        if "max_iter" in s.json_metadata and s.json_metadata["max_iter"] != max_iter:
+        if ("max_iter" in s.json_metadata) and (s.json_metadata["max_iter"] != max_iter):
+            continue
+        if ("bypass" in s.json_metadata) and (s.json_metadata["bypass"] != bypass):
+            continue
+        if ("use_prior_in_ckpt" in s.json_metadata) and (s.json_metadata["use_prior_in_ckpt"] != use_prior_in_ckpt):
             continue
         if s.shots < max_shots and s.errors < max_errors:
             continue
@@ -119,6 +127,8 @@ def load_and_merge_stats(
     p_list: list[float],
     max_shots: int,
     max_errors: int,
+    bypass: bool,
+    use_prior_in_ckpt: bool,
 ) -> tuple[list[sinter.TaskStats], list[Path], list[str]]:
     """
     Load and merge PyTorch decoders' stats and baseline decoders' stats into a single list.
@@ -145,6 +155,8 @@ def load_and_merge_stats(
             max_iter=max_iter,
             max_shots=max_shots,
             max_errors=max_errors,
+            bypass=bypass,
+            use_prior_in_ckpt=use_prior_in_ckpt,
         )
         if set(s.json_metadata["p"] for s in stats) != set(p_list):
             missing_run_dirs.append(run_dir)
@@ -166,6 +178,8 @@ def load_and_merge_stats(
             max_iter=max_iter,
             max_shots=max_shots,
             max_errors=max_errors,
+            bypass=bypass,
+            use_prior_in_ckpt=use_prior_in_ckpt,
         )
         if set(s.json_metadata["p"] for s in stats) != set(p_list):
             missing_baseline_decoders.append(decoder)
@@ -246,6 +260,16 @@ def main():
         )
         if device == "cuda" and num_workers > 1:
             st.warning("It is not recommended to use more than 1 worker for benchmarking on GPU.")
+        bypass = st.checkbox(
+            "Bypass trivial syndrome",
+            value=True,
+            help="If checked, always decode shots with all-zero syndrome as no errors. Only applies to PyTorch decoders.",
+        )
+        use_prior_in_ckpt = st.checkbox(
+            "Use prior from checkpoint",
+            value=True,
+            help="If checked, use the prior from the checkpoint; otherwise, use the prior derived from the physical error rate. Only applies to PyTorch decoders.",
+        )
 
     # Main: Select QEC parameters
     st.subheader("Select QEC parameters")
@@ -343,6 +367,8 @@ def main():
         p_list=p_list,
         max_shots=max_shots,
         max_errors=max_errors,
+        bypass=bypass,
+        use_prior_in_ckpt=use_prior_in_ckpt,
     )
 
     # If data is incomplete, show warning and "Run benchmark" button
@@ -370,6 +396,8 @@ def main():
                     max_errors=max_errors,
                     num_workers=num_workers,
                     device=device,
+                    bypass=bypass,
+                    use_prior_in_ckpt=use_prior_in_ckpt,
                 )
                 st.success("Benchmark completed successfully.")
                 st.rerun()

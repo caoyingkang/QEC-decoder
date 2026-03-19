@@ -2,22 +2,31 @@
 Python script to train a PyTorch decoder.
 
 Usage:
-    python train.py config=<path/to/config.yaml> [overrides...]
+    python train.py --config <path/to/config.yaml> [overrides...]
 
 Examples: (Assuming run in the pytorch/scripts directory)
-    python train.py config=configs/train_LearnedDMemBP.yaml
-    python train.py config=configs/train_LearnedDMemBP.yaml qec.d=11 qec.rounds=11 model.num_iters=10
-    python train.py config=configs/train_MultiDMemBP.yaml
-    python train.py config=configs/train_MultiDMemBP.yaml model.mlp.activation=ReLU
+    python train.py --config configs/train_LearnedDMemBP.yaml
+    python train.py --config configs/train_MultiDMemBP.yaml qec.d=11 qec.rounds=11 model.mlp.activation=ReLU
 """
 
-import sys
+import argparse
 import os
+import sys
 from pathlib import Path
+import warnings
 
+from tabulate import tabulate
+import humanize
 import lightning as L
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.callbacks import (
+    ModelSummary,
+    EarlyStopping,
+    ModelCheckpoint,
+    LearningRateMonitor,
+)
 from lightning.pytorch.loggers import TensorBoardLogger
+from lightning.pytorch.profilers import PyTorchProfiler
+import torch
 from omegaconf import OmegaConf, DictConfig
 from omegaconf.errors import ConfigKeyError
 from qecdec import RotatedSurfaceCode_Memory
@@ -27,26 +36,21 @@ DATASETS_ROOT = PYTORCH_ROOT / "datasets"
 RUNS_ROOT = PYTORCH_ROOT / "runs"
 
 
-def load_config() -> DictConfig:
-    cli_args = OmegaConf.from_cli()
-    if "config" not in cli_args:
-        print("Error: Config file path is required. Usage: python train.py config=<path/to/config.yaml> [overrides...]")
-        exit(1)
-    config_path = Path(cli_args.config)
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-    del cli_args.config
-    base_cfg = OmegaConf.load(config_path)
+def load_config(path: Path, overrides: list[str]) -> DictConfig:
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+    base_cfg = OmegaConf.load(path)
     OmegaConf.set_struct(base_cfg, True)  # forbid creation of new keys
+    overrides_cfg = OmegaConf.from_cli(overrides)
 
     try:
-        cfg = OmegaConf.merge(base_cfg, cli_args)
+        cfg = OmegaConf.merge(base_cfg, overrides_cfg)
     except ConfigKeyError as e:
         print(f"Invalid CLI override(s). Only keys that exist in the base config can be overridden.\n {e}")
         exit(1)
 
     if cfg.data.num_workers is None:
-        cfg.data.num_workers = os.cpu_count()
+        cfg.data.num_workers = max(1, (os.cpu_count() or 1) - 1)
 
     OmegaConf.set_readonly(cfg, True)  # forbid modification from now on
     return cfg
@@ -87,8 +91,43 @@ def get_run_dir(cfg: DictConfig) -> Path:
     return base_dir / f"run_{new_id}"
 
 
+def print_params(module: L.LightningModule):
+    table_data = []
+    total_numel = 0
+    total_bytes = 0
+    for name, param in module.named_parameters():
+        numel = param.numel()
+        bytes = numel * param.element_size()
+        total_numel += numel
+        total_bytes += bytes
+        table_data.append([
+            name,
+            str(param.dtype).split('.')[-1],
+            list(param.size()),
+            f"{numel:,}",
+            humanize.naturalsize(bytes, binary=True),
+        ])
+    table_data.append([
+        "Total",
+        "",
+        "",
+        f"{total_numel:,}",
+        humanize.naturalsize(total_bytes, binary=True),
+    ])
+    print(tabulate(
+        table_data,
+        headers=["name", "dtype", "size", "numel", "bytes"],
+        tablefmt="fancy_grid"
+    ))
+
+
 def main():
-    cfg = load_config()
+    parser = argparse.ArgumentParser(description="Train a PyTorch decoder")
+    parser.add_argument("--config", required=True, type=str, help="Path to config YAML file")
+    parser.add_argument("--profile", action="store_true", help="Enable profiling")
+    args, overrides = parser.parse_known_args()
+
+    cfg = load_config(Path(args.config), overrides)
     qec_cfg = cfg.qec
     print(">>>>>> Config:")
     print(OmegaConf.to_yaml(cfg))
@@ -118,7 +157,10 @@ def main():
         model_cfg=cfg.model,
         loss_cfg=cfg.loss,
         optim_cfg=cfg.optim,
+        compile_mode=cfg.compile_mode,
     )
+    print(">>>>>> Parameters:")
+    print_params(decoder)
     datamodule = DecodingDataModule(
         data_dir,
         batch_size=cfg.data.batch_size,
@@ -128,10 +170,8 @@ def main():
         monitor="val_loss",
         min_delta=cfg.early_stopping.min_delta,
         patience=cfg.early_stopping.patience,
-        verbose=True,
         mode="min",
     )
-    epoch_summary_callback = EpochSummary()
     model_checkpoint_callback = ModelCheckpoint(
         dirpath=run_dir / "checkpoints",
         filename="best_model",
@@ -146,24 +186,47 @@ def main():
         version="",
         log_graph=cfg.tb_logger.log_graph,
     )
+    profiler = PyTorchProfiler(
+        on_trace_ready=torch.profiler.tensorboard_trace_handler(str(run_dir / "tb_logs" / "profile")),
+        profile_memory=True,
+        track_memory=True,
+        with_stack=True,
+        record_shapes=True,
+        schedule=torch.profiler.schedule(skip_first=10, wait=5, warmup=5, active=10, repeat=1),
+    ) if args.profile else None
     trainer = L.Trainer(
         accelerator=cfg.trainer.accelerator,
-        max_epochs=cfg.trainer.max_epochs,
+        max_epochs=cfg.trainer.max_epochs if profiler is None else 1,
+        limit_train_batches=None if profiler is None else 50,
+        limit_val_batches=None if profiler is None else 50,
+        num_sanity_val_steps=-1 if profiler is None else 0,  # Pre-train validation
         enable_progress_bar=cfg.trainer.enable_progress_bar,
         callbacks=[
+            ModelSummary(max_depth=-1),
+            LearningRateMonitor(logging_interval="epoch"),
             early_stopping_callback,
-            epoch_summary_callback,
             model_checkpoint_callback,
         ],
         logger=tb_logger,
+        enable_model_summary=False,  # We've already added model summary as a callback
+        profiler=profiler,
     )
+
+    # Start training
     trainer.fit(decoder, datamodule=datamodule)
+
+    if early_stopping_callback.stopping_reason_message:
+        print(f"Early stopping reason: {early_stopping_callback.stopping_reason_message}")
 
 
 if __name__ == "__main__":
     sys.path.append(str(PYTORCH_ROOT))
     from src.dataset import DecodingDataModule
     from src.lightning_module import DecodingModule
-    from src.callbacks import EpochSummary
+
+    # Filter out some warnings generated by lightning package.
+    warnings.filterwarnings("ignore", category=FutureWarning, message="`isinstance\\(treespec, LeafSpec\\)` is deprecated")
+
+    # torch.set_float32_matmul_precision("high")
 
     main()

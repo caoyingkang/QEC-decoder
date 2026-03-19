@@ -5,9 +5,10 @@ import torch
 import torch.nn as nn
 
 from ..utils.tensor_utils import (
-    FLOAT_DTYPE,
-    smooth_min,
     smooth_sign,
+    smooth_min,
+    leave_one_out_sign_product,
+    leave_one_out_min,
 )
 from .decoder_model import DecoderModel
 
@@ -50,10 +51,14 @@ class LearnedDMemBP(DecoderModel):
                 Number of BP iterations.
 
             min_impl_method : Literal["smooth", "hard"]
-                Implementation method of the min function. Options: "smooth" (based on softmin), "hard" (using torch.amin).
+                Implementation method of the min function during training. 
+                Options: "smooth" (based on softmin) or "hard".
+                Note that during inference, we always use "hard" min.
 
             sign_impl_method : Literal["smooth", "hard"]
-                Implementation method of the sign function. Options: "smooth" (based on tanh), "hard" (using torch.sign).
+                Implementation method of the sign function during training.
+                Options: "smooth" (based on tanh), "hard".
+                Note that during inference, we always use "hard" sign.
         """
         super().__init__(pcm, prior, num_iters)
 
@@ -106,38 +111,35 @@ class LearnedDMemBP(DecoderModel):
         self.register_buffer("cn_mask", torch.tensor(cn_mask, dtype=torch.bool), persistent=False)  # (C, Δc)
         self.register_buffer("vn_edge_idx", torch.tensor(vn_edge_idx, dtype=torch.long), persistent=False)  # (V, Δv)
         self.register_buffer("vn_mask", torch.tensor(vn_mask, dtype=torch.bool), persistent=False)  # (V, Δv)
-        self.register_buffer("cn_diag_mask", torch.eye(self.max_cn_deg, dtype=torch.bool), persistent=False)  # (Δc, Δc)
+        if min_impl_method == "smooth" or sign_impl_method == "smooth":
+            self.register_buffer(
+                "cn_diag_mask",
+                torch.eye(self.max_cn_deg, dtype=torch.bool),
+                persistent=False,
+            )  # (Δc, Δc)
 
         # Register prior LLRs.
-        # Since prior_llr is derived from prior, it is not part of the model's state_dict, and will not be saved in checkpoints.
+        # We mark it as part of the model's state_dict, and will save it in checkpoints. In this way, one has the option to
+        # use the prior_llr the model was trained with to benchmark its performance on other prior probabilities.
         prior = np.clip(prior, min=EPS, max=1 - EPS)
         prior_llr = np.log((1 - prior) / prior)
-        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=FLOAT_DTYPE), persistent=False)  # (V,)
+        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=torch.float32), persistent=True)  # (V,)
 
         # Initialize trainable parameter: memory strength.
-        self.gamma = nn.Parameter(torch.zeros(self.num_vars, dtype=FLOAT_DTYPE))  # (V,)
+        self.gamma = nn.Parameter(torch.zeros(self.num_vars))  # (V,)
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
-        if self.training and self.min_impl_method == "smooth":  # Always use hard min during inference
-            min_func = smooth_min
-        else:
-            min_func = torch.amin
-        if self.training and self.sign_impl_method == "smooth":  # Always use hard sign during inference
-            sign_func = smooth_sign
-        else:
-            sign_func = torch.sign
-
         device = syndromes.device
         batch_size = syndromes.shape[0]
-        synd_sgn = (1 - 2 * syndromes).to(FLOAT_DTYPE)  # (B, C) ∈ {+1,-1}
+        synd_sgn = (1 - 2 * syndromes).float()  # (B, C) ∈ {+1,-1}
 
         # Edge message arrays: (B, E + 1)
         # vn_to_cn[:, e], 0 <= e < num_edges, is the message along edge e from VN to CN.
         # cn_to_vn[:, e], 0 <= e < num_edges, is the message along edge e from CN to VN.
         # vn_to_cn[:, num_edges] is a dummy slot, so that vn_to_cn[:, self.cn_edge_idx] will not raise out-of-bounds error.
         # cn_to_vn[:, num_edges] is a dummy slot, so that cn_to_vn[:, self.vn_edge_idx] will not raise out-of-bounds error.
-        vn_to_cn = torch.zeros(batch_size, self.num_edges + 1, device=device, dtype=FLOAT_DTYPE)
-        cn_to_vn = torch.zeros(batch_size, self.num_edges + 1, device=device, dtype=FLOAT_DTYPE)
+        vn_to_cn = torch.zeros(batch_size, self.num_edges + 1, device=device)
+        cn_to_vn = torch.zeros(batch_size, self.num_edges + 1, device=device)
 
         # Initialize VN→CN messages with prior LLRs.
         vn_to_cn[:, :self.num_edges] = self.prior_llr[self.edge_to_vn]
@@ -156,16 +158,23 @@ class LearnedDMemBP(DecoderModel):
             # ==================== CN update ====================
             # Gather incoming messages at all CNs.
             msgs_cn = vn_to_cn[:, self.cn_edge_idx]  # (B, C, Δc)
-            msgs_sgn = sign_func(msgs_cn).masked_fill(~cn_mask_3d, 1.0)  # (B, C, Δc)
+
+            # Leave-one-out sign product.
+            if self.training and self.sign_impl_method == "smooth":  # 4D expansion + diagonal mask
+                msgs_sgn = smooth_sign(msgs_cn).masked_fill(~cn_mask_3d, 1.0)  # (B, C, Δc)
+                msgs_sgn_4d = msgs_sgn.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (B, C, Δc, Δc)
+                loo_sgn_prod = msgs_sgn_4d.masked_fill(self.cn_diag_mask, 1.0).prod(dim=3)  # (B, C, Δc)
+            else:  # Hard sign
+                msgs_cn_masked = msgs_cn.masked_fill(~cn_mask_3d, 1.0)  # (B, C, Δc)
+                loo_sgn_prod = leave_one_out_sign_product(msgs_cn_masked, dim=2)  # (B, C, Δc)
+
+            # Leave-one-out min abs.
             msgs_abs = msgs_cn.abs().masked_fill(~cn_mask_3d, BIG)  # (B, C, Δc)
-
-            # Leave-one-out sign product via 4D expansion + diagonal mask.
-            msgs_sgn_4d = msgs_sgn.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (B, C, Δc, Δc)
-            loo_sgn_prod = msgs_sgn_4d.masked_fill(self.cn_diag_mask, 1.0).prod(dim=3)  # (B, C, Δc)
-
-            # Leave-one-out min abs via 4D expansion + diagonal mask.
-            msgs_abs_4d = msgs_abs.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (B, C, Δc, Δc)
-            loo_abs_min = min_func(msgs_abs_4d.masked_fill(self.cn_diag_mask, BIG), dim=3)  # (B, C, Δc)
+            if self.training and self.min_impl_method == "smooth":  # 4D expansion + diagonal mask
+                msgs_abs_4d = msgs_abs.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (B, C, Δc, Δc)
+                loo_abs_min = smooth_min(msgs_abs_4d.masked_fill(self.cn_diag_mask, BIG), dim=3)  # (B, C, Δc)
+            else:  # Hard min
+                loo_abs_min = leave_one_out_min(msgs_abs, dim=2)  # (B, C, Δc)
 
             # CN output messages.
             cn_out = synd_sgn.unsqueeze(2) * loo_sgn_prod * loo_abs_min   # (B, C, Δc)
