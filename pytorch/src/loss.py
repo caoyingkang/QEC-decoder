@@ -130,7 +130,7 @@ class IterativeDecodingLoss(nn.Module):
                 raise ValueError(f"skip_iters ({self.skip_iters}) must be less than num_iters ({llrs.shape[0]})")
             llrs = llrs[self.skip_iters:, :, :]
 
-        tanhhalfllrs = torch.tanh(llrs / 2.)  # (I, B, V)
+        tanhhalfllrs = torch.tanh(llrs * 0.5)  # (I, B, V)
         loss_synd = self._get_syndrome_loss(tanhhalfllrs, syndromes)  # (I, B, C)
         loss_synd_sum = loss_synd.sum(dim=-1)  # (I, B)
         loss_obser = self._get_observable_loss(tanhhalfllrs, observables)  # (I, B, O)

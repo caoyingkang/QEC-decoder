@@ -9,8 +9,8 @@ qec:
 model:
   name: LearnedDMemBP
   num_iters: 10
-  min_impl_method: smooth
-  sign_impl_method: smooth
+  min_impl_method: hard
+  sign_impl_method: hard
 
 loss:
   beta: 0.5
