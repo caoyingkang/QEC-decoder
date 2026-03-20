@@ -13,6 +13,7 @@ model:
   sign_impl_method: hard
 
 loss:
+  name: UniformIterationLoss
   beta: 0.5
   skip_iters: 0
 

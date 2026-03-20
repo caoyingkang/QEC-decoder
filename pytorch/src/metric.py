@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from torchmetrics import Metric
 
-from .utils.llr_utils import llrs_to_ehat
+from .utils.decoding_utils import diagnose_convergence, gather_ehat
 from .utils.tensor_utils import matmul_GF2
 
 
@@ -69,8 +69,9 @@ class IterativeDecodingMetric(Metric):
             observables : torch.Tensor
                 Observable bits, shape=(batch_size, num_obsers), int ∈ {0,1}
         """
-        batch_size = syndromes.size(0)
-        ehat, converged_mask, output_iters = llrs_to_ehat(llrs, syndromes, self.chkmat)
+        hard_decisions = (llrs < 0).float()  # (I, B, V), float ∈ {0.0, 1.0}
+        converged_mask, output_iters = diagnose_convergence(hard_decisions, syndromes, self.chkmat)  # (B,), bool; (B,), long
+        ehat = gather_ehat(hard_decisions, output_iters)  # (B, V), float ∈ {0.0, 1.0}
         decoding_iters = output_iters + 1  # (B,), long
 
         # For each shot, check if the decoder predicts the observables correctly
@@ -78,7 +79,7 @@ class IterativeDecodingMetric(Metric):
         correct_mask = torch.all(obser_pred == observables, dim=1)  # (B,), bool
 
         # Update states
-        self.total += batch_size
+        self.total += syndromes.size(0)
         self.converged += torch.sum(converged_mask)
         self.correct += torch.sum(correct_mask)
         self.converged_and_correct += torch.sum(converged_mask & correct_mask)

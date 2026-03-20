@@ -6,9 +6,9 @@ Usage:
     python train.py --config <path/to/config.yaml> --profile
 
 Examples: (Assuming run in the pytorch/scripts directory)
-    python train.py --config configs/train_LearnedDMemBP_d=5.yaml
-    python train.py --config configs/train_MultiDMemBP_d=5.yaml loss.beta=0.0 model.mlp.activation=ReLU
-    python train.py --config configs/train_MultiDMemBP_d=5.yaml --profile
+    python train.py --config configs/train_LearnedDMemBP_UniformIterationLoss_d=5.yaml
+    python train.py --config configs/train_MultiDMemBP_UniformIterationLoss_d=5.yaml loss.beta=0.0 model.mlp.activation=ReLU
+    python train.py --config configs/train_MultiDMemBP_ConvergenceAwareLoss_d=5.yaml --profile
 """
 
 import argparse

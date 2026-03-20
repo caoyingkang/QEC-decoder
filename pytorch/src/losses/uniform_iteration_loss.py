@@ -1,7 +1,8 @@
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+
+from .base import DecodingLoss
 
 EPS = 1e-6
 
@@ -16,7 +17,7 @@ EPS = 1e-6
 # I = num_iters - skip_iters
 
 
-class IterativeDecodingLoss(nn.Module):
+class UniformIterationLoss(DecodingLoss):
     """
     A PyTorch `nn.Module` that implements a loss function for training iterative QEC decoders.
 
@@ -25,13 +26,13 @@ class IterativeDecodingLoss(nn.Module):
     2. The second part measures how the decoder fails to predict the logical observables.
 
     For each iteration of each shot, the loss is a weighted sum of the above two parts controlled by a 
-    hyperparameter `beta` ∈ [0,1]: `loss = beta * sum(loss_synd) + (1 - beta) * sum(loss_obser)`, where:
-    - `loss_synd[i] = BCEWithLogitsLoss(-synd_pred_llr[i], syndromes[i])`, where `synd_pred_llr[i]` is the
-    LLR of the `i`-th syndrome bit obtained by XORing the error bits corresponding to the `i`-th row of the
-    check matrix `chkmat`.
-    - `loss_obser[i] = BCEWithLogitsLoss(-obser_pred_llr[i], observables[i])`, where `obser_pred_llr[i]` is the
-    LLR of the `i`-th observable bit obtained by XORing the error bits corresponding to the `i`-th row of the
-    observable matrix `obsmat`.
+    hyperparameter `beta` ∈ [0,1]: `loss = beta * synd_loss + (1 - beta) * obser_loss`, where:
+    - `synd_loss = mean(BCEWithLogitsLoss(-synd_pred_llr[i], syndromes[i]) for 0 <= i < num_chks)`, where 
+    `synd_pred_llr[i]` is the LLR of the `i`-th syndrome bit obtained by XORing the error bits corresponding 
+    to the `i`-th row of the check matrix.
+    - `obser_loss = mean(BCEWithLogitsLoss(-obser_pred_llr[i], observables[i]) for 0 <= i < num_obsers)`, 
+    where `obser_pred_llr[i]` is the LLR of the `i`-th observable bit obtained by XORing the error bits 
+    corresponding to the `i`-th row of the observable matrix.
 
     To calculate the total loss for a batch, we average the loss over the iterations and the shots.
     """
@@ -62,45 +63,13 @@ class IterativeDecodingLoss(nn.Module):
                 The first `skip_iters` iterations are skipped in the calculation of the loss.
                 Default is 0, meaning that the LLRs output from all iterations contribute to the loss.
         """
-        super().__init__()
+        super().__init__(chkmat, obsmat)
         if not (0 <= beta <= 1):
             raise ValueError(f"beta must be in [0, 1], but got {beta}")
         if skip_iters < 0:
             raise ValueError(f"skip_iters must be non-negative, but got {skip_iters}")
-
-        num_chks = chkmat.shape[0]
-        num_obsers = obsmat.shape[0]
         self.beta = beta
         self.skip_iters = skip_iters
-
-        # Build padded check → variable table.
-        # chk_supp[i, k] = index of the k-th variable in the support of the i-th check (padded with 0).
-        # chk_mask[i, k] = True if the i-th check involves at least k variables, False otherwise.
-        max_chk_weight = int(chkmat.sum(axis=1).max())
-        chk_supp = np.zeros((num_chks, max_chk_weight), dtype=np.int64)
-        chk_mask = np.zeros((num_chks, max_chk_weight), dtype=bool)
-        for i in range(num_chks):
-            indices = np.nonzero(chkmat[i, :])[0]
-            for k in range(len(indices)):
-                chk_supp[i, k] = indices[k]
-                chk_mask[i, k] = True
-
-        # Build padded observable → variable table.
-        # obs_supp[i, k] = index of the k-th variable in the support of the i-th observable (padded with 0).
-        # obs_mask[i, k] = True if the i-th observable involves at least k variables, False otherwise.
-        max_obs_weight = int(obsmat.sum(axis=1).max())
-        obs_supp = np.zeros((num_obsers, max_obs_weight), dtype=np.int64)
-        obs_mask = np.zeros((num_obsers, max_obs_weight), dtype=bool)
-        for i in range(num_obsers):
-            indices = np.nonzero(obsmat[i, :])[0]
-            for k in range(len(indices)):
-                obs_supp[i, k] = indices[k]
-                obs_mask[i, k] = True
-
-        self.register_buffer("chk_supp", torch.tensor(chk_supp, dtype=torch.long), persistent=False)  # (C, Wc)
-        self.register_buffer("chk_mask", torch.tensor(chk_mask, dtype=torch.bool), persistent=False)  # (C, Wc)
-        self.register_buffer("obs_supp", torch.tensor(obs_supp, dtype=torch.long), persistent=False)  # (O, Wo)
-        self.register_buffer("obs_mask", torch.tensor(obs_mask, dtype=torch.bool), persistent=False)  # (O, Wo)
 
     def forward(
         self,
@@ -108,36 +77,16 @@ class IterativeDecodingLoss(nn.Module):
         syndromes: torch.Tensor,
         observables: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        Parameters
-        ----------
-            llrs : torch.Tensor
-                LLR outputs at all iterations, shape=(num_iters, batch_size, num_vars), float
-
-            syndromes : torch.Tensor
-                Syndrome bits, shape=(batch_size, num_chks), int ∈ {0,1}
-
-            observables : torch.Tensor
-                Observable bits, shape=(batch_size, num_obsers), int ∈ {0,1}
-
-        Returns
-        -------
-            loss : torch.Tensor
-                Scalar loss, float
-        """
         if self.skip_iters > 0:
             if self.skip_iters >= llrs.shape[0]:
                 raise ValueError(f"skip_iters ({self.skip_iters}) must be less than num_iters ({llrs.shape[0]})")
             llrs = llrs[self.skip_iters:, :, :]
 
+        # Recall: llr = log(Pr(E=0) / Pr(E=1)), so tanh(llr/2) = Pr(E=0) - Pr(E=1)
         tanhhalfllrs = torch.tanh(llrs * 0.5)  # (I, B, V)
-        loss_synd = self._get_syndrome_loss(tanhhalfllrs, syndromes)  # (I, B, C)
-        loss_synd_sum = loss_synd.sum(dim=-1)  # (I, B)
-        loss_obser = self._get_observable_loss(tanhhalfllrs, observables)  # (I, B, O)
-        loss_obser_sum = loss_obser.sum(dim=-1)  # (I, B)
-        loss = self.beta * loss_synd_sum.mean() + (1 - self.beta) * loss_obser_sum.mean()
-
-        return loss
+        synd_loss = self._get_syndrome_loss(tanhhalfllrs, syndromes)
+        obser_loss = self._get_observable_loss(tanhhalfllrs, observables)
+        return self.beta * synd_loss + (1 - self.beta) * obser_loss
 
     def _get_syndrome_loss(
         self,
@@ -154,11 +103,13 @@ class IterativeDecodingLoss(nn.Module):
             .atanh()
         )  # (I, B, C)
 
+        # Recall: llr = log(Pr(E=0) / Pr(E=1)), so Sigmoid(-llr) = Pr(E=1), hence
+        # binary_cross_entropy_with_logits(-llr, syndrome) = -log(Pr(E=syndrome))
         return F.binary_cross_entropy_with_logits(
             -synd_pred_llr,
             syndromes.float().unsqueeze(0).expand_as(synd_pred_llr),
             reduction="none",
-        )  # (I, B, C)
+        ).mean()
 
     def _get_observable_loss(
         self,
@@ -179,4 +130,4 @@ class IterativeDecodingLoss(nn.Module):
             -obser_pred_llr,
             observables.float().unsqueeze(0).expand_as(obser_pred_llr),
             reduction="none",
-        )  # (I, B, O)
+        ).mean()

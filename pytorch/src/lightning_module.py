@@ -6,7 +6,7 @@ import lightning as L
 from omegaconf import DictConfig
 
 from .models import build_decoder_model
-from .loss import IterativeDecodingLoss
+from .losses import build_decoding_loss
 from .metric import IterativeDecodingMetric
 
 
@@ -64,11 +64,7 @@ class DecodingModule(L.LightningModule):
             self.model.compile(mode=compile_mode, fullgraph=True)
 
         # Set up loss function.
-        self.loss_fn = IterativeDecodingLoss(
-            chkmat, obsmat,
-            beta=loss_cfg.beta,
-            skip_iters=loss_cfg.skip_iters,
-        )
+        self.loss_fn = build_decoding_loss(chkmat, obsmat, loss_cfg)
         if compile_mode is not None:
             self.loss_fn.compile(mode=compile_mode, fullgraph=True)
 

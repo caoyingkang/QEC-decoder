@@ -22,8 +22,9 @@ model:
     dropout_p: 0.05
 
 loss:
+  name: ConvergenceAwareLoss
   beta: 0.5
-  skip_iters: 0
+  focal_gamma: 2.0
 
 optim:
   lr: 0.002
@@ -31,7 +32,7 @@ optim:
     factor: 0.2
     patience: 3
     threshold: 0.001
-    threshold_mode: abs
+    threshold_mode: rel
 
 early_stopping:
   min_delta: 0.0001
@@ -49,4 +50,4 @@ trainer:
   max_epochs: 50
   enable_progress_bar: true
 
-compile_mode: default  # options: null, default, reduce-overhead, max-autotune
+compile_mode: null  # options: null, default, reduce-overhead, max-autotune
