@@ -171,10 +171,10 @@ def main():
         num_workers=cfg.data.num_workers,
     )
     early_stopping_callback = EarlyStopping(
-        monitor="val_loss",
+        monitor="strict_success_rate",
         min_delta=cfg.early_stopping.min_delta,
         patience=cfg.early_stopping.patience,
-        mode="min",
+        mode="max",
     )
     model_checkpoint_callback = ModelCheckpoint(
         dirpath=run_dir / "checkpoints",
