@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from .base import DecodingLoss
+from .base import DecodingLoss, LossResult
 
 EPS = 1e-6
 
@@ -19,14 +19,9 @@ EPS = 1e-6
 
 class UniformIterationLoss(DecodingLoss):
     """
-    A PyTorch `nn.Module` that implements a loss function for training iterative QEC decoders.
+    A loss function for iterative QEC decoders that treats all iterations equally.
 
-    Given inputs `llrs`, `syndromes`, and `observables`, the loss function consists of two parts:
-    1. The first part measures how the decoder fails to match the syndromes.
-    2. The second part measures how the decoder fails to predict the logical observables.
-
-    For each iteration of each shot, the loss is a weighted sum of the above two parts controlled by a 
-    hyperparameter `beta` ∈ [0,1]: `loss = beta * synd_loss + (1 - beta) * obser_loss`, where:
+    For each shot, at each iteration, the loss is calculated as follows:
     - `synd_loss = mean(BCEWithLogitsLoss(-synd_pred_llr[i], syndromes[i]) for 0 <= i < num_chks)`, where 
     `synd_pred_llr[i]` is the LLR of the `i`-th syndrome bit obtained by XORing the error bits corresponding 
     to the `i`-th row of the check matrix.
@@ -34,7 +29,7 @@ class UniformIterationLoss(DecodingLoss):
     where `obser_pred_llr[i]` is the LLR of the `i`-th observable bit obtained by XORing the error bits 
     corresponding to the `i`-th row of the observable matrix.
 
-    To calculate the total loss for a batch, we average the loss over the iterations and the shots.
+    To calculate the overall loss for a batch, we average the loss over the iterations and the shots.
     """
 
     def __init__(
@@ -55,20 +50,15 @@ class UniformIterationLoss(DecodingLoss):
                 Observable matrix, shape=(num_obsers, num_vars), integer ∈ {0,1} or bool
 
             beta : float
-                Hyperparameter that balances the contribution of the two parts of the loss function.
-                If beta = 1.0, then only the part corresponding to syndrome matching is included.
-                If beta = 0.0, then only the part corresponding to observable prediction is included.
+                Balance weight in [0, 1]. beta=1 → syndrome loss only; beta=0 → observable loss only.
 
             skip_iters : int
                 The first `skip_iters` iterations are skipped in the calculation of the loss.
                 Default is 0, meaning that the LLRs output from all iterations contribute to the loss.
         """
-        super().__init__(chkmat, obsmat)
-        if not (0 <= beta <= 1):
-            raise ValueError(f"beta must be in [0, 1], but got {beta}")
+        super().__init__(chkmat, obsmat, beta=beta)
         if skip_iters < 0:
             raise ValueError(f"skip_iters must be non-negative, but got {skip_iters}")
-        self.beta = beta
         self.skip_iters = skip_iters
 
     def forward(
@@ -76,7 +66,7 @@ class UniformIterationLoss(DecodingLoss):
         llrs: torch.Tensor,
         syndromes: torch.Tensor,
         observables: torch.Tensor,
-    ) -> torch.Tensor:
+    ) -> LossResult:
         if self.skip_iters > 0:
             if self.skip_iters >= llrs.shape[0]:
                 raise ValueError(f"skip_iters ({self.skip_iters}) must be less than num_iters ({llrs.shape[0]})")
@@ -86,7 +76,8 @@ class UniformIterationLoss(DecodingLoss):
         tanhhalfllrs = torch.tanh(llrs * 0.5)  # (I, B, V)
         synd_loss = self._get_syndrome_loss(tanhhalfllrs, syndromes)
         obser_loss = self._get_observable_loss(tanhhalfllrs, observables)
-        return self.beta * synd_loss + (1 - self.beta) * obser_loss
+        loss = self.beta * synd_loss + (1 - self.beta) * obser_loss
+        return LossResult(loss=loss, synd_loss=synd_loss, obser_loss=obser_loss)
 
     def _get_syndrome_loss(
         self,

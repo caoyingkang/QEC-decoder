@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from .base import DecodingLoss
+from .base import DecodingLoss, LossResult
 from ..utils.decoding_utils import diagnose_convergence
 from ..utils.tensor_utils import focal_BCE_with_logits
 
@@ -19,10 +19,7 @@ EPS = 1e-6
 
 class ConvergenceAwareLoss(DecodingLoss):
     """
-    A PyTorch `nn.Module` that implements a loss function for training iterative QEC decoders.
-
-    As in `UniformIterationLoss`, this loss function is a weighted combination of syndrome loss and observable loss:
-    `loss = beta * synd_loss + (1 - beta) * obser_loss`.
+    Convergence-aware loss function for iterative QEC decoders.
 
     In constrast to the `UniformIterationLoss`, this loss function is convergence-aware in the following sense:
     - For each shot, the syndrome loss is summed over all "active" iterations. These are the iterations 0, 1, ..., 
@@ -49,8 +46,7 @@ class ConvergenceAwareLoss(DecodingLoss):
                 Observable matrix, shape=(num_obsers, num_vars), integer ∈ {0,1} or bool
 
             beta : float
-                Hyperparameter in [0, 1] that balances the contribution of syndrome loss and 
-                observable loss. beta=1 → syndrome loss only; beta=0 → observable loss only.
+                Balance weight in [0, 1]. beta=1 → syndrome loss only; beta=0 → observable loss only.
 
             focal_gamma : float
                 Focal loss exponent (>= 0). γ=0 disables focal modulation.
@@ -58,13 +54,10 @@ class ConvergenceAwareLoss(DecodingLoss):
                 a (1 - p_t)^γ factor on the BCE loss, where p_t is the predicted probability 
                 of the ground truth bit value.
         """
-        super().__init__(chkmat, obsmat)
-        if not (0 <= beta <= 1):
-            raise ValueError(f"beta must be in [0, 1], but got {beta}")
+        super().__init__(chkmat, obsmat, beta=beta)
         if focal_gamma < 0:
             raise ValueError(f"focal_gamma must be non-negative, but got {focal_gamma}")
         self.num_vars = chkmat.shape[1]
-        self.beta = beta
         self.focal_gamma = focal_gamma
 
         # Register the check matrix as a buffer, used for convergence detection.
@@ -75,7 +68,7 @@ class ConvergenceAwareLoss(DecodingLoss):
         llrs: torch.Tensor,
         syndromes: torch.Tensor,
         observables: torch.Tensor,
-    ) -> torch.Tensor:
+    ) -> LossResult:
         num_iters = llrs.size(0)
         device = llrs.device
 
@@ -88,7 +81,8 @@ class ConvergenceAwareLoss(DecodingLoss):
         tanhhalfllrs = torch.tanh(llrs * 0.5)  # (I, B, V)
         synd_loss = self._get_syndrome_loss(tanhhalfllrs, syndromes, active_iters_mask)
         obser_loss = self._get_observable_loss(tanhhalfllrs, observables, output_iters)
-        return self.beta * synd_loss + (1.0 - self.beta) * obser_loss
+        loss = self.beta * synd_loss + (1.0 - self.beta) * obser_loss
+        return LossResult(loss=loss, synd_loss=synd_loss, obser_loss=obser_loss)
 
     def _get_syndrome_loss(
         self,

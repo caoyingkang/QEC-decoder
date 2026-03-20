@@ -6,7 +6,7 @@ import lightning as L
 from omegaconf import DictConfig
 
 from .models import build_decoder_model
-from .losses import build_decoding_loss
+from .losses import build_decoding_loss, LossResult
 from .metric import IterativeDecodingMetric
 
 
@@ -79,10 +79,12 @@ class DecodingModule(L.LightningModule):
 
     def training_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
-        llrs = self(syndromes)  # (num_iters, batch_size, num_vars), float
-        loss = self.loss_fn(llrs, syndromes, observables)
-        self.log('train_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
-        return loss
+        llrs: torch.Tensor = self(syndromes)  # (num_iters, batch_size, num_vars), float
+        result: LossResult = self.loss_fn(llrs, syndromes, observables)
+        self.log('train_loss', result.loss, on_step=False, on_epoch=True)
+        self.log('train_synd_loss', result.synd_loss, on_step=False, on_epoch=True)
+        self.log('train_obser_loss', result.obser_loss, on_step=False, on_epoch=True)
+        return result.loss
 
     def on_before_optimizer_step(self, optimizer):
         global_step = self.trainer.global_step
@@ -106,11 +108,13 @@ class DecodingModule(L.LightningModule):
 
     def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
-        llrs = self(syndromes)  # (num_iters, batch_size, num_vars), float
-        loss = self.loss_fn(llrs, syndromes, observables)
-        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+        llrs: torch.Tensor = self(syndromes)  # (num_iters, batch_size, num_vars), float
+        result: LossResult = self.loss_fn(llrs, syndromes, observables)
+        self.log('val_loss', result.loss, on_step=False, on_epoch=True)
+        self.log('val_synd_loss', result.synd_loss, on_step=False, on_epoch=True)
+        self.log('val_obser_loss', result.obser_loss, on_step=False, on_epoch=True)
         self.metric.update(llrs, syndromes, observables)
-        return loss
+        return result.loss
 
     def on_validation_epoch_end(self):
         val_metrics = self.metric.compute()
