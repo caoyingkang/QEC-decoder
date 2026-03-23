@@ -5,7 +5,7 @@ Monte Carlo benchmark tool for QEC decoders — a customized lightweight replace
 ## Features
 
 - No sinter dependency.
-- Finer-grained analysis than sinter, with iterative decoding in mind: benchmark not just decoder's performance in predicting logical observables, but also the histogram of iterations the decoder ran for each shot before returning.
+- More fine-grained analysis than sinter, with iterative decoding in mind: benchmark not just decoder's performance in predicting logical observables, but also the histogram of iterations the decoder ran for each shot before returning.
 - Multiprocessing can be turned on for faster Monte Carlo loop on CPU, and can be turned off when benchmarking PyTorch decoders on GPU to prevent resource issues on some platform.
 - Manual control of the batch size for running the benchmark loop.
 

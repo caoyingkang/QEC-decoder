@@ -114,7 +114,7 @@ def _worker_loop(
     errors_arr,
     locks: list[Lock],
     stop_event: Event,
-    result_queue: Queue[BenchmarkStats],
+    result_queue: Queue,
 ) -> None:
     """Worker loop: publish cumulative stats to shared arrays `shots_arr` and 
     `errors_arr`; exit when `stop_event` is set."""
@@ -160,7 +160,7 @@ def _run_parallel_collect(
     errors_arr = multiprocessing.Array('q', num_workers, lock=False)
     locks = [Lock() for _ in range(num_workers)]
     stop_event = Event()
-    result_queue: Queue[BenchmarkStats] = Queue()
+    result_queue = Queue()
 
     if verbose:
         print(f"[info] Launching {num_workers} workers...")
