@@ -14,5 +14,4 @@ scratch.ipynb
 *.csv
 pytorch/runs/
 lightning_logs/
-uv.lock
 __hidden__*

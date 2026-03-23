@@ -9,23 +9,44 @@ A QEC decoding library that provides:
 - a [PyTorch](https://pytorch.org/)-based machine learning framework for training decoders with learnable parameters.
 
 This codebase was originally designed to facilitate the search for a lightweight variant of the [RelayBP](https://github.com/trmue/relay) decoder.
-The ultimate goal is a fast real-time decoder implementable on FPGA with submicrosecond latency (whose implentation is not in this repository).
+The ultimate goal is a fast real-time decoder implementable on FPGA with submicrosecond latency (whose implementation is not in this repository).
 
-### Dependencies and installation
+## Monorepo structure
 
-- Python >= 3.10.
-- [Install rust](https://www.rust-lang.org/tools/install).
-- Download the repository and create a Python virtual environment:
-  ```
-  git clone https://github.com/caoyingkang/QEC-decoder.git
-  cd QEC-decoder
-  python3 -m venv .venv
-  source .venv/bin/activate
-  pip install --upgrade pip
-  ```
-- Install maturin: `pip install maturin`.
-- Build the Rust-based Python module in the current virtual environment: `maturin develop --release`.
-- (Optional) To install [PyTorch](https://pytorch.org/), which is needed in the folder `/pytorch`, build with the following command: `maturin develop --release --extras=pytorch`.
+| Path | Description |
+|------|-------------|
+| `packages/qecdec` | Core QEC library (Rust + Python): experiments, decoders, sinter wrapper |
+| `packages/qecbench` | Monte Carlo benchmark tool — lightweight sinter alternative |
+| `pytorch` | Neural-network decoder training framework |
+| `benchmark_app` | Streamlit UI for benchmarking trained PyTorch decoders |
+
+## Installation
+
+- Python >= 3.10
+- [Rust](https://www.rust-lang.org/tools/install) (for building `qecdec`)
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
+
+**With uv:**
+
+```bash
+git clone https://github.com/caoyingkang/QEC-decoder.git
+cd QEC-decoder
+uv sync
+```
+
+This creates a virtual environment, builds the Rust extension in `packages/qecdec`, and installs all workspace dependencies.
+
+**With pip (alternative):**
+
+```bash
+git clone https://github.com/caoyingkang/QEC-decoder.git
+cd QEC-decoder
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e packages/qecdec -e packages/qecbench  # Core packages
+pip install -e pytorch      # For training neural decoders
+pip install -e benchmark_app  # For benchmark UI
+```
 
 
 ### Usage examples
@@ -117,4 +138,20 @@ The ultimate goal is a fast real-time decoder implementable on FPGA with submicr
   )
   ```
 
-- More examples can be found under the folder `/notebooks` and `/pytorch`.
+- More examples can be found under `notebooks/` and `pytorch/`.
+
+## Running the benchmark app
+
+To launch the Streamlit app for Monte Carlo benchmarking of PyTorch decoders:
+
+```bash
+uv run --project benchmark_app streamlit run benchmark_app/app.py
+```
+
+Or with pip, from the repo root with `benchmark_app` installed:
+
+```bash
+streamlit run benchmark_app/app.py
+```
+
+See [benchmark_app/README.md](benchmark_app/README.md) for details.

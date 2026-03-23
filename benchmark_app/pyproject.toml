@@ -1,0 +1,24 @@
+[project]
+name = "benchmark-app"
+version = "0.1.0"
+description = "Streamlit UI for benchmarking trained PyTorch QEC decoders."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "qecdec",
+    "qecbench",
+    "numpy==2.2.*",
+    "matplotlib",
+    "omegaconf",
+    "pandas",
+    "sinter",
+    "torch",
+    "streamlit",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+qecdec = { workspace = true }
+qecbench = { workspace = true }

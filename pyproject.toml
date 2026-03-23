@@ -1,0 +1,17 @@
+[project]
+name = "qec-decoder"
+version = "0.1.0"
+description = "Workspace root for QEC decoder projects."
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.uv.workspace]
+members = [
+    "packages/qecbench",
+    "packages/qecdec",
+    "benchmark_app",
+    "pytorch",
+]
+
+[tool.uv]
+package = false

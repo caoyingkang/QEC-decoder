@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qecbench"
+version = "0.1.0"
+description = "Custom Monte Carlo benchmark tool for QEC decoders — a lightweight replacement for sinter with extra features."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "stim",
+    "humanize",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qecbench"]
+
+[tool.uv]
+package = true

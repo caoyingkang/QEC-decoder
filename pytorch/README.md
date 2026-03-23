@@ -1,20 +1,22 @@
-# PyTorch training and benchmarking
+# PyTorch decoders
 
-This subproject provides training scripts and a web interface for Monte Carlo benchmarking of learned decoder models.
+Neural-network-based QEC decoders and training framework.
 
 ## Training
 
-Examples: (Assuming run from `pytorch/scripts` directory)
-- `python train.py --config configs/train_LearnedDMemBP_UniformIterationLoss_d=5.yaml`
-- `python train.py --config configs/train_MultiDMemBP_UniformIterationLoss_d=5.yaml loss.beta=0.0 model.mlp.activation=ReLU`
-- `python train.py --config configs/train_MultiDMemBP_ConvergenceAwareLoss_d=5.yaml --profile`
-
-## Monte Carlo benchmark app
-
-To launch the Streamlit app for Monte Carlo benchmarking of the PyTorch decoders:
+From `pytorch/scripts`:
 
 ```bash
-streamlit run pytorch/benchmark/app.py
+cd pytorch/scripts
+python train.py --config configs/train_LearnedDMemBP_UniformIterationLoss_d=5.yaml
+python train.py --config configs/train_MultiDMemBP_UniformIterationLoss_d=5.yaml loss.beta=0.0 model.mlp.activation=ReLU
+python train.py --config configs/train_MultiDMemBP_ConvergenceAwareLoss_d=5.yaml --profile
+```
+
+With uv (from repo root):
+
+```bash
+uv run --project pytorch python pytorch/scripts/train.py --config pytorch/scripts/configs/train_LearnedDMemBP_UniformIterationLoss_d=5.yaml
 ```
 
 ## Decoder metrics:
