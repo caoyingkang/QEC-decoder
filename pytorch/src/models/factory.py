@@ -1,8 +1,8 @@
-"""Function for building PyTorch decoder models."""
+"""Factory for building PyTorch decoder models."""
 import numpy as np
 from omegaconf import DictConfig
 
-from .decoder_model import DecoderModel
+from .base import DecoderModel
 from .learned_dmembp import LearnedDMemBP
 from .multi_dmembp import MultiDMemBP
 

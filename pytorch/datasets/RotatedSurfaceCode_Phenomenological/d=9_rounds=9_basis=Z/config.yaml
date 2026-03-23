@@ -9,5 +9,6 @@ qec:
 data:
   train_size: 100000
   val_size: 10000
+  test_size: 10000
   hard_sample_ratio: 0.5
   bp_max_iter: 10  # used for classifying BP-hard vs BP-easy shots

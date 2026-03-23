@@ -22,6 +22,7 @@ model:
     dropout_p: 0.05
 
 loss:
+  name: UniformIterationLoss
   beta: 0.5
   skip_iters: 0
 
@@ -34,8 +35,8 @@ optim:
     threshold_mode: abs
 
 early_stopping:
-  min_delta: 0.0001
-  patience: 5
+  min_delta: 0.0
+  patience: 10
 
 tb_logger:
   log_graph: false
@@ -49,4 +50,4 @@ trainer:
   max_epochs: 50
   enable_progress_bar: true
 
-compile_mode: default  # options: null, default, reduce-overhead, max-autotune
+compile_mode: null  # options: null, default, reduce-overhead, max-autotune

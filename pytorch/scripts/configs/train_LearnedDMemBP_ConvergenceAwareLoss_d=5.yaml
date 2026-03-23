@@ -1,0 +1,44 @@
+qec:
+  code: RotatedSurfaceCode
+  noise_model: Phenomenological
+  d: 5
+  rounds: 5
+  basis: Z
+  p: 0.01
+
+model:
+  name: LearnedDMemBP
+  num_iters: 10
+  min_impl_method: hard
+  sign_impl_method: hard
+
+loss:
+  name: ConvergenceAwareLoss
+  beta: 0.5
+  focal_gamma: 2.0
+
+optim:
+  lr: 0.002
+  lr_scheduler:
+    factor: 0.2
+    patience: 3
+    threshold: 0.001
+    threshold_mode: rel
+
+early_stopping:
+  min_delta: 0.0
+  patience: 10
+
+tb_logger:
+  log_graph: false
+
+data:
+  batch_size: 256
+  num_workers: null   # null = use cpu_count - 1
+
+trainer:
+  accelerator: auto  # auto = auto-detect available accelerator
+  max_epochs: 50
+  enable_progress_bar: true
+
+compile_mode: null  # options: null, default, reduce-overhead, max-autotune

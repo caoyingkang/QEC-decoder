@@ -25,6 +25,10 @@ class DecodingDataModule(L.LightningDataModule):
             self.val_ds = DecodingDataset.load_from_file(self.data_dir / "val_dataset.pt")
             print(f">>>>>> Summary of val_dataset:")
             self.val_ds.print_summary()
+        elif stage == "test":
+            self.test_ds = DecodingDataset.load_from_file(self.data_dir / "test_dataset.pt")
+            print(f">>>>>> Summary of test_dataset:")
+            self.test_ds.print_summary()
         else:
             raise NotImplementedError(f"Stage {stage} is not supported")
 
@@ -41,6 +45,16 @@ class DecodingDataModule(L.LightningDataModule):
     def val_dataloader(self):
         return DataLoader(
             self.val_ds,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            persistent_workers=True,
+        )
+
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_ds,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,

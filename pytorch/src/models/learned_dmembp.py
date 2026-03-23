@@ -10,7 +10,7 @@ from ..utils.tensor_utils import (
     leave_one_out_sign_product,
     leave_one_out_min,
 )
-from .decoder_model import DecoderModel
+from .base import DecoderModel
 
 EPS = 1e-6
 BIG = 1e8

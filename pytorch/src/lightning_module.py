@@ -6,7 +6,7 @@ import lightning as L
 from omegaconf import DictConfig
 
 from .models import build_decoder_model
-from .loss import IterativeDecodingLoss
+from .losses import build_decoding_loss, LossResult
 from .metric import IterativeDecodingMetric
 
 
@@ -64,11 +64,7 @@ class DecodingModule(L.LightningModule):
             self.model.compile(mode=compile_mode, fullgraph=True)
 
         # Set up loss function.
-        self.loss_fn = IterativeDecodingLoss(
-            chkmat, obsmat,
-            beta=loss_cfg.beta,
-            skip_iters=loss_cfg.skip_iters,
-        )
+        self.loss_fn = build_decoding_loss(chkmat, obsmat, loss_cfg)
         if compile_mode is not None:
             self.loss_fn.compile(mode=compile_mode, fullgraph=True)
 
@@ -83,10 +79,12 @@ class DecodingModule(L.LightningModule):
 
     def training_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
-        llrs = self(syndromes)  # (num_iters, batch_size, num_vars), float
-        loss = self.loss_fn(llrs, syndromes, observables)
-        self.log('train_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
-        return loss
+        llrs: torch.Tensor = self(syndromes)  # (num_iters, batch_size, num_vars), float
+        result: LossResult = self.loss_fn(llrs, syndromes, observables)
+        self.log('train_loss', result.loss, on_step=False, on_epoch=True)
+        self.log('train_synd_loss', result.synd_loss, on_step=False, on_epoch=True)
+        self.log('train_obser_loss', result.obser_loss, on_step=False, on_epoch=True)
+        return result.loss
 
     def on_before_optimizer_step(self, optimizer):
         global_step = self.trainer.global_step
@@ -110,11 +108,13 @@ class DecodingModule(L.LightningModule):
 
     def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
-        llrs = self(syndromes)  # (num_iters, batch_size, num_vars), float
-        loss = self.loss_fn(llrs, syndromes, observables)
-        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+        llrs: torch.Tensor = self(syndromes)  # (num_iters, batch_size, num_vars), float
+        result: LossResult = self.loss_fn(llrs, syndromes, observables)
+        self.log('val_loss', result.loss, on_step=False, on_epoch=True)
+        self.log('val_synd_loss', result.synd_loss, on_step=False, on_epoch=True)
+        self.log('val_obser_loss', result.obser_loss, on_step=False, on_epoch=True)
         self.metric.update(llrs, syndromes, observables)
-        return loss
+        return result.loss
 
     def on_validation_epoch_end(self):
         val_metrics = self.metric.compute()
@@ -134,6 +134,26 @@ class DecodingModule(L.LightningModule):
         self.print(f"  Success Rate on Convergence: {val_metrics['success_rate_on_convergence'] * 100:.2f}%")
         self.print(f"  Average Iterations: {val_metrics['avg_iters']:.2f}")
         self.print(f"  Average Iterations on Convergence: {val_metrics['avg_iters_on_convergence']:.2f}")
+        self.print()
+
+    def test_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
+        syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
+        llrs = self(syndromes)  # (num_iters, batch_size, num_vars), float
+        self.metric.update(llrs, syndromes, observables)
+
+    def on_test_epoch_end(self):
+        test_metrics = self.metric.compute()
+        self.log_dict(test_metrics)
+        self.metric.reset()
+
+        self.print("\n--- Test Summary ---")
+        self.print(f"  Convergence Rate: {test_metrics['convergence_rate'] * 100:.2f}%")
+        self.print(f"  Logical Success Rate: {test_metrics['logical_success_rate'] * 100:.2f}%")
+        self.print(f"  Strict Success Rate: {test_metrics['strict_success_rate'] * 100:.2f}%")
+        self.print(f"  Accidental Success Rate: {test_metrics['accidental_success_rate'] * 100:.2f}%")
+        self.print(f"  Success Rate on Convergence: {test_metrics['success_rate_on_convergence'] * 100:.2f}%")
+        self.print(f"  Average Iterations: {test_metrics['avg_iters']:.2f}")
+        self.print(f"  Average Iterations on Convergence: {test_metrics['avg_iters_on_convergence']:.2f}")
         self.print()
 
     def configure_optimizers(self):

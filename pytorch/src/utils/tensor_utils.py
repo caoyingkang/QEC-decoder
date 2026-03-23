@@ -26,7 +26,7 @@ def matmul_GF2(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     `@` operator. This is usually more efficient than using the `@` operator directly 
     (even on CPU). Moreover, some CUDA devices do not support integer matmul.
 
-    See pytorch/notebooks/benchmark_matmul_GF2.ipynb for more details.
+    See pytorch/notebooks/benchmark_tensor_ops.ipynb for more details.
     """
     return (x.float() @ y.float()).round().int() % 2
 
@@ -57,3 +57,21 @@ def leave_one_out_min(x: torch.Tensor, dim: int) -> torch.Tensor:
     min1, min2 = values.split(1, dim=dim)
     ind1 = indices.narrow(dim, 0, 1)
     return min1.expand_as(x).clone().scatter_(dim, ind1, min2)
+
+
+def focal_BCE_with_logits(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    *,
+    gamma: float,
+) -> torch.Tensor:
+    """
+    Binary cross-entropy loss with focal modulation. Reduces to plain BCE when gamma=0.
+
+    No reduction is applied, so the output tensor has the same shape as the input tensors.
+    """
+    bce = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+    if gamma > 0:
+        return ((1.0 - torch.exp(-bce)) ** gamma) * bce
+    else:
+        return bce
