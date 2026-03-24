@@ -9,8 +9,7 @@ from typing import Optional
 
 
 class Decoder:
-    """Base class for decoders.
-    """
+    """Base class for decoders."""
 
     def __init__(self, pcm: np.ndarray, prior: Optional[np.ndarray] = None):
         assert isinstance(pcm, np.ndarray) and pcm.ndim == 2
@@ -29,8 +28,9 @@ class Decoder:
         #       i.e., self.var_nbrs[self.chk_nbrs[i][k]][self.chk_nbr_pos[i][k]] = i.
         # self.var_nbr_pos[j][k] = position of VN j in the list of neighbors of the CN self.var_nbrs[j][k].
         #       i.e., self.chk_nbrs[self.var_nbrs[j][k]][self.var_nbr_pos[j][k]] = j.
-        self.chk_nbrs, self.var_nbrs, self.chk_nbr_pos, self.var_nbr_pos = \
+        self.chk_nbrs, self.var_nbrs, self.chk_nbr_pos, self.var_nbr_pos = (
             build_tanner_graph(pcm)
+        )
 
     @property
     def num_checks(self) -> int:
@@ -72,8 +72,7 @@ class Decoder:
 
 
 class MWPMDecoder(Decoder):
-    """Minimum Weight Perfect Matching decoder. This class is a wrapper for the pymatching library.
-    """
+    """Minimum Weight Perfect Matching decoder. This class is a wrapper for the pymatching library."""
 
     def __init__(self, pcm: np.ndarray, prior: Optional[np.ndarray] = None):
         """
@@ -87,10 +86,10 @@ class MWPMDecoder(Decoder):
         """
         super().__init__(pcm, prior)
 
-        self.llr = np.log((1 - self.prior) / self.prior) \
-            if self.prior is not None else None
-        self.decoder = pymatching.Matching.from_check_matrix(
-            self.pcm, weights=self.llr)
+        self.llr = (
+            np.log((1 - self.prior) / self.prior) if self.prior is not None else None
+        )
+        self.decoder = pymatching.Matching.from_check_matrix(self.pcm, weights=self.llr)
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -99,8 +98,7 @@ class MWPMDecoder(Decoder):
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self.decoder = pymatching.Matching.from_check_matrix(
-            self.pcm, weights=self.llr)
+        self.decoder = pymatching.Matching.from_check_matrix(self.pcm, weights=self.llr)
 
     def decode(self, syndrome: np.ndarray) -> np.ndarray:
         assert isinstance(syndrome, np.ndarray)
@@ -118,8 +116,7 @@ class MWPMDecoder(Decoder):
 
 
 class UnionFindDecoder(Decoder):
-    """Union-Find decoder. This class is a wrapper for the Rust implementation.
-    """
+    """Union-Find decoder. This class is a wrapper for the Rust implementation."""
 
     def __init__(self, pcm: np.ndarray):
         """
@@ -169,8 +166,7 @@ class UnionFindDecoder(Decoder):
 
 
 class BPDecoder(Decoder):
-    """Belief Propagation decoder (min-sum variant). This class is a wrapper for the Rust implementation.
-    """
+    """Belief Propagation decoder (min-sum variant). This class is a wrapper for the Rust implementation."""
 
     def __init__(
         self,
@@ -200,7 +196,8 @@ class BPDecoder(Decoder):
         self.norm = norm
 
         self.decoder = BPDecoder_Rust(
-            self.pcm, self.prior, max_iter=max_iter, norm=norm)
+            self.pcm, self.prior, max_iter=max_iter, norm=norm
+        )
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -210,9 +207,12 @@ class BPDecoder(Decoder):
     def __setstate__(self, state):
         self.__dict__.update(state)
         self.decoder = BPDecoder_Rust(
-            self.pcm, self.prior, max_iter=self.max_iter, norm=self.norm)
+            self.pcm, self.prior, max_iter=self.max_iter, norm=self.norm
+        )
 
-    def decode(self, syndrome: np.ndarray, record_llr_history: bool = False) -> np.ndarray:
+    def decode(
+        self, syndrome: np.ndarray, record_llr_history: bool = False
+    ) -> np.ndarray:
         """
         Parameters
         ----------
@@ -242,8 +242,7 @@ class BPDecoder(Decoder):
 
 
 class DMemBPDecoder(Decoder):
-    """Disordered Memory min-sum Belief Propagation decoder. This class is a wrapper for the Rust implementation.
-    """
+    """Disordered Memory min-sum Belief Propagation decoder. This class is a wrapper for the Rust implementation."""
 
     def __init__(
         self,
@@ -280,7 +279,8 @@ class DMemBPDecoder(Decoder):
         self.norm = norm
 
         self.decoder = DMemBPDecoder_Rust(
-            self.pcm, self.prior, gamma=gamma, max_iter=max_iter, norm=norm)
+            self.pcm, self.prior, gamma=gamma, max_iter=max_iter, norm=norm
+        )
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -290,9 +290,16 @@ class DMemBPDecoder(Decoder):
     def __setstate__(self, state):
         self.__dict__.update(state)
         self.decoder = DMemBPDecoder_Rust(
-            self.pcm, self.prior, gamma=self.gamma, max_iter=self.max_iter, norm=self.norm)
+            self.pcm,
+            self.prior,
+            gamma=self.gamma,
+            max_iter=self.max_iter,
+            norm=self.norm,
+        )
 
-    def decode(self, syndrome: np.ndarray, record_llr_history: bool = False) -> np.ndarray:
+    def decode(
+        self, syndrome: np.ndarray, record_llr_history: bool = False
+    ) -> np.ndarray:
         assert isinstance(syndrome, np.ndarray)
         assert syndrome.ndim == 1
         assert syndrome.shape[0] == self.num_checks
@@ -311,8 +318,7 @@ class DMemBPDecoder(Decoder):
 
 
 class DMemOffsetBPDecoder(Decoder):
-    """Disordered Memory Offset normalized min-sum Belief Propagation decoder. This class is a wrapper for the Rust implementation.
-    """
+    """Disordered Memory Offset normalized min-sum Belief Propagation decoder. This class is a wrapper for the Rust implementation."""
 
     def __init__(
         self,
@@ -337,11 +343,11 @@ class DMemOffsetBPDecoder(Decoder):
                 Memory strength for each variable node, shape=(#variables,).
 
             offset : list[list[float]]
-                Offset parameters. `offset[i][k]` is the offset parameter for the edge connecting CN `i` to its `k`-th VN neighbor. 
+                Offset parameters. `offset[i][k]` is the offset parameter for the edge connecting CN `i` to its `k`-th VN neighbor.
                 If a float is provided, the same value is used for all offset parameters. Default is 0.0, meaning no offset.
 
             norm : list[list[float]]
-                Normalization factors. `norm[i][k]` is the normalization factor for the edge connecting CN `i` to its `k`-th VN neighbor. 
+                Normalization factors. `norm[i][k]` is the normalization factor for the edge connecting CN `i` to its `k`-th VN neighbor.
                 If a float is provided, the same value is used for all normalization factors. Default is 1.0, meaning no normalization.
 
             max_iter : int
@@ -355,11 +361,14 @@ class DMemOffsetBPDecoder(Decoder):
         if isinstance(offset, list):
             assert len(offset) == self.num_checks
             assert all(isinstance(x, list) for x in offset)
-            assert all(len(offset[i]) == len(self.chk_nbrs[i])
-                       for i in range(self.num_checks))
+            assert all(
+                len(offset[i]) == len(self.chk_nbrs[i]) for i in range(self.num_checks)
+            )
         elif isinstance(offset, (float, int)):
-            offset = [[offset for _ in range(len(self.chk_nbrs[i]))]
-                      for i in range(self.num_checks)]
+            offset = [
+                [offset for _ in range(len(self.chk_nbrs[i]))]
+                for i in range(self.num_checks)
+            ]
         else:
             raise ValueError("Invalid data type for `offset`")
         self.offset = offset
@@ -367,11 +376,14 @@ class DMemOffsetBPDecoder(Decoder):
         if isinstance(norm, list):
             assert len(norm) == self.num_checks
             assert all(isinstance(x, list) for x in norm)
-            assert all(len(norm[i]) == len(self.chk_nbrs[i])
-                       for i in range(self.num_checks))
+            assert all(
+                len(norm[i]) == len(self.chk_nbrs[i]) for i in range(self.num_checks)
+            )
         elif isinstance(norm, (float, int)):
-            norm = [[norm for _ in range(len(self.chk_nbrs[i]))]
-                    for i in range(self.num_checks)]
+            norm = [
+                [norm for _ in range(len(self.chk_nbrs[i]))]
+                for i in range(self.num_checks)
+            ]
         else:
             raise ValueError("Invalid data type for `norm`")
         self.norm = norm
@@ -379,7 +391,13 @@ class DMemOffsetBPDecoder(Decoder):
         self.max_iter = max_iter
 
         self.decoder = DMemOffsetBPDecoder_Rust(
-            self.pcm, self.prior, gamma=gamma, offset=offset, norm=norm, max_iter=max_iter)
+            self.pcm,
+            self.prior,
+            gamma=gamma,
+            offset=offset,
+            norm=norm,
+            max_iter=max_iter,
+        )
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -389,7 +407,13 @@ class DMemOffsetBPDecoder(Decoder):
     def __setstate__(self, state):
         self.__dict__.update(state)
         self.decoder = DMemOffsetBPDecoder_Rust(
-            self.pcm, self.prior, gamma=self.gamma, offset=self.offset, norm=self.norm, max_iter=self.max_iter)
+            self.pcm,
+            self.prior,
+            gamma=self.gamma,
+            offset=self.offset,
+            norm=self.norm,
+            max_iter=self.max_iter,
+        )
 
     def decode(self, syndrome: np.ndarray) -> np.ndarray:
         assert isinstance(syndrome, np.ndarray)
@@ -407,6 +431,7 @@ class DMemOffsetBPDecoder(Decoder):
 
 
 __all__ = [
+    "Decoder",
     "MWPMDecoder",
     "UnionFindDecoder",
     "BPDecoder",
