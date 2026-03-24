@@ -1,4 +1,5 @@
 """Base class for PyTorch iterative decoder models."""
+
 from pathlib import Path
 
 import numpy as np
@@ -11,8 +12,8 @@ class DecoderModel(nn.Module):
     Base class for PyTorch iterative decoder models.
 
     This is the `torch.nn.Module` that implements the neural network architecture. Every decoder model
-    should inherit from this class, and is assumed to have an iterative (recurrent) nature: the 
-    forward pass is made of multiple iterations, with each iteration producing an LLR value for 
+    should inherit from this class, and is assumed to have an iterative (recurrent) nature: the
+    forward pass is made of multiple iterations, with each iteration producing an LLR value for
     each variable node.
     """
 
@@ -43,9 +44,11 @@ class DecoderModel(nn.Module):
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
-    def load_lightning_checkpoint(self, ckpt_path: Path, skip_keys: list[str] = []) -> None:
+    def load_lightning_checkpoint(
+        self, ckpt_path: Path, skip_keys: list[str] = []
+    ) -> None:
         """
-        Load parameters and buffers from a Lightning checkpoint. Expect a checkpoint 
+        Load parameters and buffers from a Lightning checkpoint. Expect a checkpoint
         saved by a `LightningModule`, with `state_dict` keys prefixed by `"model."`.
 
         Parameters
@@ -69,12 +72,11 @@ class DecoderModel(nn.Module):
         ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
 
         prefix = "model."
-        l = len(prefix)
         current_state_dict = self.state_dict()
         new_state_dict = {}
         for k, v in ckpt["state_dict"].items():
             if k.startswith(prefix):
-                key = k[l:]
+                key = k[len(prefix) :]
                 new_state_dict[key] = current_state_dict[key] if key in skip_keys else v
 
         self.load_state_dict(new_state_dict, strict=True)

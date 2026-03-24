@@ -2,33 +2,34 @@
 Multi-dimensional Disordered Memory BP decoder (MultiDMemBP).
 
 This module extends LearnedDMemBP by replacing scalar messages with vector-valued messages
-of dimension `msg_features`. Each component of the vector undergoes the same DMemBP updates 
-as in LearnedDMemBP (min-sum update at check nodes, disordered memory at variable nodes), but 
+of dimension `msg_features`. Each component of the vector undergoes the same DMemBP updates
+as in LearnedDMemBP (min-sum update at check nodes, disordered memory at variable nodes), but
 every message passes through an MLP before being sent. After each iteration, the LLR values
-are calculated per message component, as if each component makes independent predictions; those 
-LLR components are then averaged to produce the final scalar LLR per variable node, as if a 
+are calculated per message component, as if each component makes independent predictions; those
+LLR components are then averaged to produce the final scalar LLR per variable node, as if a
 majority vote is performed.
 
 Design choices and rationale:
 - There are two separate MLPs, one for each message direction (VN-to-CN and CN-to-VN). All messages
   in the same direction share the same MLP to reduce the number of trainable parameters.
 - The MLPs are augmented with residual connections, i.e., output = x + MLP(x). This makes sure that
-  MultiDMemBP is a strict extension of LearnedDMemBP: when the linear layers take all-zero weights 
-  and biases, MultiDMemBP behaves as multiple independent LearnedDMemBP instances. As training 
+  MultiDMemBP is a strict extension of LearnedDMemBP: when the linear layers take all-zero weights
+  and biases, MultiDMemBP behaves as multiple independent LearnedDMemBP instances. As training
   proceeds, the MLPs can learn to mix components.
 - Memory strength (gamma) can be shared across message components (gamma_shared=True) or vary per
   component (gamma_shared=False).
-- Memory strength can be initialized to a single value (if gamma_init is a float) or sampled uniformly 
+- Memory strength can be initialized to a single value (if gamma_init is a float) or sampled uniformly
   from an interval (if gamma_init is a list of two floats).
 
 Notes:
-- Setting `mlp_norm="LayerNorm"` will subtract the mean across the message feature dimension, which can 
-  remove important sign information: It is possible that for some (CN, VN) pairs all message components 
-  are positive (they all agree that the VN is likely error-free), while for some other (CN, VN) pairs 
-  all message components are negative (they all agree that the VN is likely erroneous). LayerNorm removes 
-  this mean and can potentially degrade decoding performance. Consider setting `mlp_norm="RMSNorm"` 
+- Setting `mlp_norm="LayerNorm"` will subtract the mean across the message feature dimension, which can
+  remove important sign information: It is possible that for some (CN, VN) pairs all message components
+  are positive (they all agree that the VN is likely error-free), while for some other (CN, VN) pairs
+  all message components are negative (they all agree that the VN is likely erroneous). LayerNorm removes
+  this mean and can potentially degrade decoding performance. Consider setting `mlp_norm="RMSNorm"`
   (preserves sign) or `mlp_norm=None` (no normalization) instead.
 """
+
 from typing import Literal, Optional, Union
 
 import numpy as np
@@ -111,7 +112,7 @@ class MultiDMemBP(DecoderModel):
                 Dropout probability for the hidden layers of the MLP. If None, no dropout is applied.
 
             min_impl_method : Literal["smooth", "hard"]
-                Implementation method of the min function during training. 
+                Implementation method of the min function during training.
                 Options: "smooth" (based on softmin) or "hard".
                 Note that during inference, we always use "hard" min.
 
@@ -172,7 +173,9 @@ class MultiDMemBP(DecoderModel):
         # cn_mask[i, k] = True if CN i has k-th neighbor, False otherwise.
         cn_deg = pcm.sum(axis=1).astype(int)
         self.max_cn_deg = int(cn_deg.max())
-        cn_edge_idx = np.full((self.num_chks, self.max_cn_deg), num_edges, dtype=np.int64)
+        cn_edge_idx = np.full(
+            (self.num_chks, self.max_cn_deg), num_edges, dtype=np.int64
+        )
         cn_mask = np.zeros((self.num_chks, self.max_cn_deg), dtype=bool)
         cn_cursor = np.zeros(self.num_chks, dtype=int)
         for e in range(num_edges):
@@ -187,7 +190,9 @@ class MultiDMemBP(DecoderModel):
         # vn_mask[j, k] = True if VN j has k-th neighbor, False otherwise.
         vn_deg = pcm.sum(axis=0).astype(int)
         self.max_vn_deg = int(vn_deg.max())
-        vn_edge_idx = np.full((self.num_vars, self.max_vn_deg), num_edges, dtype=np.int64)
+        vn_edge_idx = np.full(
+            (self.num_vars, self.max_vn_deg), num_edges, dtype=np.int64
+        )
         vn_mask = np.zeros((self.num_vars, self.max_vn_deg), dtype=bool)
         vn_cursor = np.zeros(self.num_vars, dtype=int)
         for e in range(num_edges):
@@ -199,15 +204,28 @@ class MultiDMemBP(DecoderModel):
 
         # Register index buffers.
         # Since these are derived from chkmat, they are not part of the model's state_dict, and will not be saved in checkpoints.
-        self.register_buffer("edge_to_vn", torch.tensor(edge_to_vn, dtype=torch.long), persistent=False)  # (E,)
-        self.register_buffer("cn_edge_idx", torch.tensor(cn_edge_idx, dtype=torch.long), persistent=False)  # (C, Δc)
-        self.register_buffer("cn_mask", torch.tensor(cn_mask, dtype=torch.bool), persistent=False)  # (C, Δc)
-        self.register_buffer("vn_edge_idx", torch.tensor(vn_edge_idx, dtype=torch.long), persistent=False)  # (V, Δv)
-        self.register_buffer("vn_mask", torch.tensor(vn_mask, dtype=torch.bool), persistent=False)  # (V, Δv)
+        self.register_buffer(
+            "edge_to_vn", torch.tensor(edge_to_vn, dtype=torch.long), persistent=False
+        )  # (E,)
+        self.register_buffer(
+            "cn_edge_idx", torch.tensor(cn_edge_idx, dtype=torch.long), persistent=False
+        )  # (C, Δc)
+        self.register_buffer(
+            "cn_mask", torch.tensor(cn_mask, dtype=torch.bool), persistent=False
+        )  # (C, Δc)
+        self.register_buffer(
+            "vn_edge_idx", torch.tensor(vn_edge_idx, dtype=torch.long), persistent=False
+        )  # (V, Δv)
+        self.register_buffer(
+            "vn_mask", torch.tensor(vn_mask, dtype=torch.bool), persistent=False
+        )  # (V, Δv)
         if min_impl_method == "smooth" or sign_impl_method == "smooth":
             self.register_buffer(
                 "cn_diag_mask_5d",
-                torch.eye(self.max_cn_deg, dtype=torch.bool).unsqueeze(0).unsqueeze(0).unsqueeze(-1),
+                torch.eye(self.max_cn_deg, dtype=torch.bool)
+                .unsqueeze(0)
+                .unsqueeze(0)
+                .unsqueeze(-1),
                 persistent=False,
             )  # (1, 1, Δc, Δc, 1)
 
@@ -216,7 +234,9 @@ class MultiDMemBP(DecoderModel):
         # use the prior_llr the model was trained with to benchmark its performance on other prior probabilities.
         prior = np.clip(prior, min=EPS, max=1 - EPS)
         prior_llr = np.log((1 - prior) / prior)
-        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=torch.float32), persistent=True)  # (V,)
+        self.register_buffer(
+            "prior_llr", torch.tensor(prior_llr, dtype=torch.float32), persistent=True
+        )  # (V,)
 
         # Initialize trainable parameter: memory strength.
         self.gamma_shared = gamma_shared
@@ -232,13 +252,19 @@ class MultiDMemBP(DecoderModel):
         if isinstance(gamma_init, (int, float)) and not isinstance(gamma_init, bool):
             return torch.full(shape, float(gamma_init), dtype=torch.float32)
         # Support any class with __getitem__ and length 2.
-        elif hasattr(gamma_init, "__getitem__") and hasattr(gamma_init, "__len__") and len(gamma_init) == 2:
+        elif (
+            hasattr(gamma_init, "__getitem__")
+            and hasattr(gamma_init, "__len__")
+            and len(gamma_init) == 2
+        ):
             low, high = float(gamma_init[0]), float(gamma_init[1])
             if low > high:
                 raise ValueError(f"Invalid interval, got {gamma_init!r}")
             return torch.empty(shape).uniform_(low, high)
         else:
-            raise ValueError(f"gamma_init must be a float or a list of two floats [low, high], got {gamma_init!r}")
+            raise ValueError(
+                f"gamma_init must be a float or a list of two floats [low, high], got {gamma_init!r}"
+            )
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
         device = syndromes.device
@@ -251,16 +277,24 @@ class MultiDMemBP(DecoderModel):
         cn_to_vn = torch.zeros(batch_size, self.num_edges + 1, mf, device=device)
 
         # Initialize VN→CN messages with prior LLRs (broadcast to all components).
-        vn_to_cn[:, :self.num_edges, :] = self.prior_llr[self.edge_to_vn].unsqueeze(0).unsqueeze(-1)
+        vn_to_cn[:, : self.num_edges, :] = (
+            self.prior_llr[self.edge_to_vn].unsqueeze(0).unsqueeze(-1)
+        )
 
         # Pre-expand flattened index tensors for scatter.
-        cn_flat_idx = self.cn_edge_idx.reshape(1, -1, 1).expand(batch_size, -1, mf)  # (B, C * Δc, M)
-        vn_flat_idx = self.vn_edge_idx.reshape(1, -1, 1).expand(batch_size, -1, mf)  # (B, V * Δv, M)
+        cn_flat_idx = self.cn_edge_idx.reshape(1, -1, 1).expand(
+            batch_size, -1, mf
+        )  # (B, C * Δc, M)
+        vn_flat_idx = self.vn_edge_idx.reshape(1, -1, 1).expand(
+            batch_size, -1, mf
+        )  # (B, V * Δv, M)
 
         cn_mask_4d = self.cn_mask.unsqueeze(0).unsqueeze(-1)  # (1, C, Δc, 1)
         vn_mask_4d = self.vn_mask.unsqueeze(0).unsqueeze(-1)  # (1, V, Δv, 1)
 
-        llrs_list: list[torch.Tensor] = []  # List of (B, V) tensors, one for each BP iteration.
+        llrs_list: list[
+            torch.Tensor
+        ] = []  # List of (B, V) tensors, one for each BP iteration.
         prev_llrs_all_components = None  # Will hold tensor of shape (B, V, M)
 
         for t in range(self.num_iters):
@@ -269,29 +303,49 @@ class MultiDMemBP(DecoderModel):
             msgs_cn = vn_to_cn[:, self.cn_edge_idx, :]  # (B, C, Δc, M)
 
             # Leave-one-out sign product.
-            if self.training and self.sign_impl_method == "smooth":  # 5D expansion + diagonal mask
-                msgs_sgn = smooth_sign(msgs_cn).masked_fill(~cn_mask_4d, 1.0)  # (B, C, Δc, M)
-                msgs_sgn_5d = msgs_sgn.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1, -1)  # (B, C, Δc, Δc, M)
-                loo_sgn_prod = msgs_sgn_5d.masked_fill(self.cn_diag_mask_5d, 1.0).prod(dim=3)  # (B, C, Δc, M)
+            if (
+                self.training and self.sign_impl_method == "smooth"
+            ):  # 5D expansion + diagonal mask
+                msgs_sgn = smooth_sign(msgs_cn).masked_fill(
+                    ~cn_mask_4d, 1.0
+                )  # (B, C, Δc, M)
+                msgs_sgn_5d = msgs_sgn.unsqueeze(2).expand(
+                    -1, -1, self.max_cn_deg, -1, -1
+                )  # (B, C, Δc, Δc, M)
+                loo_sgn_prod = msgs_sgn_5d.masked_fill(self.cn_diag_mask_5d, 1.0).prod(
+                    dim=3
+                )  # (B, C, Δc, M)
             else:  # Hard sign
                 msgs_cn_masked = msgs_cn.masked_fill(~cn_mask_4d, 1.0)  # (B, C, Δc, M)
-                loo_sgn_prod = leave_one_out_sign_product(msgs_cn_masked, dim=2)  # (B, C, Δc, M)
+                loo_sgn_prod = leave_one_out_sign_product(
+                    msgs_cn_masked, dim=2
+                )  # (B, C, Δc, M)
 
             # Leave-one-out min abs.
             msgs_abs = msgs_cn.abs().masked_fill(~cn_mask_4d, BIG)  # (B, C, Δc, M)
-            if self.training and self.min_impl_method == "smooth":  # 5D expansion + diagonal mask
-                msgs_abs_5d = msgs_abs.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1, -1)  # (B, C, Δc, Δc, M)
-                loo_abs_min = smooth_min(msgs_abs_5d.masked_fill(self.cn_diag_mask_5d, BIG), dim=3)  # (B, C, Δc, M)
+            if (
+                self.training and self.min_impl_method == "smooth"
+            ):  # 5D expansion + diagonal mask
+                msgs_abs_5d = msgs_abs.unsqueeze(2).expand(
+                    -1, -1, self.max_cn_deg, -1, -1
+                )  # (B, C, Δc, Δc, M)
+                loo_abs_min = smooth_min(
+                    msgs_abs_5d.masked_fill(self.cn_diag_mask_5d, BIG), dim=3
+                )  # (B, C, Δc, M)
             else:  # Hard min
                 loo_abs_min = leave_one_out_min(msgs_abs, dim=2)  # (B, C, Δc, M)
 
             # CN output messages.
-            cn_out = synd_sgn.unsqueeze(-1).unsqueeze(-1) * loo_sgn_prod * loo_abs_min  # (B, C, Δc, M)
+            cn_out = (
+                synd_sgn.unsqueeze(-1).unsqueeze(-1) * loo_sgn_prod * loo_abs_min
+            )  # (B, C, Δc, M)
 
             # Apply MLP before sending CN→VN.
             cn_out_flat = cn_out.reshape(-1, mf)  # (B * C * Δc, M)
             cn_out_flat: torch.Tensor = self.c2v_mlp(cn_out_flat)  # (B * C * Δc, M)
-            cn_out = cn_out_flat.reshape(batch_size, self.num_chks, self.max_cn_deg, mf)  # (B, C, Δc, M)
+            cn_out = cn_out_flat.reshape(
+                batch_size, self.num_chks, self.max_cn_deg, mf
+            )  # (B, C, Δc, M)
 
             # Scatter CN outputs to edge array.
             cn_out_for_scatter = cn_out.reshape(batch_size, -1, mf)  # (B, C * Δc, M)
@@ -314,7 +368,9 @@ class MultiDMemBP(DecoderModel):
             if t == 0:
                 llrs_all_components = incoming_sum + pllr  # (B, V, M)
             else:
-                llrs_all_components = incoming_sum + (1.0 - g) * pllr + g * prev_llrs_all_components  # (B, V, M)
+                llrs_all_components = (
+                    incoming_sum + (1.0 - g) * pllr + g * prev_llrs_all_components
+                )  # (B, V, M)
             prev_llrs_all_components = llrs_all_components
 
             # Soft majority vote: average over LLRs along the message feature dimension.
@@ -328,10 +384,14 @@ class MultiDMemBP(DecoderModel):
                 # Apply MLP before sending VN→CN.
                 vn_out_flat = vn_out.reshape(-1, mf)  # (B * V * Δv, M)
                 vn_out_flat: torch.Tensor = self.v2c_mlp(vn_out_flat)  # (B * V * Δv, M)
-                vn_out = vn_out_flat.reshape(batch_size, self.num_vars, self.max_vn_deg, mf)  # (B, V, Δv, M)
+                vn_out = vn_out_flat.reshape(
+                    batch_size, self.num_vars, self.max_vn_deg, mf
+                )  # (B, V, Δv, M)
 
                 # Scatter VN outputs to edge array.
-                vn_out_for_scatter = vn_out.reshape(batch_size, -1, mf)  # (B, V * Δv, M)
+                vn_out_for_scatter = vn_out.reshape(
+                    batch_size, -1, mf
+                )  # (B, V * Δv, M)
                 vn_to_cn.scatter_(1, vn_flat_idx, vn_out_for_scatter)
 
         return torch.stack(llrs_list, dim=0)  # (num_iters, B, V)

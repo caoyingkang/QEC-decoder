@@ -22,11 +22,11 @@ class UniformIterationLoss(DecodingLoss):
     A loss function for iterative QEC decoders that treats all iterations equally.
 
     For each shot, at each iteration, the loss is calculated as follows:
-    - `synd_loss = mean(BCEWithLogitsLoss(-synd_pred_llr[i], syndromes[i]) for 0 <= i < num_chks)`, where 
-    `synd_pred_llr[i]` is the LLR of the `i`-th syndrome bit obtained by XORing the error bits corresponding 
+    - `synd_loss = mean(BCEWithLogitsLoss(-synd_pred_llr[i], syndromes[i]) for 0 <= i < num_chks)`, where
+    `synd_pred_llr[i]` is the LLR of the `i`-th syndrome bit obtained by XORing the error bits corresponding
     to the `i`-th row of the check matrix.
-    - `obser_loss = mean(BCEWithLogitsLoss(-obser_pred_llr[i], observables[i]) for 0 <= i < num_obsers)`, 
-    where `obser_pred_llr[i]` is the LLR of the `i`-th observable bit obtained by XORing the error bits 
+    - `obser_loss = mean(BCEWithLogitsLoss(-obser_pred_llr[i], observables[i]) for 0 <= i < num_obsers)`,
+    where `obser_pred_llr[i]` is the LLR of the `i`-th observable bit obtained by XORing the error bits
     corresponding to the `i`-th row of the observable matrix.
 
     To calculate the overall loss for a batch, we average the loss over the iterations and the shots.
@@ -69,8 +69,10 @@ class UniformIterationLoss(DecodingLoss):
     ) -> LossResult:
         if self.skip_iters > 0:
             if self.skip_iters >= llrs.shape[0]:
-                raise ValueError(f"skip_iters ({self.skip_iters}) must be less than num_iters ({llrs.shape[0]})")
-            llrs = llrs[self.skip_iters:, :, :]
+                raise ValueError(
+                    f"skip_iters ({self.skip_iters}) must be less than num_iters ({llrs.shape[0]})"
+                )
+            llrs = llrs[self.skip_iters :, :, :]
 
         # Recall: llr = log(Pr(E=0) / Pr(E=1)), so tanh(llr/2) = Pr(E=0) - Pr(E=1)
         tanhhalfllrs = torch.tanh(llrs * 0.5)  # (I, B, V)

@@ -1,4 +1,5 @@
 """Base class for loss functions used to train iterative QEC decoders."""
+
 from typing import NamedTuple
 
 import numpy as np
@@ -8,9 +9,10 @@ import torch.nn as nn
 
 class LossResult(NamedTuple):
     """
-    Return type of all decoding loss functions: a named tuple with fields `loss`, 
+    Return type of all decoding loss functions: a named tuple with fields `loss`,
     `synd_loss`, `obser_loss` (all float scalar tensors).
     """
+
     loss: torch.Tensor
     synd_loss: torch.Tensor
     obser_loss: torch.Tensor
@@ -18,8 +20,8 @@ class LossResult(NamedTuple):
 
 class DecodingLoss(nn.Module):
     """
-    A `torch.nn.Module` that serves as the base class for loss functions used to 
-    train iterative QEC decoders. Every decoding loss function should inherit from 
+    A `torch.nn.Module` that serves as the base class for loss functions used to
+    train iterative QEC decoders. Every decoding loss function should inherit from
     this class.
 
     The loss function is a weighted combination of two parts:
@@ -87,10 +89,18 @@ class DecodingLoss(nn.Module):
                 obs_supp[i, k] = indices[k]
                 obs_mask[i, k] = True
 
-        self.register_buffer("chk_supp", torch.tensor(chk_supp, dtype=torch.long), persistent=False)  # (num_chks, max_chk_weight)
-        self.register_buffer("chk_mask", torch.tensor(chk_mask, dtype=torch.bool), persistent=False)  # (num_chks, max_chk_weight)
-        self.register_buffer("obs_supp", torch.tensor(obs_supp, dtype=torch.long), persistent=False)  # (num_obsers, max_obs_weight)
-        self.register_buffer("obs_mask", torch.tensor(obs_mask, dtype=torch.bool), persistent=False)  # (num_obsers, max_obs_weight)
+        self.register_buffer(
+            "chk_supp", torch.tensor(chk_supp, dtype=torch.long), persistent=False
+        )  # (num_chks, max_chk_weight)
+        self.register_buffer(
+            "chk_mask", torch.tensor(chk_mask, dtype=torch.bool), persistent=False
+        )  # (num_chks, max_chk_weight)
+        self.register_buffer(
+            "obs_supp", torch.tensor(obs_supp, dtype=torch.long), persistent=False
+        )  # (num_obsers, max_obs_weight)
+        self.register_buffer(
+            "obs_mask", torch.tensor(obs_mask, dtype=torch.bool), persistent=False
+        )  # (num_obsers, max_obs_weight)
 
     def forward(
         self,

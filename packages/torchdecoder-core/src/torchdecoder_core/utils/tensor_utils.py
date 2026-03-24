@@ -20,10 +20,10 @@ def matmul_GF2(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     """
     Matrix multiplication over GF(2).
 
-    Assume that the input tensors take binary values (0 or 1). The returned dtype is 
-    always `torch.int32` no matter what the input dtypes are. If the inputs are integer 
-    or boolean tensors, they will be converted to float tensors before applying the 
-    `@` operator. This is usually more efficient than using the `@` operator directly 
+    Assume that the input tensors take binary values (0 or 1). The returned dtype is
+    always `torch.int32` no matter what the input dtypes are. If the inputs are integer
+    or boolean tensors, they will be converted to float tensors before applying the
+    `@` operator. This is usually more efficient than using the `@` operator directly
     (even on CPU). Moreover, some CUDA devices do not support integer matmul.
 
     See pytorch/notebooks/benchmark_tensor_ops.ipynb for more details.
@@ -33,12 +33,12 @@ def matmul_GF2(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 def leave_one_out_sign_product(x: torch.Tensor, dim: int) -> torch.Tensor:
     """
-    For each element of `x` along dimension `dim`, compute the product of signs of all other 
+    For each element of `x` along dimension `dim`, compute the product of signs of all other
     elements along that dimension:
 
     `output[..., i, ...] = prod(sign(x[..., j, ...]) for j != i)`.
 
-    Note that the returned tensor has dtype `torch.float32` and no gradients can be 
+    Note that the returned tensor has dtype `torch.float32` and no gradients can be
     back-propagated through it.
     """
     # Different from `torch.sign()` function, here we never get 0.0 in the output.
@@ -48,7 +48,7 @@ def leave_one_out_sign_product(x: torch.Tensor, dim: int) -> torch.Tensor:
 
 def leave_one_out_min(x: torch.Tensor, dim: int) -> torch.Tensor:
     """
-    For each element of `x` along dimension `dim`, compute the minimum value of all other 
+    For each element of `x` along dimension `dim`, compute the minimum value of all other
     elements along that dimension:
 
     `output[..., i, ...] = min(x[..., j, ...] for j != i)`.

@@ -2,8 +2,8 @@ import numpy as np
 import torch
 from torchmetrics import Metric
 
-from .utils.decoding_utils import diagnose_convergence, gather_ehat
-from .utils.tensor_utils import matmul_GF2
+from ..utils.decoding_utils import diagnose_convergence, gather_ehat
+from ..utils.tensor_utils import matmul_GF2
 
 
 # Shape hints code:
@@ -35,8 +35,12 @@ class IterativeDecodingMetric(Metric):
         """
         super().__init__()
 
-        self.register_buffer("chkmat", torch.tensor(chkmat, dtype=torch.float32), persistent=False)  # (C, V)
-        self.register_buffer("obsmat", torch.tensor(obsmat, dtype=torch.float32), persistent=False)  # (O, V)
+        self.register_buffer(
+            "chkmat", torch.tensor(chkmat, dtype=torch.float32), persistent=False
+        )  # (C, V)
+        self.register_buffer(
+            "obsmat", torch.tensor(obsmat, dtype=torch.float32), persistent=False
+        )  # (O, V)
 
         # Total number of shots
         self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
@@ -45,17 +49,18 @@ class IterativeDecodingMetric(Metric):
         # Number of shots where the decoder predicted observables correctly
         self.add_state("correct", default=torch.tensor(0), dist_reduce_fx="sum")
         # Number of shots where the decoder converged and predicted observables correctly
-        self.add_state("converged_and_correct", default=torch.tensor(0), dist_reduce_fx="sum")
+        self.add_state(
+            "converged_and_correct", default=torch.tensor(0), dist_reduce_fx="sum"
+        )
         # Sum of the number of decoding iterations for all shots
         self.add_state("iters_sum", default=torch.tensor(0), dist_reduce_fx="sum")
         # Sum of the number of decoding iterations for all converged shots
-        self.add_state("iters_sum_on_converged", default=torch.tensor(0), dist_reduce_fx="sum")
+        self.add_state(
+            "iters_sum_on_converged", default=torch.tensor(0), dist_reduce_fx="sum"
+        )
 
     def update(
-        self,
-        llrs: torch.Tensor,
-        syndromes: torch.Tensor,
-        observables: torch.Tensor
+        self, llrs: torch.Tensor, syndromes: torch.Tensor, observables: torch.Tensor
     ):
         """
         Parameters
@@ -70,7 +75,9 @@ class IterativeDecodingMetric(Metric):
                 Observable bits, shape=(batch_size, num_obsers), int ∈ {0,1}
         """
         hard_decisions = (llrs < 0).float()  # (I, B, V), float ∈ {0.0, 1.0}
-        converged_mask, output_iters = diagnose_convergence(hard_decisions, syndromes, self.chkmat)  # (B,), bool; (B,), long
+        converged_mask, output_iters = diagnose_convergence(
+            hard_decisions, syndromes, self.chkmat
+        )  # (B,), bool; (B,), long
         ehat = gather_ehat(hard_decisions, output_iters)  # (B, V), float ∈ {0.0, 1.0}
         decoding_iters = output_iters + 1  # (B,), long
 
@@ -90,9 +97,15 @@ class IterativeDecodingMetric(Metric):
         return {
             "convergence_rate": self.converged.float() / self.total.float(),
             "logical_success_rate": self.correct.float() / self.total.float(),
-            "strict_success_rate": self.converged_and_correct.float() / self.total.float(),
-            "accidental_success_rate": (self.correct - self.converged_and_correct).float() / self.total.float(),
-            "success_rate_on_convergence": self.converged_and_correct.float() / self.converged.float(),
+            "strict_success_rate": self.converged_and_correct.float()
+            / self.total.float(),
+            "accidental_success_rate": (
+                self.correct - self.converged_and_correct
+            ).float()
+            / self.total.float(),
+            "success_rate_on_convergence": self.converged_and_correct.float()
+            / self.converged.float(),
             "avg_iters": self.iters_sum.float() / self.total.float(),
-            "avg_iters_on_convergence": self.iters_sum_on_converged.float() / self.converged.float(),
+            "avg_iters_on_convergence": self.iters_sum_on_converged.float()
+            / self.converged.float(),
         }

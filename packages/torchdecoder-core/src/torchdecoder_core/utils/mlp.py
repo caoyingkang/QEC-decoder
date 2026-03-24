@@ -1,4 +1,5 @@
 """Multi-layer perceptron network."""
+
 from typing import Optional
 
 import torch.nn as nn
@@ -23,13 +24,17 @@ NORM_CLS_MAP = {
 
 def _resolve_activation(name: str) -> type[nn.Module]:
     if name not in ACTIVATION_CLS_MAP:
-        raise ValueError(f"Invalid activation: {name!r}, expected one of {list(ACTIVATION_CLS_MAP.keys())}")
+        raise ValueError(
+            f"Invalid activation: {name!r}, expected one of {list(ACTIVATION_CLS_MAP.keys())}"
+        )
     return ACTIVATION_CLS_MAP[name]
 
 
 def _resolve_norm(name: str) -> type[nn.Module]:
     if name not in NORM_CLS_MAP:
-        raise ValueError(f"Unsupported normalization: {name!r}, expected one of {list(NORM_CLS_MAP.keys())}")
+        raise ValueError(
+            f"Unsupported normalization: {name!r}, expected one of {list(NORM_CLS_MAP.keys())}"
+        )
     return NORM_CLS_MAP[name]
 
 
@@ -84,13 +89,19 @@ class MLP(nn.Module):
         if out_features < 1:
             raise ValueError(f"out_features must be at least 1, but got {out_features}")
         if hidden_features < 1:
-            raise ValueError(f"hidden_features must be at least 1, but got {hidden_features}")
+            raise ValueError(
+                f"hidden_features must be at least 1, but got {hidden_features}"
+            )
         if hidden_depth < 1:
             raise ValueError(f"hidden_depth must be at least 1, but got {hidden_depth}")
         if dropout_p is not None and (dropout_p < 0 or dropout_p > 1):
-            raise ValueError(f"dropout_p must be None or a number between 0 and 1, but got {dropout_p}")
+            raise ValueError(
+                f"dropout_p must be None or a number between 0 and 1, but got {dropout_p}"
+            )
         if residual and in_features != out_features:
-            raise ValueError("Cannot set residual to True when in_features != out_features")
+            raise ValueError(
+                "Cannot set residual to True when in_features != out_features"
+            )
         self.residual = residual
         activation_cls = _resolve_activation(activation)
         if norm is not None:
@@ -125,7 +136,9 @@ class MLP(nn.Module):
         assert len(linears) == hidden_depth + 1
 
         for i, m in enumerate(linears):
-            if i < hidden_depth:  # Hidden layers: Kaiming for ReLU/GELU/SiLU, Xavier for Sigmoid/Tanh
+            if (
+                i < hidden_depth
+            ):  # Hidden layers: Kaiming for ReLU/GELU/SiLU, Xavier for Sigmoid/Tanh
                 if activation in KAIMING_ACTIVATIONS:
                     nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
                 elif activation in XAVIER_ACTIVATIONS:

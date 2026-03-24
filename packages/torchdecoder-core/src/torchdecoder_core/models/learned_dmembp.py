@@ -51,7 +51,7 @@ class LearnedDMemBP(DecoderModel):
                 Number of BP iterations.
 
             min_impl_method : Literal["smooth", "hard"]
-                Implementation method of the min function during training. 
+                Implementation method of the min function during training.
                 Options: "smooth" (based on softmin) or "hard".
                 Note that during inference, we always use "hard" min.
 
@@ -79,7 +79,9 @@ class LearnedDMemBP(DecoderModel):
         # cn_mask[i, k] = True if CN i has k-th neighbor, False otherwise.
         cn_deg = pcm.sum(axis=1).astype(int)
         self.max_cn_deg = int(cn_deg.max())
-        cn_edge_idx = np.full((self.num_chks, self.max_cn_deg), num_edges, dtype=np.int64)
+        cn_edge_idx = np.full(
+            (self.num_chks, self.max_cn_deg), num_edges, dtype=np.int64
+        )
         cn_mask = np.zeros((self.num_chks, self.max_cn_deg), dtype=bool)
         cn_cursor = np.zeros(self.num_chks, dtype=int)
         for e in range(num_edges):
@@ -94,7 +96,9 @@ class LearnedDMemBP(DecoderModel):
         # vn_mask[j, k] = True if VN j has k-th neighbor, False otherwise.
         vn_deg = pcm.sum(axis=0).astype(int)
         self.max_vn_deg = int(vn_deg.max())
-        vn_edge_idx = np.full((self.num_vars, self.max_vn_deg), num_edges, dtype=np.int64)
+        vn_edge_idx = np.full(
+            (self.num_vars, self.max_vn_deg), num_edges, dtype=np.int64
+        )
         vn_mask = np.zeros((self.num_vars, self.max_vn_deg), dtype=bool)
         vn_cursor = np.zeros(self.num_vars, dtype=int)
         for e in range(num_edges):
@@ -106,11 +110,21 @@ class LearnedDMemBP(DecoderModel):
 
         # Register index buffers (derived from chkmat; not saved in checkpoints).
         # Since these are derived from chkmat, they are not part of the model's state_dict, and will not be saved in checkpoints.
-        self.register_buffer("edge_to_vn", torch.tensor(edge_to_vn, dtype=torch.long), persistent=False)  # (E,)
-        self.register_buffer("cn_edge_idx", torch.tensor(cn_edge_idx, dtype=torch.long), persistent=False)  # (C, Δc)
-        self.register_buffer("cn_mask", torch.tensor(cn_mask, dtype=torch.bool), persistent=False)  # (C, Δc)
-        self.register_buffer("vn_edge_idx", torch.tensor(vn_edge_idx, dtype=torch.long), persistent=False)  # (V, Δv)
-        self.register_buffer("vn_mask", torch.tensor(vn_mask, dtype=torch.bool), persistent=False)  # (V, Δv)
+        self.register_buffer(
+            "edge_to_vn", torch.tensor(edge_to_vn, dtype=torch.long), persistent=False
+        )  # (E,)
+        self.register_buffer(
+            "cn_edge_idx", torch.tensor(cn_edge_idx, dtype=torch.long), persistent=False
+        )  # (C, Δc)
+        self.register_buffer(
+            "cn_mask", torch.tensor(cn_mask, dtype=torch.bool), persistent=False
+        )  # (C, Δc)
+        self.register_buffer(
+            "vn_edge_idx", torch.tensor(vn_edge_idx, dtype=torch.long), persistent=False
+        )  # (V, Δv)
+        self.register_buffer(
+            "vn_mask", torch.tensor(vn_mask, dtype=torch.bool), persistent=False
+        )  # (V, Δv)
         if min_impl_method == "smooth" or sign_impl_method == "smooth":
             self.register_buffer(
                 "cn_diag_mask",
@@ -123,7 +137,9 @@ class LearnedDMemBP(DecoderModel):
         # use the prior_llr the model was trained with to benchmark its performance on other prior probabilities.
         prior = np.clip(prior, min=EPS, max=1 - EPS)
         prior_llr = np.log((1 - prior) / prior)
-        self.register_buffer("prior_llr", torch.tensor(prior_llr, dtype=torch.float32), persistent=True)  # (V,)
+        self.register_buffer(
+            "prior_llr", torch.tensor(prior_llr, dtype=torch.float32), persistent=True
+        )  # (V,)
 
         # Initialize trainable parameter: memory strength.
         self.gamma = nn.Parameter(torch.zeros(self.num_vars))  # (V,)
@@ -142,11 +158,15 @@ class LearnedDMemBP(DecoderModel):
         cn_to_vn = torch.zeros(batch_size, self.num_edges + 1, device=device)
 
         # Initialize VN→CN messages with prior LLRs.
-        vn_to_cn[:, :self.num_edges] = self.prior_llr[self.edge_to_vn]
+        vn_to_cn[:, : self.num_edges] = self.prior_llr[self.edge_to_vn]
 
         # Pre-expand flattened index tensors for scatter.
-        cn_flat_idx = self.cn_edge_idx.reshape(1, -1).expand(batch_size, -1)  # (B, C * Δc)
-        vn_flat_idx = self.vn_edge_idx.reshape(1, -1).expand(batch_size, -1)  # (B, V * Δv)
+        cn_flat_idx = self.cn_edge_idx.reshape(1, -1).expand(
+            batch_size, -1
+        )  # (B, C * Δc)
+        vn_flat_idx = self.vn_edge_idx.reshape(1, -1).expand(
+            batch_size, -1
+        )  # (B, V * Δv)
 
         cn_mask_3d = self.cn_mask.unsqueeze(0)  # (1, C, Δc)
         vn_mask_3d = self.vn_mask.unsqueeze(0)  # (1, V, Δv)
@@ -160,24 +180,40 @@ class LearnedDMemBP(DecoderModel):
             msgs_cn = vn_to_cn[:, self.cn_edge_idx]  # (B, C, Δc)
 
             # Leave-one-out sign product.
-            if self.training and self.sign_impl_method == "smooth":  # 4D expansion + diagonal mask
-                msgs_sgn = smooth_sign(msgs_cn).masked_fill(~cn_mask_3d, 1.0)  # (B, C, Δc)
-                msgs_sgn_4d = msgs_sgn.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (B, C, Δc, Δc)
-                loo_sgn_prod = msgs_sgn_4d.masked_fill(self.cn_diag_mask, 1.0).prod(dim=3)  # (B, C, Δc)
+            if (
+                self.training and self.sign_impl_method == "smooth"
+            ):  # 4D expansion + diagonal mask
+                msgs_sgn = smooth_sign(msgs_cn).masked_fill(
+                    ~cn_mask_3d, 1.0
+                )  # (B, C, Δc)
+                msgs_sgn_4d = msgs_sgn.unsqueeze(2).expand(
+                    -1, -1, self.max_cn_deg, -1
+                )  # (B, C, Δc, Δc)
+                loo_sgn_prod = msgs_sgn_4d.masked_fill(self.cn_diag_mask, 1.0).prod(
+                    dim=3
+                )  # (B, C, Δc)
             else:  # Hard sign
                 msgs_cn_masked = msgs_cn.masked_fill(~cn_mask_3d, 1.0)  # (B, C, Δc)
-                loo_sgn_prod = leave_one_out_sign_product(msgs_cn_masked, dim=2)  # (B, C, Δc)
+                loo_sgn_prod = leave_one_out_sign_product(
+                    msgs_cn_masked, dim=2
+                )  # (B, C, Δc)
 
             # Leave-one-out min abs.
             msgs_abs = msgs_cn.abs().masked_fill(~cn_mask_3d, BIG)  # (B, C, Δc)
-            if self.training and self.min_impl_method == "smooth":  # 4D expansion + diagonal mask
-                msgs_abs_4d = msgs_abs.unsqueeze(2).expand(-1, -1, self.max_cn_deg, -1)  # (B, C, Δc, Δc)
-                loo_abs_min = smooth_min(msgs_abs_4d.masked_fill(self.cn_diag_mask, BIG), dim=3)  # (B, C, Δc)
+            if (
+                self.training and self.min_impl_method == "smooth"
+            ):  # 4D expansion + diagonal mask
+                msgs_abs_4d = msgs_abs.unsqueeze(2).expand(
+                    -1, -1, self.max_cn_deg, -1
+                )  # (B, C, Δc, Δc)
+                loo_abs_min = smooth_min(
+                    msgs_abs_4d.masked_fill(self.cn_diag_mask, BIG), dim=3
+                )  # (B, C, Δc)
             else:  # Hard min
                 loo_abs_min = leave_one_out_min(msgs_abs, dim=2)  # (B, C, Δc)
 
             # CN output messages.
-            cn_out = synd_sgn.unsqueeze(2) * loo_sgn_prod * loo_abs_min   # (B, C, Δc)
+            cn_out = synd_sgn.unsqueeze(2) * loo_sgn_prod * loo_abs_min  # (B, C, Δc)
 
             # Scatter CN outputs to edge array.
             # The values in cn_to_vn[:, num_edges] will be non-deterministic, but it's okay because they will be masked out during VN update.
@@ -195,9 +231,11 @@ class LearnedDMemBP(DecoderModel):
             if t == 0:
                 llrs = incoming_sum + self.prior_llr  # (B, V)
             else:
-                llrs = incoming_sum + \
-                    (1.0 - self.gamma) * self.prior_llr + \
-                    self.gamma * prev_llrs  # (B, V)
+                llrs = (
+                    incoming_sum
+                    + (1.0 - self.gamma) * self.prior_llr
+                    + self.gamma * prev_llrs
+                )  # (B, V)
 
             llrs_list.append(llrs)
             prev_llrs = llrs

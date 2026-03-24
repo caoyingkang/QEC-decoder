@@ -1,4 +1,5 @@
 """Factory for building loss functions."""
+
 import numpy as np
 from omegaconf import DictConfig
 
@@ -13,19 +14,21 @@ def build_decoding_loss(
     loss_cfg: DictConfig,
 ) -> DecodingLoss:
     """
-    Given a check matrix, an observable matrix, and a configuration, build a loss function 
+    Given a check matrix, an observable matrix, and a configuration, build a loss function
     for training iterative QEC decoders.
     """
     loss_name = loss_cfg.name
     if loss_name == "UniformIterationLoss":
         return UniformIterationLoss(
-            chkmat, obsmat,
+            chkmat,
+            obsmat,
             beta=loss_cfg.beta,
             skip_iters=loss_cfg.skip_iters,
         )
     elif loss_name == "ConvergenceAwareLoss":
         return ConvergenceAwareLoss(
-            chkmat, obsmat,
+            chkmat,
+            obsmat,
             beta=loss_cfg.beta,
             focal_gamma=loss_cfg.focal_gamma,
         )

@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+
 class DecodingDataset(Dataset):
     """
     A PyTorch Dataset. Each item is a (syndrome, observable) pair with integer dtype.
@@ -24,7 +25,9 @@ class DecodingDataset(Dataset):
                 Observable bits ∈ {0,1}, shape=(num_shots, num_obsers), integer or bool
         """
         assert isinstance(syndromes, np.ndarray) or isinstance(syndromes, torch.Tensor)
-        assert isinstance(observables, np.ndarray) or isinstance(observables, torch.Tensor)
+        assert isinstance(observables, np.ndarray) or isinstance(
+            observables, torch.Tensor
+        )
         assert syndromes.ndim == 2 and observables.ndim == 2
         assert syndromes.shape[0] == observables.shape[0]
 
@@ -51,7 +54,9 @@ class DecodingDataset(Dataset):
         if isinstance(file, str):
             file = Path(file)
         if file.exists() and not overwrite_ok:
-            raise FileExistsError(f"File {file} already exists, and overwrite_ok is set to False")
+            raise FileExistsError(
+                f"File {file} already exists, and overwrite_ok is set to False"
+            )
 
         file.parent.mkdir(parents=True, exist_ok=True)
         torch.save((self.syndromes, self.observables), file)
@@ -73,5 +78,9 @@ class DecodingDataset(Dataset):
         print(f"Number of shots: {shots}")
         print(f"Number of syndrome bits per shot: {sbits_per_shot}")
         print(f"Number of observable bits per shot: {obits_per_shot}")
-        print(f"Out of {shots} x {sbits_per_shot} syndrome bits, {sbits_ones} are one. ({sbits_ones / sbits_total * 100:.2f}%)")
-        print(f"Out of {shots} x {obits_per_shot} observable bits, {obits_ones} are one. ({obits_ones / obits_total * 100:.2f}%)")
+        print(
+            f"Out of {shots} x {sbits_per_shot} syndrome bits, {sbits_ones} are one. ({sbits_ones / sbits_total * 100:.2f}%)"
+        )
+        print(
+            f"Out of {shots} x {obits_per_shot} observable bits, {obits_ones} are one. ({obits_ones / obits_total * 100:.2f}%)"
+        )

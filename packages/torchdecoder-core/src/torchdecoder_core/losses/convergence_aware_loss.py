@@ -22,8 +22,8 @@ class ConvergenceAwareLoss(DecodingLoss):
     Convergence-aware loss function for iterative QEC decoders.
 
     In constrast to the `UniformIterationLoss`, this loss function is convergence-aware in the following sense:
-    - For each shot, the syndrome loss is summed over all "active" iterations. These are the iterations 0, 1, ..., 
-    output_iter, where output_iter is the first iteration where the hard-decision error pattern matches the 
+    - For each shot, the syndrome loss is summed over all "active" iterations. These are the iterations 0, 1, ...,
+    output_iter, where output_iter is the first iteration where the hard-decision error pattern matches the
     syndrome, or the last iteration if the syndrome is never matched.
     - For each shot, the observable loss is computed only at the output iteration.
     """
@@ -51,7 +51,7 @@ class ConvergenceAwareLoss(DecodingLoss):
             focal_gamma : float
                 Focal loss exponent (>= 0). γ=0 disables focal modulation.
                 Positive γ can help the decoder focus on hard-to-predict bits by introducing
-                a (1 - p_t)^γ factor on the BCE loss, where p_t is the predicted probability 
+                a (1 - p_t)^γ factor on the BCE loss, where p_t is the predicted probability
                 of the ground truth bit value.
         """
         super().__init__(chkmat, obsmat, beta=beta)
@@ -61,7 +61,9 @@ class ConvergenceAwareLoss(DecodingLoss):
         self.focal_gamma = focal_gamma
 
         # Register the check matrix as a buffer, used for convergence detection.
-        self.register_buffer("chkmat", torch.tensor(chkmat, dtype=torch.float32), persistent=False)  # (num_chks, num_vars)
+        self.register_buffer(
+            "chkmat", torch.tensor(chkmat, dtype=torch.float32), persistent=False
+        )  # (num_chks, num_vars)
 
     def forward(
         self,
@@ -74,9 +76,13 @@ class ConvergenceAwareLoss(DecodingLoss):
 
         # --- Convergence detection: Identify active iterations (non-differentiable) ---
         hard_decisions = (llrs < 0).float()  # (I, B, V), float ∈ {0.0, 1.0}
-        _, output_iters = diagnose_convergence(hard_decisions, syndromes, self.chkmat)  # (B,), long
+        _, output_iters = diagnose_convergence(
+            hard_decisions, syndromes, self.chkmat
+        )  # (B,), long
         iter_indices = torch.arange(num_iters, device=device)  # (I,), long
-        active_iters_mask = iter_indices.unsqueeze(1) <= output_iters.unsqueeze(0)  # (I, B), bool
+        active_iters_mask = iter_indices.unsqueeze(1) <= output_iters.unsqueeze(
+            0
+        )  # (I, B), bool
 
         tanhhalfllrs = torch.tanh(llrs * 0.5)  # (I, B, V)
         synd_loss = self._get_syndrome_loss(tanhhalfllrs, syndromes, active_iters_mask)
@@ -110,8 +116,7 @@ class ConvergenceAwareLoss(DecodingLoss):
         )  # (I, B, C)
         loss_per_iter = loss_per_check.mean(dim=-1)  # (I, B)
         loss_per_shot = torch.sum(
-            loss_per_iter * active_iters_mask.float(),
-            dim=0
+            loss_per_iter * active_iters_mask.float(), dim=0
         )  # (B,)
         return loss_per_shot.mean()
 
@@ -126,7 +131,9 @@ class ConvergenceAwareLoss(DecodingLoss):
         """
         # Gather LLRs at the output iteration.
         index = output_iters.reshape(1, -1, 1).expand(1, -1, self.num_vars)  # (1, B, V)
-        tanhhalfllrs_at_output = torch.gather(tanhhalfllrs, dim=0, index=index).squeeze(0)  # (B, V)
+        tanhhalfllrs_at_output = torch.gather(tanhhalfllrs, dim=0, index=index).squeeze(
+            0
+        )  # (B, V)
 
         # Gather LLRs of variables in the support of each observable.
         gathered = tanhhalfllrs_at_output[:, self.obs_supp]  # (B, O, Wo)
