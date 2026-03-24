@@ -3,7 +3,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 import lightning as L
 
-from .dataset import DecodingDataset
+from torchdecoder_core.dataset import DecodingDataset
 
 
 class DecodingDataModule(L.LightningDataModule):
@@ -15,19 +15,27 @@ class DecodingDataModule(L.LightningDataModule):
 
     def setup(self, stage: str):
         if stage == "fit":
-            self.train_ds = DecodingDataset.load_from_file(self.data_dir / "train_dataset.pt")
-            self.val_ds = DecodingDataset.load_from_file(self.data_dir / "val_dataset.pt")
-            print(f">>>>>> Summary of train_dataset:")
+            self.train_ds = DecodingDataset.load_from_file(
+                self.data_dir / "train_dataset.pt"
+            )
+            self.val_ds = DecodingDataset.load_from_file(
+                self.data_dir / "val_dataset.pt"
+            )
+            print(">>>>>> Summary of train_dataset:")
             self.train_ds.print_summary()
-            print(f">>>>>> Summary of val_dataset:")
+            print(">>>>>> Summary of val_dataset:")
             self.val_ds.print_summary()
         elif stage == "validate":
-            self.val_ds = DecodingDataset.load_from_file(self.data_dir / "val_dataset.pt")
-            print(f">>>>>> Summary of val_dataset:")
+            self.val_ds = DecodingDataset.load_from_file(
+                self.data_dir / "val_dataset.pt"
+            )
+            print(">>>>>> Summary of val_dataset:")
             self.val_ds.print_summary()
         elif stage == "test":
-            self.test_ds = DecodingDataset.load_from_file(self.data_dir / "test_dataset.pt")
-            print(f">>>>>> Summary of test_dataset:")
+            self.test_ds = DecodingDataset.load_from_file(
+                self.data_dir / "test_dataset.pt"
+            )
+            print(">>>>>> Summary of test_dataset:")
             self.test_ds.print_summary()
         else:
             raise NotImplementedError(f"Stage {stage} is not supported")

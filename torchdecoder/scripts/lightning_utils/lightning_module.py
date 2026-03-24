@@ -5,9 +5,9 @@ import torch
 import lightning as L
 from omegaconf import DictConfig
 
-from .models import build_decoder_model
-from .losses import build_decoding_loss, LossResult
-from .metric import IterativeDecodingMetric
+from torchdecoder_core.models import build_decoder_model
+from torchdecoder_core.losses import build_decoding_loss, LossResult
+from torchdecoder_core.metrics import IterativeDecodingMetric
 
 
 class DecodingModule(L.LightningModule):
@@ -48,12 +48,20 @@ class DecodingModule(L.LightningModule):
                 If None, no compilation is performed.
         """
         super().__init__()
-        self.save_hyperparameters(ignore=['chkmat', 'obsmat', 'prior'])
+        self.save_hyperparameters(ignore=["chkmat", "obsmat", "prior"])
 
         # Validate chkmat, obsmat, and prior.
-        assert isinstance(chkmat, np.ndarray) and isinstance(obsmat, np.ndarray) and isinstance(prior, np.ndarray)
-        assert np.issubdtype(chkmat.dtype, np.integer) or np.issubdtype(chkmat.dtype, np.bool_)
-        assert np.issubdtype(obsmat.dtype, np.integer) or np.issubdtype(obsmat.dtype, np.bool_)
+        assert (
+            isinstance(chkmat, np.ndarray)
+            and isinstance(obsmat, np.ndarray)
+            and isinstance(prior, np.ndarray)
+        )
+        assert np.issubdtype(chkmat.dtype, np.integer) or np.issubdtype(
+            chkmat.dtype, np.bool_
+        )
+        assert np.issubdtype(obsmat.dtype, np.integer) or np.issubdtype(
+            obsmat.dtype, np.bool_
+        )
         assert np.issubdtype(prior.dtype, np.floating)
         assert chkmat.ndim == 2 and obsmat.ndim == 2 and prior.ndim == 1
         assert chkmat.shape[1] == obsmat.shape[1] == prior.shape[0]
@@ -78,12 +86,14 @@ class DecodingModule(L.LightningModule):
         return self.model(syndromes)
 
     def training_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
-        syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
+        syndromes, observables = (
+            batch  # (batch_size, num_chks), (batch_size, num_obsers), int
+        )
         llrs: torch.Tensor = self(syndromes)  # (num_iters, batch_size, num_vars), float
         result: LossResult = self.loss_fn(llrs, syndromes, observables)
-        self.log('train_loss', result.loss, on_step=False, on_epoch=True)
-        self.log('train_synd_loss', result.synd_loss, on_step=False, on_epoch=True)
-        self.log('train_obser_loss', result.obser_loss, on_step=False, on_epoch=True)
+        self.log("train_loss", result.loss, on_step=False, on_epoch=True)
+        self.log("train_synd_loss", result.synd_loss, on_step=False, on_epoch=True)
+        self.log("train_obser_loss", result.obser_loss, on_step=False, on_epoch=True)
         return result.loss
 
     def on_before_optimizer_step(self, optimizer):
@@ -92,9 +102,7 @@ class DecodingModule(L.LightningModule):
             for name, p in self.model.named_parameters():
                 # Inspect parameter values distribution
                 self.logger.experiment.add_histogram(
-                    tag=f"params/{name}",
-                    values=p.detach(),
-                    global_step=global_step
+                    tag=f"params/{name}", values=p.detach(), global_step=global_step
                 )
                 if p.grad is not None:
                     # Inspect gradient norm
@@ -103,16 +111,18 @@ class DecodingModule(L.LightningModule):
                     self.logger.experiment.add_histogram(
                         tag=f"grads/{name}",
                         values=p.grad.detach(),
-                        global_step=global_step
+                        global_step=global_step,
                     )
 
     def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
-        syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
+        syndromes, observables = (
+            batch  # (batch_size, num_chks), (batch_size, num_obsers), int
+        )
         llrs: torch.Tensor = self(syndromes)  # (num_iters, batch_size, num_vars), float
         result: LossResult = self.loss_fn(llrs, syndromes, observables)
-        self.log('val_loss', result.loss, on_step=False, on_epoch=True)
-        self.log('val_synd_loss', result.synd_loss, on_step=False, on_epoch=True)
-        self.log('val_obser_loss', result.obser_loss, on_step=False, on_epoch=True)
+        self.log("val_loss", result.loss, on_step=False, on_epoch=True)
+        self.log("val_synd_loss", result.synd_loss, on_step=False, on_epoch=True)
+        self.log("val_obser_loss", result.obser_loss, on_step=False, on_epoch=True)
         self.metric.update(llrs, syndromes, observables)
         return result.loss
 
@@ -124,20 +134,34 @@ class DecodingModule(L.LightningModule):
         if self.trainer.sanity_checking:
             self.print("\n--- Pre-Train Validation Summary ---")
         else:
-            self.print(f"\n--- Epoch {self.trainer.current_epoch} Validation Summary ---")
+            self.print(
+                f"\n--- Epoch {self.trainer.current_epoch} Validation Summary ---"
+            )
         self.print(f"Val Loss: {self.trainer.callback_metrics['val_loss']:.5f}")
         self.print("Val Metrics:")
         self.print(f"  Convergence Rate: {val_metrics['convergence_rate'] * 100:.2f}%")
-        self.print(f"  Logical Success Rate: {val_metrics['logical_success_rate'] * 100:.2f}%")
-        self.print(f"  Strict Success Rate: {val_metrics['strict_success_rate'] * 100:.2f}%")
-        self.print(f"  Accidental Success Rate: {val_metrics['accidental_success_rate'] * 100:.2f}%")
-        self.print(f"  Success Rate on Convergence: {val_metrics['success_rate_on_convergence'] * 100:.2f}%")
+        self.print(
+            f"  Logical Success Rate: {val_metrics['logical_success_rate'] * 100:.2f}%"
+        )
+        self.print(
+            f"  Strict Success Rate: {val_metrics['strict_success_rate'] * 100:.2f}%"
+        )
+        self.print(
+            f"  Accidental Success Rate: {val_metrics['accidental_success_rate'] * 100:.2f}%"
+        )
+        self.print(
+            f"  Success Rate on Convergence: {val_metrics['success_rate_on_convergence'] * 100:.2f}%"
+        )
         self.print(f"  Average Iterations: {val_metrics['avg_iters']:.2f}")
-        self.print(f"  Average Iterations on Convergence: {val_metrics['avg_iters_on_convergence']:.2f}")
+        self.print(
+            f"  Average Iterations on Convergence: {val_metrics['avg_iters_on_convergence']:.2f}"
+        )
         self.print()
 
     def test_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
-        syndromes, observables = batch  # (batch_size, num_chks), (batch_size, num_obsers), int
+        syndromes, observables = (
+            batch  # (batch_size, num_chks), (batch_size, num_obsers), int
+        )
         llrs = self(syndromes)  # (num_iters, batch_size, num_vars), float
         self.metric.update(llrs, syndromes, observables)
 
@@ -148,12 +172,22 @@ class DecodingModule(L.LightningModule):
 
         self.print("\n--- Test Summary ---")
         self.print(f"  Convergence Rate: {test_metrics['convergence_rate'] * 100:.2f}%")
-        self.print(f"  Logical Success Rate: {test_metrics['logical_success_rate'] * 100:.2f}%")
-        self.print(f"  Strict Success Rate: {test_metrics['strict_success_rate'] * 100:.2f}%")
-        self.print(f"  Accidental Success Rate: {test_metrics['accidental_success_rate'] * 100:.2f}%")
-        self.print(f"  Success Rate on Convergence: {test_metrics['success_rate_on_convergence'] * 100:.2f}%")
+        self.print(
+            f"  Logical Success Rate: {test_metrics['logical_success_rate'] * 100:.2f}%"
+        )
+        self.print(
+            f"  Strict Success Rate: {test_metrics['strict_success_rate'] * 100:.2f}%"
+        )
+        self.print(
+            f"  Accidental Success Rate: {test_metrics['accidental_success_rate'] * 100:.2f}%"
+        )
+        self.print(
+            f"  Success Rate on Convergence: {test_metrics['success_rate_on_convergence'] * 100:.2f}%"
+        )
         self.print(f"  Average Iterations: {test_metrics['avg_iters']:.2f}")
-        self.print(f"  Average Iterations on Convergence: {test_metrics['avg_iters_on_convergence']:.2f}")
+        self.print(
+            f"  Average Iterations on Convergence: {test_metrics['avg_iters_on_convergence']:.2f}"
+        )
         self.print()
 
     def configure_optimizers(self):
@@ -174,5 +208,5 @@ class DecodingModule(L.LightningModule):
                 "monitor": "val_loss",
                 "interval": "epoch",
                 "frequency": 1,
-            }
+            },
         }

@@ -6,15 +6,16 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "qecdec",
-    "numpy==2.2.*",
+    "torchdecoder_core",
+    "numpy",
     "torch",
-    "torchmetrics",
     "lightning",
     "tensorboard",
     "torch-tb-profiler",
     "omegaconf",
     "tabulate",
     "humanize",
+    "stim",
 ]
 
 [tool.uv]
@@ -22,3 +23,4 @@ package = false
 
 [tool.uv.sources]
 qecdec = { workspace = true }
+torchdecoder_core = { workspace = true }

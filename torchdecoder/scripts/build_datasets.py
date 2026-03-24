@@ -1,13 +1,25 @@
-import sys
+"""
+Python script to build datasets for training and testing.
+The datasets will be saved in the torchdecoder/datasets directory.
+
+Usage:
+    uv run python build_datasets.py [options]
+
+Options:
+    -h, --help : Show help message and exit
+    --force : Rebuild even if datasets already exist
+"""
+
 from pathlib import Path
+import argparse
 
 import numpy as np
 from omegaconf import OmegaConf
 from stim import CompiledDemSampler
 from qecdec import BPDecoder, RotatedSurfaceCode_Memory
+from torchdecoder_core.dataset import DecodingDataset
 
-PYTORCH_ROOT = Path(__file__).resolve().parent.parent
-DATASETS_ROOT = PYTORCH_ROOT / "datasets"
+DATASETS_ROOT = Path(__file__).resolve().parent.parent / "datasets"
 
 
 def find_config_dirs() -> list[Path]:
@@ -18,12 +30,16 @@ def find_config_dirs() -> list[Path]:
     return config_dirs
 
 
-def sample_shots(sampler: CompiledDemSampler, shots: int) -> tuple[np.ndarray, np.ndarray]:
+def sample_shots(
+    sampler: CompiledDemSampler, shots: int
+) -> tuple[np.ndarray, np.ndarray]:
     syndromes, observables, _ = sampler.sample(shots)
     return syndromes.astype(np.uint8), observables.astype(np.uint8)
 
 
-def remove_trivial_shots(syndromes: np.ndarray, observables: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def remove_trivial_shots(
+    syndromes: np.ndarray, observables: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Remove shots that have all-zero syndrome.
     """
@@ -67,8 +83,8 @@ def collect_dataset(
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Collect a dataset of `target_size`, about `hard_sample_ratio` fraction of which
-    are hard (i.e., BP does not converge within `bp_max_iter` iterations), after 
-    filtering out trivial shots (i.e., shots with all-zero syndrome). The returned 
+    are hard (i.e., BP does not converge within `bp_max_iter` iterations), after
+    filtering out trivial shots (i.e., shots with all-zero syndrome). The returned
     syndromes and observables are shuffled.
     """
     target_hard = int(target_size * hard_sample_ratio)
@@ -103,10 +119,11 @@ def collect_dataset(
 
         if syn.shape[0] > 0:
             h_syn, h_obs, e_syn, e_obs = classify_hard_easy(
-                syn, obs,
+                syn,
+                obs,
                 chkmat=expmt.chkmat,
                 prior=expmt.prior,
-                bp_max_iter=bp_max_iter
+                bp_max_iter=bp_max_iter,
             )
             if hard_shots < target_hard and h_syn.shape[0] > 0:
                 hard_syndromes_list.append(h_syn)
@@ -206,8 +223,13 @@ def build_dataset_for_config(config_dir: Path, force: bool) -> None:
     hard_sample_ratio = cfg.data.hard_sample_ratio
     bp_max_iter = cfg.data.bp_max_iter
 
-    if cfg.qec.code != "RotatedSurfaceCode" or cfg.qec.noise_model != "Phenomenological":
-        raise ValueError(f"Unsupported combination: {cfg.qec.code} + {cfg.qec.noise_model}")
+    if (
+        cfg.qec.code != "RotatedSurfaceCode"
+        or cfg.qec.noise_model != "Phenomenological"
+    ):
+        raise ValueError(
+            f"Unsupported combination: {cfg.qec.code} + {cfg.qec.noise_model}"
+        )
 
     if not force and train_path.exists() and val_path.exists():
         print(f">>>>>> Skipping train and val datasets inside {config_dir}.")
@@ -259,9 +281,10 @@ def build_dataset_for_config(config_dir: Path, force: bool) -> None:
 
 
 def main():
-    import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--force", action="store_true", help="Rebuild even if datasets exist")
+    parser.add_argument(
+        "--force", action="store_true", help="Rebuild even if datasets exist"
+    )
     args = parser.parse_args()
     force = args.force
 
@@ -275,7 +298,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(PYTORCH_ROOT))
-    from src.dataset.dataset import DecodingDataset
-
     main()

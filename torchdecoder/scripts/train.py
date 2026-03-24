@@ -1,19 +1,21 @@
 """
 Python script to train a PyTorch decoder.
 
-Usage:
-    python train.py --config <path/to/config.yaml> [overrides...]
-    python train.py --config <path/to/config.yaml> --profile
+Usage: (from torchdecoder/scripts directory)
+    uv run python train.py --config <path/to/config.yaml> [options] [overrides...]
 
-Examples: (Assuming run in the pytorch/scripts directory)
-    python train.py --config configs/train_LearnedDMemBP_UniformIterationLoss_d=5.yaml
-    python train.py --config configs/train_MultiDMemBP_UniformIterationLoss_d=5.yaml loss.beta=0.0 model.mlp.activation=ReLU
-    python train.py --config configs/train_MultiDMemBP_ConvergenceAwareLoss_d=5.yaml --profile
+Options:
+    -h, --help : Show help message and exit
+    --profile : Profile a few training steps
+
+Examples: (from the torchdecoder/scripts directory)
+    uv run python train.py --config configs/train_LearnedDMemBP_UniformIterationLoss_d=5.yaml
+    uv run python train.py --config configs/train_MultiDMemBP_UniformIterationLoss_d=5.yaml loss.beta=0.0 model.mlp.activation=ReLU
+    uv run python train.py --config configs/train_MultiDMemBP_ConvergenceAwareLoss_d=5.yaml --profile
 """
 
 import argparse
 import os
-import sys
 from pathlib import Path
 import warnings
 
@@ -33,9 +35,11 @@ from omegaconf import OmegaConf, DictConfig
 from omegaconf.errors import ConfigKeyError
 from qecdec import RotatedSurfaceCode_Memory
 
-PYTORCH_ROOT = Path(__file__).resolve().parent.parent
-DATASETS_ROOT = PYTORCH_ROOT / "datasets"
-RUNS_ROOT = PYTORCH_ROOT / "runs"
+from lightning_utils import DecodingDataModule, DecodingModule
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATASETS_ROOT = PROJECT_ROOT / "datasets"
+RUNS_ROOT = PROJECT_ROOT / "runs"
 
 
 def load_config(path: Path, overrides: list[str]) -> DictConfig:
@@ -49,7 +53,9 @@ def load_config(path: Path, overrides: list[str]) -> DictConfig:
     try:
         cfg = OmegaConf.merge(base_cfg, overrides_cfg)
     except ConfigKeyError as e:
-        print(f"Invalid CLI override(s). Only keys that exist in the base config can be overridden.\n {e}")
+        print(
+            f"Invalid CLI override(s). Only keys that exist in the base config can be overridden.\n {e}"
+        )
         exit(1)
 
     if cfg.data.num_workers is None:
@@ -103,30 +109,38 @@ def print_params(module: L.LightningModule):
         bytes = numel * param.element_size()
         total_numel += numel
         total_bytes += bytes
-        table_data.append([
-            name,
-            str(param.dtype).split('.')[-1],
-            list(param.size()),
-            f"{numel:,}",
-            humanize.naturalsize(bytes, binary=True),
-        ])
-    table_data.append([
-        "Total",
-        "",
-        "",
-        f"{total_numel:,}",
-        humanize.naturalsize(total_bytes, binary=True),
-    ])
-    print(tabulate(
-        table_data,
-        headers=["name", "dtype", "size", "numel", "bytes"],
-        tablefmt="fancy_grid"
-    ))
+        table_data.append(
+            [
+                name,
+                str(param.dtype).split(".")[-1],
+                list(param.size()),
+                f"{numel:,}",
+                humanize.naturalsize(bytes, binary=True),
+            ]
+        )
+    table_data.append(
+        [
+            "Total",
+            "",
+            "",
+            f"{total_numel:,}",
+            humanize.naturalsize(total_bytes, binary=True),
+        ]
+    )
+    print(
+        tabulate(
+            table_data,
+            headers=["name", "dtype", "size", "numel", "bytes"],
+            tablefmt="fancy_grid",
+        )
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(description="Train a PyTorch decoder")
-    parser.add_argument("--config", required=True, type=str, help="Path to config YAML file")
+    parser.add_argument(
+        "--config", required=True, type=str, help="Path to config YAML file"
+    )
     parser.add_argument("--profile", action="store_true", help="Enable profiling")
     args, overrides = parser.parse_known_args()
 
@@ -143,7 +157,10 @@ def main():
     run_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(cfg, run_dir / "config.yaml")
 
-    if qec_cfg.code == "RotatedSurfaceCode" and qec_cfg.noise_model == "Phenomenological":
+    if (
+        qec_cfg.code == "RotatedSurfaceCode"
+        and qec_cfg.noise_model == "Phenomenological"
+    ):
         expmt = RotatedSurfaceCode_Memory(
             d=qec_cfg.d,
             rounds=qec_cfg.rounds,
@@ -152,12 +169,16 @@ def main():
             meas_error_rate=qec_cfg.p,
         )
     else:
-        raise ValueError(f"Unsupported combination: {qec_cfg.code} + {qec_cfg.noise_model}")
+        raise ValueError(
+            f"Unsupported combination: {qec_cfg.code} + {qec_cfg.noise_model}"
+        )
     print(f">>>>>> Number of error mechanisms: {expmt.num_error_mechanisms}")
     print(f">>>>>> Number of detectors: {expmt.num_detectors}")
     print(f">>>>>> Number of observables: {expmt.num_observables}")
     decoder = DecodingModule(
-        expmt.chkmat, expmt.obsmat, expmt.prior,
+        expmt.chkmat,
+        expmt.obsmat,
+        expmt.prior,
         model_cfg=cfg.model,
         loss_cfg=cfg.loss,
         optim_cfg=cfg.optim,
@@ -190,14 +211,22 @@ def main():
         version="",
         log_graph=cfg.tb_logger.log_graph,
     )
-    profiler = PyTorchProfiler(
-        on_trace_ready=torch.profiler.tensorboard_trace_handler(str(run_dir / "tb_logs" / "profile")),
-        profile_memory=True,
-        track_memory=True,
-        with_stack=True,
-        record_shapes=True,
-        schedule=torch.profiler.schedule(skip_first=10, wait=5, warmup=5, active=10, repeat=1),
-    ) if args.profile else None
+    profiler = (
+        PyTorchProfiler(
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(
+                str(run_dir / "tb_logs" / "profile")
+            ),
+            profile_memory=True,
+            track_memory=True,
+            with_stack=True,
+            record_shapes=True,
+            schedule=torch.profiler.schedule(
+                skip_first=10, wait=5, warmup=5, active=10, repeat=1
+            ),
+        )
+        if args.profile
+        else None
+    )
     trainer = L.Trainer(
         accelerator=cfg.trainer.accelerator,
         max_epochs=cfg.trainer.max_epochs if profiler is None else 1,
@@ -220,16 +249,18 @@ def main():
     trainer.fit(decoder, datamodule=datamodule)
 
     if early_stopping_callback.stopping_reason_message:
-        print(f"Early stopping reason: {early_stopping_callback.stopping_reason_message}")
+        print(
+            f"Early stopping reason: {early_stopping_callback.stopping_reason_message}"
+        )
 
 
 if __name__ == "__main__":
-    sys.path.append(str(PYTORCH_ROOT))
-    from src.dataset import DecodingDataModule
-    from src.lightning_module import DecodingModule
-
     # Filter out some warnings generated by lightning package.
-    warnings.filterwarnings("ignore", category=FutureWarning, message="`isinstance\\(treespec, LeafSpec\\)` is deprecated")
+    warnings.filterwarnings(
+        "ignore",
+        category=FutureWarning,
+        message="`isinstance\\(treespec, LeafSpec\\)` is deprecated",
+    )
 
     # torch.set_float32_matmul_precision("high")
 
