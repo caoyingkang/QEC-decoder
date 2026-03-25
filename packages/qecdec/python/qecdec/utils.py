@@ -2,49 +2,6 @@ import stim
 import numpy as np
 
 
-def build_tanner_graph(pcm: np.ndarray) -> tuple[list[list[int]], list[list[int]], list[list[int]], list[list[int]]]:
-    """
-    Build the Tanner graph of the parity-check matrix.
-
-    Parameters
-    ----------
-        pcm : ndarray
-            Parity-check matrix ∈ {0,1}, shape=(m, n), integer or bool
-
-    Returns
-    -------
-        chk_nbrs : list[list[int]]
-            chk_nbrs[i] = list of all VNs connected to CN i, sorted in increasing order.
-
-        var_nbrs : list[list[int]]
-            var_nbrs[j] = list of all CNs connected to VN j, sorted in increasing order.
-
-        chk_nbr_pos : list[list[int]]
-            chk_nbr_pos[i][k] = position of CN i in the list of neighbors of the VN chk_nbrs[i][k].
-            i.e., var_nbrs[chk_nbrs[i][k]][chk_nbr_pos[i][k]] = i.
-
-        var_nbr_pos : list[list[int]]
-            var_nbr_pos[j][k] = position of VN j in the list of neighbors of the CN var_nbrs[j][k].
-            i.e., chk_nbrs[var_nbrs[j][k]][var_nbr_pos[j][k]] = j.
-    """
-    assert isinstance(pcm, np.ndarray) and pcm.ndim == 2
-    assert np.issubdtype(pcm.dtype, np.integer) or \
-        np.issubdtype(pcm.dtype, np.bool_)
-    m, n = pcm.shape
-    chk_nbrs = [[] for _ in range(m)]
-    var_nbrs = [[] for _ in range(n)]
-    chk_nbr_pos = [[] for _ in range(m)]
-    var_nbr_pos = [[] for _ in range(n)]
-    for i in range(m):
-        for j in range(n):
-            if pcm[i, j]:
-                chk_nbr_pos[i].append(len(var_nbrs[j]))
-                var_nbr_pos[j].append(len(chk_nbrs[i]))
-                chk_nbrs[i].append(j)
-                var_nbrs[j].append(i)
-    return chk_nbrs, var_nbrs, chk_nbr_pos, var_nbr_pos
-
-
 def ceil_div(a: int, b: int) -> int:
     """
     Compute the ceiling of the division `a/b`.
@@ -55,14 +12,16 @@ def ceil_div(a: int, b: int) -> int:
         return a // b + 1
 
 
-def extract_error_mechanisms_from_dem(dem: stim.DetectorErrorModel) -> dict[tuple[tuple[int, ...], tuple[int, ...]], float]:
+def extract_error_mechanisms_from_dem(
+    dem: stim.DetectorErrorModel,
+) -> dict[tuple[tuple[int, ...], tuple[int, ...]], float]:
     """
-    Extract error mechanisms from a stim.DetectorErrorModel object. Each error mechanism is identified by its effect, 
-    which includes the set of detectors and the set of observables that are flipped. Error mechanisms with identical 
+    Extract error mechanisms from a stim.DetectorErrorModel object. Each error mechanism is identified by its effect,
+    which includes the set of detectors and the set of observables that are flipped. Error mechanisms with identical
     effect will be combined into one.
 
-    The output is a dict with each item representing an error mechanism. For each item, the key is a pair of tuples: 
-    the first tuple contains the flipped detectors (sorted in increasing order), and the second tuple contains the 
+    The output is a dict with each item representing an error mechanism. For each item, the key is a pair of tuples:
+    the first tuple contains the flipped detectors (sorted in increasing order), and the second tuple contains the
     flipped observables (sorted in increasing order); the value is the net probability that the error mechanism occurs.
     """
     eff2prob = {}
@@ -91,23 +50,23 @@ def extract_error_mechanisms_from_dem(dem: stim.DetectorErrorModel) -> dict[tupl
                 else:
                     raise RuntimeError("Not supposed to be here")
             eff = (tuple(sorted(dets)), tuple(sorted(obsers)))
-            if eff in eff2prob:  # this error has appeared earlier, let's update its probability
-                eff2prob[eff] = (1 - eff2prob[eff]) * p + \
-                    eff2prob[eff] * (1 - p)
+            if (
+                eff in eff2prob
+            ):  # this error has appeared earlier, let's update its probability
+                eff2prob[eff] = (1 - eff2prob[eff]) * p + eff2prob[eff] * (1 - p)
             else:  # this error is new, let's register it
                 eff2prob[eff] = p
         elif instruction.type == "detector" or instruction.type == "logical_observable":
             pass
         else:
-            raise ValueError(
-                f"Instruction type not expected: {instruction.type}")
+            raise ValueError(f"Instruction type not expected: {instruction.type}")
 
     return eff2prob
 
 
 def extract_detector_coords_from_dem(dem: stim.DetectorErrorModel) -> np.ndarray:
     """
-    Extract detector coordinates from a stim.DetectorErrorModel object. The output is a numpy array that has num_detectors 
+    Extract detector coordinates from a stim.DetectorErrorModel object. The output is a numpy array that has num_detectors
     rows, with the i-th row being the vector of coordinates of the i-th detector.
     """
     coords: list[list[float]] = [None] * dem.num_detectors
@@ -121,13 +80,14 @@ def extract_detector_coords_from_dem(dem: stim.DetectorErrorModel) -> np.ndarray
         elif instruction.type == "error" or instruction.type == "logical_observable":
             pass
         else:
-            raise ValueError(
-                f"Instruction type not expected: {instruction.type}")
+            raise ValueError(f"Instruction type not expected: {instruction.type}")
 
     if None in coords:
         raise ValueError("Some detector coordinates are not found.")
 
-    if not all(len(coords[i]) == len(coords[i+1]) for i in range(dem.num_detectors - 1)):
+    if not all(
+        len(coords[i]) == len(coords[i + 1]) for i in range(dem.num_detectors - 1)
+    ):
         raise ValueError("Detector coordinates have different lengths.")
 
     return np.array(coords)
@@ -195,22 +155,38 @@ def get_stats(
         "shots": shots,
         "unmatched_syndrome_shots": np.sum(unmatched_syndrome_mask),
         "unmatched_observable_shots": np.sum(unmatched_observable_mask),
-        "unmatched_syndrome_or_observable_shots": np.sum(unmatched_syndrome_mask | unmatched_observable_mask),
-        "unmatched_syndrome_and_observable_shots": np.sum(unmatched_syndrome_mask & unmatched_observable_mask),
-        "matched_syndrome_but_unmatched_observable_shots": np.sum(~unmatched_syndrome_mask & unmatched_observable_mask),
-        "unmatched_syndrome_but_matched_observable_shots": np.sum(unmatched_syndrome_mask & ~unmatched_observable_mask),
+        "unmatched_syndrome_or_observable_shots": np.sum(
+            unmatched_syndrome_mask | unmatched_observable_mask
+        ),
+        "unmatched_syndrome_and_observable_shots": np.sum(
+            unmatched_syndrome_mask & unmatched_observable_mask
+        ),
+        "matched_syndrome_but_unmatched_observable_shots": np.sum(
+            ~unmatched_syndrome_mask & unmatched_observable_mask
+        ),
+        "unmatched_syndrome_but_matched_observable_shots": np.sum(
+            unmatched_syndrome_mask & ~unmatched_observable_mask
+        ),
     }
 
 
 def bar_plot_stats(
     category2label2stats: dict[str, dict[str, Stat]],
     *,
-    colors: list[str] = ["skyblue", "lightgreen", "salmon",
-                         "khaki", "plum", "lightslategray",
-                         "gold", "orchid", "turquoise"],
+    colors: list[str] = [
+        "skyblue",
+        "lightgreen",
+        "salmon",
+        "khaki",
+        "plum",
+        "lightslategray",
+        "gold",
+        "orchid",
+        "turquoise",
+    ],
 ):
     """Plot bar charts for (1) number of shots with unmatched syndrome, and (2) number of shots with unmatched observable.
-    Bars are grouped by category and displayed side by side. Within each category, bars are distinguished by label and are 
+    Bars are grouped by category and displayed side by side. Within each category, bars are distinguished by label and are
     assigned different colors.
 
     Parameters
@@ -232,8 +208,11 @@ def bar_plot_stats(
         for category in categories
     )
     shots = category2label2stats[categories[0]][labels[0]]["shots"]
-    assert all(category2label2stats[category][label]["shots"] == shots
-               for category in categories for label in labels)
+    assert all(
+        category2label2stats[category][label]["shots"] == shots
+        for category in categories
+        for label in labels
+    )
     if len(colors) < len(labels):
         raise ValueError("Not enough colors")
 
@@ -241,10 +220,14 @@ def bar_plot_stats(
     data_unmatched_syndrome = {}
     data_unmatched_observable = {}
     for label in labels:
-        data_unmatched_syndrome[label] = [category2label2stats[category][label]["unmatched_syndrome_shots"]
-                                          for category in categories]
-        data_unmatched_observable[label] = [category2label2stats[category][label]["unmatched_observable_shots"]
-                                            for category in categories]
+        data_unmatched_syndrome[label] = [
+            category2label2stats[category][label]["unmatched_syndrome_shots"]
+            for category in categories
+        ]
+        data_unmatched_observable[label] = [
+            category2label2stats[category][label]["unmatched_observable_shots"]
+            for category in categories
+        ]
 
     # Create figure and axes.
     ax1: plt.Axes
@@ -258,8 +241,15 @@ def bar_plot_stats(
 
     # Plot 1: Unmatched Syndromes
     for i, label in enumerate(labels):
-        bars = ax1.bar(x + i * width, data_unmatched_syndrome[label], width,
-                       align="edge", label=label, alpha=0.8, color=colors[i])
+        bars = ax1.bar(
+            x + i * width,
+            data_unmatched_syndrome[label],
+            width,
+            align="edge",
+            label=label,
+            alpha=0.8,
+            color=colors[i],
+        )
         for bar in bars:
             height = bar.get_height()
             ax1.text(
@@ -271,8 +261,8 @@ def bar_plot_stats(
                 fontsize=8,
             )
 
-    ax1.set_title('Unmatched Syndrome (shots = {})'.format(shots))
-    ax1.set_ylabel('Number of shots with unmatched syndrome')
+    ax1.set_title("Unmatched Syndrome (shots = {})".format(shots))
+    ax1.set_ylabel("Number of shots with unmatched syndrome")
     ax1.set_xticks(x + len(labels) * width / 2)
     ax1.set_xticklabels(categories)
     ax1.legend()
@@ -280,8 +270,15 @@ def bar_plot_stats(
 
     # Plot 2: Unmatched Observables
     for i, label in enumerate(labels):
-        bars = ax2.bar(x + i * width, data_unmatched_observable[label], width,
-                       align="edge", label=label, alpha=0.8, color=colors[i])
+        bars = ax2.bar(
+            x + i * width,
+            data_unmatched_observable[label],
+            width,
+            align="edge",
+            label=label,
+            alpha=0.8,
+            color=colors[i],
+        )
         for bar in bars:
             height = bar.get_height()
             ax2.text(
@@ -293,8 +290,8 @@ def bar_plot_stats(
                 fontsize=8,
             )
 
-    ax2.set_title('Unmatched Observable (shots = {})'.format(shots))
-    ax2.set_ylabel('Number of shots with unmatched observable')
+    ax2.set_title("Unmatched Observable (shots = {})".format(shots))
+    ax2.set_ylabel("Number of shots with unmatched observable")
     ax2.set_xticks(x + len(labels) * width / 2)
     ax2.set_xticklabels(categories)
     ax2.legend()
@@ -307,9 +304,17 @@ def bar_plot_stats(
 def stacked_bar_plot_stats(
     category2label2stats: dict[str, dict[str, Stat]],
     *,
-    colors: list[str] = ["skyblue", "lightgreen", "salmon",
-                         "khaki", "plum", "lightslategray",
-                         "gold", "orchid", "turquoise"],
+    colors: list[str] = [
+        "skyblue",
+        "lightgreen",
+        "salmon",
+        "khaki",
+        "plum",
+        "lightslategray",
+        "gold",
+        "orchid",
+        "turquoise",
+    ],
 ):
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
@@ -323,8 +328,11 @@ def stacked_bar_plot_stats(
         for category in categories
     )
     shots = category2label2stats[categories[0]][labels[0]]["shots"]
-    assert all(category2label2stats[category][label]["shots"] == shots
-               for category in categories for label in labels)
+    assert all(
+        category2label2stats[category][label]["shots"] == shots
+        for category in categories
+        for label in labels
+    )
     if len(colors) < len(labels):
         raise ValueError("Not enough colors")
 
@@ -334,14 +342,26 @@ def stacked_bar_plot_stats(
     data_unmatched_syndrome_or_observable = {}
     data_matched_syndrome_but_unmatched_observable = {}
     for label in labels:
-        data_unmatched_syndrome[label] = [category2label2stats[category][label]["unmatched_syndrome_shots"]
-                                          for category in categories]
-        data_unmatched_observable[label] = [category2label2stats[category][label]["unmatched_observable_shots"]
-                                            for category in categories]
-        data_unmatched_syndrome_or_observable[label] = [category2label2stats[category][label]["unmatched_syndrome_or_observable_shots"]
-                                                        for category in categories]
-        data_matched_syndrome_but_unmatched_observable[label] = [category2label2stats[category][label]["matched_syndrome_but_unmatched_observable_shots"]
-                                                                 for category in categories]
+        data_unmatched_syndrome[label] = [
+            category2label2stats[category][label]["unmatched_syndrome_shots"]
+            for category in categories
+        ]
+        data_unmatched_observable[label] = [
+            category2label2stats[category][label]["unmatched_observable_shots"]
+            for category in categories
+        ]
+        data_unmatched_syndrome_or_observable[label] = [
+            category2label2stats[category][label][
+                "unmatched_syndrome_or_observable_shots"
+            ]
+            for category in categories
+        ]
+        data_matched_syndrome_but_unmatched_observable[label] = [
+            category2label2stats[category][label][
+                "matched_syndrome_but_unmatched_observable_shots"
+            ]
+            for category in categories
+        ]
     # Create figure and axes.
     fig, ax = plt.subplots(figsize=(15, 6))
 
@@ -352,24 +372,52 @@ def stacked_bar_plot_stats(
 
     # Plot.
     for i, label in enumerate(labels):
-        ax.bar(x + i * width, data_unmatched_syndrome_or_observable[label], width,
-               label=label, align="edge", alpha=0.8, color=colors[i], edgecolor="black", linewidth=1)
+        ax.bar(
+            x + i * width,
+            data_unmatched_syndrome_or_observable[label],
+            width,
+            label=label,
+            align="edge",
+            alpha=0.8,
+            color=colors[i],
+            edgecolor="black",
+            linewidth=1,
+        )
     for i, label in enumerate(labels):
-        ax.bar(x + i * width, data_unmatched_observable[label], width,
-               align="edge", color="none", hatch="///", linewidth=1)
-        ax.bar(x + i * width, data_unmatched_syndrome[label], width,
-               bottom=data_matched_syndrome_but_unmatched_observable[label],
-               align="edge", color="none", hatch="\\\\\\", linewidth=1)
+        ax.bar(
+            x + i * width,
+            data_unmatched_observable[label],
+            width,
+            align="edge",
+            color="none",
+            hatch="///",
+            linewidth=1,
+        )
+        ax.bar(
+            x + i * width,
+            data_unmatched_syndrome[label],
+            width,
+            bottom=data_matched_syndrome_but_unmatched_observable[label],
+            align="edge",
+            color="none",
+            hatch="\\\\\\",
+            linewidth=1,
+        )
         for j in range(len(categories)):
             y1 = data_matched_syndrome_but_unmatched_observable[label][j]
             y2 = data_unmatched_observable[label][j]
             y3 = data_unmatched_syndrome_or_observable[label][j]
             y_list = list(set([y1, y2]) - set([0, y3]))
             if len(y_list) > 0:
-                ax.hlines(y_list, j * stride + i * width, j * stride + i * width + width,
-                          colors="black", linewidth=1)
+                ax.hlines(
+                    y_list,
+                    j * stride + i * width,
+                    j * stride + i * width + width,
+                    colors="black",
+                    linewidth=1,
+                )
 
-    ax.set_title('Decoding performance (shots = {})'.format(shots))
+    ax.set_title("Decoding performance (shots = {})".format(shots))
     ax.set_xticks(x + len(labels) * width / 2)
     ax.set_xticklabels(categories)
     ax.grid(True, alpha=0.3)
@@ -399,30 +447,42 @@ def plot_tanner_graph_interactively(
     marker_size = 5
 
     # Check nodes
-    fig.add_trace(go.Scatter3d(
-        x=chk_coords[:, 0],
-        y=chk_coords[:, 1],
-        z=chk_coords[:, 2],
-        text=[str(i) for i in range(chkmat.shape[0])],
-        mode="markers",
-        marker=dict(size=marker_size, color="white", symbol="square",
-                    line=dict(color="black", width=1)),
-        name="Check Node",
-        hovertemplate="Check node index: %{text}<br>x, y, t: %{x}, %{y}, %{z}<extra></extra>",
-    ))
+    fig.add_trace(
+        go.Scatter3d(
+            x=chk_coords[:, 0],
+            y=chk_coords[:, 1],
+            z=chk_coords[:, 2],
+            text=[str(i) for i in range(chkmat.shape[0])],
+            mode="markers",
+            marker=dict(
+                size=marker_size,
+                color="white",
+                symbol="square",
+                line=dict(color="black", width=1),
+            ),
+            name="Check Node",
+            hovertemplate="Check node index: %{text}<br>x, y, t: %{x}, %{y}, %{z}<extra></extra>",
+        )
+    )
 
     # Variable nodes
-    fig.add_trace(go.Scatter3d(
-        x=var_coords[:, 0],
-        y=var_coords[:, 1],
-        z=var_coords[:, 2],
-        text=[str(i) for i in range(chkmat.shape[1])],
-        mode="markers",
-        marker=dict(size=marker_size, color="orange", symbol="circle",
-                    line=dict(color="black", width=1)),
-        name="Variable Node",
-        hovertemplate="Variable node index: %{text}<br>x, y, t: %{x}, %{y}, %{z}<extra></extra>",
-    ))
+    fig.add_trace(
+        go.Scatter3d(
+            x=var_coords[:, 0],
+            y=var_coords[:, 1],
+            z=var_coords[:, 2],
+            text=[str(i) for i in range(chkmat.shape[1])],
+            mode="markers",
+            marker=dict(
+                size=marker_size,
+                color="orange",
+                symbol="circle",
+                line=dict(color="black", width=1),
+            ),
+            name="Variable Node",
+            hovertemplate="Variable node index: %{text}<br>x, y, t: %{x}, %{y}, %{z}<extra></extra>",
+        )
+    )
 
     # Edges
     edge_x, edge_y, edge_z = [], [], []
@@ -433,14 +493,18 @@ def plot_tanner_graph_interactively(
                 edge_y += [var_coords[j, 1], chk_coords[i, 1], None]
                 edge_z += [var_coords[j, 2], chk_coords[i, 2], None]
 
-    fig.add_trace(go.Scatter3d(
-        x=edge_x, y=edge_y, z=edge_z,
-        mode="lines",
-        line=dict(color="gray", width=2),
-        name="Edges",
-        hoverinfo="skip",
-        hovertemplate=None,
-    ))
+    fig.add_trace(
+        go.Scatter3d(
+            x=edge_x,
+            y=edge_y,
+            z=edge_z,
+            mode="lines",
+            line=dict(color="gray", width=2),
+            name="Edges",
+            hoverinfo="skip",
+            hovertemplate=None,
+        )
+    )
 
     # Set scene parameters
     fig.update_scenes(
@@ -468,7 +532,7 @@ def visualize_bp_decoding_process(
     syndrome: np.ndarray,
     llr_history: np.ndarray,
     *,
-    zaxis_stretch: float = 4
+    zaxis_stretch: float = 4,
 ):
     import plotly.graph_objects as go
 
@@ -479,51 +543,71 @@ def visualize_bp_decoding_process(
 
     # Check nodes
     mask0 = syndrome == 0
-    fig.add_trace(go.Scatter3d(
-        x=chk_coords[mask0, 0],
-        y=chk_coords[mask0, 1],
-        z=chk_coords[mask0, 2],
-        mode="markers",
-        marker=dict(size=marker_size, color="white", symbol="square",
-                    line=dict(color="black", width=1)),
-        name="Check Node (syndrome = 0)",
-        hovertemplate="x, y, t: %{x}, %{y}, %{z}<extra></extra>",
-        visible=True
-    ))
+    fig.add_trace(
+        go.Scatter3d(
+            x=chk_coords[mask0, 0],
+            y=chk_coords[mask0, 1],
+            z=chk_coords[mask0, 2],
+            mode="markers",
+            marker=dict(
+                size=marker_size,
+                color="white",
+                symbol="square",
+                line=dict(color="black", width=1),
+            ),
+            name="Check Node (syndrome = 0)",
+            hovertemplate="x, y, t: %{x}, %{y}, %{z}<extra></extra>",
+            visible=True,
+        )
+    )
     mask1 = syndrome == 1
-    fig.add_trace(go.Scatter3d(
-        x=chk_coords[mask1, 0],
-        y=chk_coords[mask1, 1],
-        z=chk_coords[mask1, 2],
-        mode="markers",
-        marker=dict(size=marker_size, color="black", symbol="square",
-                    line=dict(color="black", width=1)),
-        name="Check Node (syndrome = 1)",
-        hovertemplate="x, y, t: %{x}, %{y}, %{z}<extra></extra>",
-        visible=True
-    ))
+    fig.add_trace(
+        go.Scatter3d(
+            x=chk_coords[mask1, 0],
+            y=chk_coords[mask1, 1],
+            z=chk_coords[mask1, 2],
+            mode="markers",
+            marker=dict(
+                size=marker_size,
+                color="black",
+                symbol="square",
+                line=dict(color="black", width=1),
+            ),
+            name="Check Node (syndrome = 1)",
+            hovertemplate="x, y, t: %{x}, %{y}, %{z}<extra></extra>",
+            visible=True,
+        )
+    )
 
     # Variable nodes
     for it in range(num_iters):
-        fig.add_trace(go.Scatter3d(
-            x=var_coords[:, 0],
-            y=var_coords[:, 1],
-            z=var_coords[:, 2],
-            mode="markers",
-            marker=dict(
-                size=marker_size, color=llr_history[it], cmin=-10, cmax=10,
-                colorscale=[[0, 'rgb(255,0,0)'],
-                            [0.5, 'rgb(255,255,255)'],
-                            [1, 'rgb(0,0,255)']],
-                colorbar=dict(title="LLR", x=1.12, y=0.3,
-                              orientation="h", len=0.25),
-                symbol="circle",
-                line=dict(color="black", width=1),
-            ),
-            name="Variable Node",
-            hovertemplate="x, y, t: %{x}, %{y}, %{z}<br>LLR: %{marker.color:.3f}<extra></extra>",
-            visible=(it == 0)
-        ))
+        fig.add_trace(
+            go.Scatter3d(
+                x=var_coords[:, 0],
+                y=var_coords[:, 1],
+                z=var_coords[:, 2],
+                mode="markers",
+                marker=dict(
+                    size=marker_size,
+                    color=llr_history[it],
+                    cmin=-10,
+                    cmax=10,
+                    colorscale=[
+                        [0, "rgb(255,0,0)"],
+                        [0.5, "rgb(255,255,255)"],
+                        [1, "rgb(0,0,255)"],
+                    ],
+                    colorbar=dict(
+                        title="LLR", x=1.12, y=0.3, orientation="h", len=0.25
+                    ),
+                    symbol="circle",
+                    line=dict(color="black", width=1),
+                ),
+                name="Variable Node",
+                hovertemplate="x, y, t: %{x}, %{y}, %{z}<br>LLR: %{marker.color:.3f}<extra></extra>",
+                visible=(it == 0),
+            )
+        )
 
     # Edges
     edge_x, edge_y, edge_z = [], [], []
@@ -534,36 +618,46 @@ def visualize_bp_decoding_process(
                 edge_y += [var_coords[j, 1], chk_coords[i, 1], None]
                 edge_z += [var_coords[j, 2], chk_coords[i, 2], None]
 
-    fig.add_trace(go.Scatter3d(
-        x=edge_x, y=edge_y, z=edge_z,
-        mode="lines",
-        line=dict(color="gray", width=2),
-        name="Edges",
-        hoverinfo="skip",
-        hovertemplate=None,
-        visible=True
-    ))
+    fig.add_trace(
+        go.Scatter3d(
+            x=edge_x,
+            y=edge_y,
+            z=edge_z,
+            mode="lines",
+            line=dict(color="gray", width=2),
+            name="Edges",
+            hoverinfo="skip",
+            hovertemplate=None,
+            visible=True,
+        )
+    )
 
     # Helper function
     def get_visibility(it):
         return [True, True] + [i == it for i in range(num_iters)] + [True]
 
     # Add sliders
-    sliders = [dict(
-        active=0,
-        steps=[dict(method="update",
+    sliders = [
+        dict(
+            active=0,
+            steps=[
+                dict(
+                    method="update",
                     label="Iteration {}".format(it),
-                    args=[{"visible": get_visibility(it)}])
-               for it in range(num_iters)]
-    )]
+                    args=[{"visible": get_visibility(it)}],
+                )
+                for it in range(num_iters)
+            ],
+        )
+    ]
 
     fig.update_layout(
         sliders=sliders,
         scene=dict(
             xaxis=dict(showspikes=False),
             yaxis=dict(showspikes=False),
-            zaxis=dict(showspikes=False)
-        )
+            zaxis=dict(showspikes=False),
+        ),
     )
 
     # Set scene parameters
