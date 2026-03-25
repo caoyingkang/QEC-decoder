@@ -136,7 +136,7 @@ impl Add for Cluster {
 
 /// Union-Find decoder.
 #[pyclass]
-pub struct UnionFindDecoder {
+pub struct UnionFindDecoderRust {
     /// Number of checks (= number of rows of pcm)
     num_chks: usize,
     /// Number of variables (= number of columns of pcm)
@@ -172,7 +172,7 @@ pub struct UnionFindDecoder {
 }
 
 #[pymethods]
-impl UnionFindDecoder {
+impl UnionFindDecoderRust {
     /// Create a Union-Find decoder.
     ///
     /// Parameters:
@@ -280,7 +280,7 @@ impl UnionFindDecoder {
     }
 }
 
-impl UnionFindDecoder {
+impl UnionFindDecoderRust {
     /// (Re-)initialize the decoder for the given syndrome vector `synd`.
     ///
     /// Return: The list of the nodes with nonzero syndrome.
@@ -507,6 +507,6 @@ impl UnionFindDecoder {
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<UnionFindDecoder>()?;
+    m.add_class::<UnionFindDecoderRust>()?;
     Ok(())
 }

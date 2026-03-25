@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 
 /// Disordered-memory, offset-normalized min-sum BP decoder.
 #[pyclass]
-pub struct DMemOffsetBPDecoder {
+pub struct DMemOffsetBPDecoderRust {
     /// Base struct for BP-based decoders, which stores parity-check matrix and prior error probabilities.
     base: BPBase,
     /// Memory strength for each variable node.
@@ -23,7 +23,7 @@ pub struct DMemOffsetBPDecoder {
 }
 
 #[pymethods]
-impl DMemOffsetBPDecoder {
+impl DMemOffsetBPDecoderRust {
     /// Create a DMemOffsetBP decoder.
     ///
     /// Parameters:
@@ -185,7 +185,7 @@ impl DMemOffsetBPDecoder {
     }
 }
 
-impl DMemOffsetBPDecoder {
+impl DMemOffsetBPDecoderRust {
     /// (Re-)initialize the decoder. More specifically, initialize the VN-to-CN messages.
     fn init(&mut self) {
         for j in 0..self.base.num_vars {
@@ -407,6 +407,6 @@ impl DMemOffsetBPDecoder {
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<DMemOffsetBPDecoder>()?;
+    m.add_class::<DMemOffsetBPDecoderRust>()?;
     Ok(())
 }

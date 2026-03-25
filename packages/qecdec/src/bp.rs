@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 
 /// Belief Propagation decoder (min-sum variant).
 #[pyclass]
-pub struct BPDecoder {
+pub struct BPDecoderRust {
     /// Base struct for BP-based decoders, which stores parity-check matrix and prior error probabilities.
     base: BPBase,
     /// Normalization factor. For no normalization, set to 1.0.
@@ -19,7 +19,7 @@ pub struct BPDecoder {
 }
 
 #[pymethods]
-impl BPDecoder {
+impl BPDecoderRust {
     /// Create a BP decoder.
     ///
     /// Parameters:
@@ -175,7 +175,7 @@ impl BPDecoder {
     }
 }
 
-impl BPDecoder {
+impl BPDecoderRust {
     /// (Re-)initialize the decoder. More specifically, initialize the VN-to-CN messages.
     fn init(&mut self) {
         for j in 0..self.base.num_vars {
@@ -383,6 +383,6 @@ impl BPDecoder {
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<BPDecoder>()?;
+    m.add_class::<BPDecoderRust>()?;
     Ok(())
 }

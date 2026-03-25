@@ -26,7 +26,7 @@ DecodeBatchDetailedResult: TypeAlias = tuple[
     Int1DArray,  # decoding_iters
 ]
 
-class BPDecoder:
+class BPDecoderRust:
     """Min-sum belief propagation decoder (Rust implementation)."""
 
     def __init__(
@@ -142,7 +142,7 @@ class BPDecoder:
         """
         ...
 
-class DMemBPDecoder:
+class DMemBPDecoderRust:
     """Disordered-memory min-sum BP decoder (Rust implementation)."""
 
     def __init__(
@@ -263,7 +263,7 @@ class DMemBPDecoder:
         """
         ...
 
-class DMemOffsetBPDecoder:
+class DMemOffsetBPDecoderRust:
     """Disordered-memory, offset-normalized min-sum BP decoder (Rust implementation)."""
 
     def __init__(
@@ -390,7 +390,7 @@ class DMemOffsetBPDecoder:
         """
         ...
 
-class UnionFindDecoder:
+class UnionFindDecoderRust:
     """Union-Find decoder (Rust implementation)."""
 
     def __init__(self, pcm: Bit2DArray) -> None:
@@ -435,8 +435,8 @@ class UnionFindDecoder:
         ...
 
 __all__ = [
-    "BPDecoder",
-    "DMemBPDecoder",
-    "DMemOffsetBPDecoder",
-    "UnionFindDecoder",
+    "BPDecoderRust",
+    "DMemBPDecoderRust",
+    "DMemOffsetBPDecoderRust",
+    "UnionFindDecoderRust",
 ]

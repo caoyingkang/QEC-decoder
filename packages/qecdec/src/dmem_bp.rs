@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 
 /// Disordered-memory min-sum BP decoder.
 #[pyclass]
-pub struct DMemBPDecoder {
+pub struct DMemBPDecoderRust {
     /// Base struct for BP-based decoders, which stores parity-check matrix and prior error probabilities.
     base: BPBase,
     /// Memory strength for each variable node.
@@ -21,7 +21,7 @@ pub struct DMemBPDecoder {
 }
 
 #[pymethods]
-impl DMemBPDecoder {
+impl DMemBPDecoderRust {
     /// Create a DMemBP decoder.
     ///
     /// Parameters:
@@ -181,7 +181,7 @@ impl DMemBPDecoder {
     }
 }
 
-impl DMemBPDecoder {
+impl DMemBPDecoderRust {
     /// (Re-)initialize the decoder. More specifically, initialize the VN-to-CN messages.
     fn init(&mut self) {
         for j in 0..self.base.num_vars {
@@ -393,6 +393,6 @@ impl DMemBPDecoder {
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<DMemBPDecoder>()?;
+    m.add_class::<DMemBPDecoderRust>()?;
     Ok(())
 }
