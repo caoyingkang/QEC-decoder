@@ -176,7 +176,7 @@ impl UnionFindDecoder {
     /// Create a Union-Find decoder.
     ///
     /// Parameters:
-    /// - `pcm`: Parity-check matrix (dtype=np.uint8). Every row (check) must have at least 2 nonzero entries.
+    /// - `pcm`: Parity-check matrix. Every row (check) must have at least 2 nonzero entries.
     /// Every column (variable) must have at least 1 and at most 2 nonzero entries.
     #[new]
     pub fn new(pcm: PyReadonlyArray2<'_, u8>) -> Self {
@@ -243,7 +243,7 @@ impl UnionFindDecoder {
     /// Decode a syndrome vector.
     ///
     /// Parameters:
-    /// - `syndrome`: Syndrome vector (dtype=np.uint8).
+    /// - `syndrome`: Syndrome vector.
     ///
     /// Return: The decoded error vector.
     pub fn decode<'py>(
@@ -259,9 +259,9 @@ impl UnionFindDecoder {
     /// Decode a batch of syndrome vectors.
     ///
     /// Parameters:
-    /// - `syndrome_batch`: Batch of syndrome vectors (dtype=np.uint8).
+    /// - `syndrome_batch`: Batch of syndrome vectors.
     ///
-    /// Return: The batch of decoded error vectors.
+    /// Return: Batch of decoded error vectors.
     pub fn decode_batch<'py>(
         &mut self,
         py: Python<'py>,

@@ -2,9 +2,8 @@ use crate::bp_base::BPBase;
 use numpy::ndarray::{Array1, Array2, ArrayView1};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict, PyInt};
 
-/// Belief Propagation decoder (min-sum variant).
+/// Disordered-memory min-sum BP decoder.
 #[pyclass]
 pub struct DMemBPDecoder {
     /// Base struct for BP-based decoders, which stores parity-check matrix and prior error probabilities.
@@ -23,13 +22,13 @@ pub struct DMemBPDecoder {
 
 #[pymethods]
 impl DMemBPDecoder {
-    /// Create a BP decoder.
+    /// Create a DMemBP decoder.
     ///
     /// Parameters:
-    /// - `pcm`: Parity-check matrix (dtype=np.uint8). Every row (check) must have at least 2 nonzero entries.
+    /// - `pcm`: Parity-check matrix. Every row (check) must have at least 2 nonzero entries.
     /// Every column (variable) must have at least 1 nonzero entry.
-    /// - `prior`: Prior error probabilities (dtype=np.float64).
-    /// - `gamma`: Memory strength for each variable node (dtype=np.float64). The value 0.0 means no memory.
+    /// - `prior`: Prior error probabilities.
+    /// - `gamma`: Memory strength for each variable node. The value 0.0 means no memory.
     /// - `norm`: Normalization factor. Default is 1.0, meaning no normalization.
     /// - `max_iter`: Maximum number of BP iterations.
     #[new]
@@ -70,7 +69,7 @@ impl DMemBPDecoder {
     /// Decode a syndrome vector.
     ///
     /// Parameters:
-    /// - `syndrome`: Syndrome vector (dtype=np.uint8).
+    /// - `syndrome`: Syndrome vector.
     ///
     /// Return: The decoded error vector.
     pub fn decode<'py>(
@@ -83,43 +82,48 @@ impl DMemBPDecoder {
         PyArray1::from_owned_array(py, ehat)
     }
 
-    /// Decode a syndrome vector and return detailed information about the decoding process.
+    /// Decode a syndrome vector with detailed diagnostics.
     ///
     /// Parameters:
-    /// - `syndrome`: Syndrome vector (dtype=np.uint8).
-    /// - `record_llr_history`: Whether to record the history of posterior LLR values.
+    /// - `syndrome`: Syndrome vector.
+    /// - `record_llr_history`: Whether to return the history of posterior LLR values.
     ///
-    /// Return: A Python dictionary with the following key-value pairs:
-    /// - "ehat": The decoded error vector.
-    /// - "converged": Whether the decoder converged (i.e. the syndrome is satisfied).
-    /// - "num_iter": The number of iterations executed.
-    /// - "llr_hist": The history of posterior LLR values (if `record_llr_history` is True).
+    /// Returns:
+    /// - `ehat`: The decoded error vector.
+    /// - `converged`: Whether the decoder converged (i.e. the syndrome was satisfied).
+    /// - `num_iter`: The number of BP iterations actually run.
+    /// - `llr_hist`: The history of posterior LLR values if `record_llr_history` is True; 
+    /// otherwise, `None`.
     #[pyo3(signature = (syndrome, *, record_llr_history))]
     pub fn decode_detailed<'py>(
         &mut self,
         py: Python<'py>,
         syndrome: PyReadonlyArray1<'py, u8>,
         record_llr_history: bool,
-    ) -> PyResult<Bound<'py, PyDict>> {
+    ) -> PyResult<(
+        Bound<'py, PyArray1<u8>>,
+        bool,
+        usize,
+        Option<Bound<'py, PyArray2<f64>>>,
+    )> {
         let syndrome = syndrome.as_array();
         let (ehat, converged, num_iter, llr_hist) =
             self._decode_detailed(syndrome, record_llr_history);
-        let dict = PyDict::new(py);
-        dict.set_item("ehat", PyArray1::from_owned_array(py, ehat))?;
-        dict.set_item("converged", PyBool::new(py, converged))?;
-        dict.set_item("num_iter", PyInt::new(py, num_iter))?;
-        if let Some(arr) = llr_hist {
-            dict.set_item("llr_hist", PyArray2::from_owned_array(py, arr))?;
-        }
-        Ok(dict)
+        let llr_hist_py = llr_hist.map(|arr| PyArray2::from_owned_array(py, arr));
+        Ok((
+            PyArray1::from_owned_array(py, ehat),
+            converged,
+            num_iter,
+            llr_hist_py,
+        ))
     }
 
     /// Decode a batch of syndrome vectors.
     ///
     /// Parameters:
-    /// - `syndrome_batch`: Batch of syndrome vectors (dtype=np.uint8).
+    /// - `syndrome_batch`: Batch of syndrome vectors.
     ///
-    /// Return: The batch of decoded error vectors.
+    /// Return: Batch of decoded error vectors.
     pub fn decode_batch<'py>(
         &mut self,
         py: Python<'py>,
@@ -135,6 +139,45 @@ impl DMemBPDecoder {
         }
 
         PyArray2::from_owned_array(py, ehat_batch)
+    }
+
+    /// Decode a batch of syndrome vectors with detailed diagnostics.
+    ///
+    /// Parameters:
+    /// - `syndrome_batch`: Batch of syndrome vectors.
+    ///
+    /// Returns:
+    /// - `ehat_batch`: Batch of decoded error vectors.
+    /// - `converged_mask`: Whether the decoder converged in each shot.
+    /// - `decoding_iters`: Number of BP iterations actually run in each shot.
+    pub fn decode_batch_detailed<'py>(
+        &mut self,
+        py: Python<'py>,
+        syndrome_batch: PyReadonlyArray2<'_, u8>,
+    ) -> PyResult<(
+        Bound<'py, PyArray2<u8>>,
+        Bound<'py, PyArray1<bool>>,
+        Bound<'py, PyArray1<i64>>,
+    )> {
+        let syndrome_batch = syndrome_batch.as_array();
+        let batch_size: usize = syndrome_batch.nrows();
+        let mut ehat_batch = Array2::<u8>::zeros((batch_size, self.base.num_vars));
+        let mut converged_mask = Vec::<bool>::with_capacity(batch_size);
+        let mut decoding_iters = Vec::<i64>::with_capacity(batch_size);
+
+        for i in 0..batch_size {
+            let (ehat, converged, num_iter, _) =
+                self._decode_detailed(syndrome_batch.row(i), false);
+            ehat_batch.row_mut(i).assign(&ehat);
+            converged_mask.push(converged);
+            decoding_iters.push(num_iter as i64);
+        }
+
+        Ok((
+            PyArray2::from_owned_array(py, ehat_batch),
+            PyArray1::from_vec(py, converged_mask),
+            PyArray1::from_vec(py, decoding_iters),
+        ))
     }
 }
 
