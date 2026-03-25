@@ -6,11 +6,13 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "qecdec",
-    "qecbench",
+    "torchdecoder_core",
     "numpy==2.2.*",
     "matplotlib",
     "omegaconf",
+    "humanize",
     "pandas",
+    "stim",
     "sinter",
     "torch",
     "streamlit",
@@ -21,4 +23,4 @@ package = false
 
 [tool.uv.sources]
 qecdec = { workspace = true }
-qecbench = { workspace = true }
+torchdecoder_core = { workspace = true }

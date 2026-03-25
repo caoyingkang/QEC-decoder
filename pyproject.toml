@@ -1,7 +1,7 @@
 [tool.uv.workspace]
 members = [
-    "packages/qecbench",
     "packages/qecdec",
-    "benchmark_app",
-    "pytorch",
+    "packages/torchdecoder-core",
+    "benchmark-app",
+    "torchdecoder",
 ]
