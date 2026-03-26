@@ -1,4 +1,11 @@
-from .experiments import *
-from .decoders import *
-from .sliding_window_decoders import *
-from .sinter_wrapper import *
+from . import decoders
+from . import experiments
+from . import slwin
+from . import sinter_utils
+
+__all__ = [
+    "decoders",
+    "experiments",
+    "slwin",
+    "sinter_utils",
+]

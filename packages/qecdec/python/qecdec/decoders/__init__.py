@@ -1,3 +1,5 @@
+"""Module for decoders."""
+
 from .base import Decoder
 from .bp import BPDecoder
 from .dmembp import DMemBPDecoder

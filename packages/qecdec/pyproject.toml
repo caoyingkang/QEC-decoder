@@ -9,13 +9,9 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
     "numpy==2.2.*",
-    "matplotlib",
-    "plotly",
-    "nbformat",
     "stim",
     "sinter",
     "pymatching",
-    "tqdm",
 ]
 
 [build-system]
