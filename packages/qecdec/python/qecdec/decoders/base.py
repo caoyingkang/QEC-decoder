@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Any
 from functools import cached_property
 
 import numpy as np
@@ -126,14 +126,14 @@ class Decoder(ABC):
         """
         ...
 
-    def decode_detailed(self, syndrome: Bit1DArray, **kwargs) -> Bit1DArray:
+    def decode_detailed(self, syndrome: Bit1DArray, **kwargs) -> Any:
         """
         Decode a syndrome vector with detailed diagnostics. Unless overridden,
         this method simply calls `decode` and returns the result.
         """
         return self.decode(syndrome)
 
-    def decode_batch_detailed(self, syndrome_batch: Bit2DArray, **kwargs) -> Bit2DArray:
+    def decode_batch_detailed(self, syndrome_batch: Bit2DArray, **kwargs) -> Any:
         """
         Decode a batch of syndrome vectors with detailed diagnostics. Unless overridden,
         this method simply calls `decode_batch` and returns the result.
