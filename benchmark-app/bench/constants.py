@@ -1,0 +1,1 @@
+BASELINE_DECODERS = ["MWPM", "BP"]
