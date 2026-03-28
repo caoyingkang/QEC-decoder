@@ -1,2 +1,5 @@
-source /opt/venv/bin/activate
-maturin develop --release --extras=pytorch
+#!/usr/bin/env bash
+set -euo pipefail
+
+uv sync
+(cd packages/qecdec && uvx maturin develop --release)
