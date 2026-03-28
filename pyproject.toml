@@ -1,40 +1,7 @@
-[build-system]
-requires = ["maturin>=1.9,<2.0"]
-build-backend = "maturin"
-
-[project]
-name = "qecdec"
-requires-python = ">=3.10"
-classifiers = [
-    "Programming Language :: Rust",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
+[tool.uv.workspace]
+members = [
+    "packages/qecdec",
+    "packages/torchdecoder-core",
+    "benchmark-app",
+    "torchdecoder",
 ]
-dynamic = ["version"]
-dependencies = [
-    "numpy==2.2.*",
-    "matplotlib",
-    "plotly",
-    "nbformat",
-    "stim",
-    "sinter",
-    "pymatching",
-    "tqdm"
-]
-
-[project.optional-dependencies]
-pytorch = [
-    "torch",
-    "torchmetrics",
-    "lightning",
-    "tensorboard",
-    "torch-tb-profiler",
-    "omegaconf",
-    "streamlit",
-    "tabulate",
-    "humanize",
-]
-
-[tool.maturin]
-python-source = "python"
-features = ["pyo3/extension-module"]

@@ -1,0 +1,86 @@
+from pathlib import Path
+
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+
+
+class DecodingDataset(Dataset):
+    """
+    A PyTorch Dataset. Each item is a (syndrome, observable) pair with integer dtype.
+    """
+
+    def __init__(
+        self,
+        syndromes: np.ndarray | torch.Tensor,
+        observables: np.ndarray | torch.Tensor,
+    ):
+        """
+        Parameters
+        ----------
+            syndromes : np.ndarray | torch.Tensor
+                Syndrome bits ∈ {0,1}, shape=(num_shots, num_chks), integer or bool
+
+            observables : np.ndarray | torch.Tensor
+                Observable bits ∈ {0,1}, shape=(num_shots, num_obsers), integer or bool
+        """
+        assert isinstance(syndromes, np.ndarray) or isinstance(syndromes, torch.Tensor)
+        assert isinstance(observables, np.ndarray) or isinstance(
+            observables, torch.Tensor
+        )
+        assert syndromes.ndim == 2 and observables.ndim == 2
+        assert syndromes.shape[0] == observables.shape[0]
+
+        self.syndromes = torch.as_tensor(syndromes, dtype=torch.int32)
+        self.observables = torch.as_tensor(observables, dtype=torch.int32)
+
+    @classmethod
+    def load_from_file(cls, file: str | Path):
+        """
+        Load the dataset from a file.
+        """
+        if isinstance(file, str):
+            file = Path(file)
+        if not file.exists():
+            raise FileNotFoundError(f"File {file} does not exist")
+
+        syndromes, observables = torch.load(file)
+        return cls(syndromes, observables)
+
+    def save_to_file(self, file: str | Path, overwrite_ok: bool = False):
+        """
+        Save the dataset to a file.
+        """
+        if isinstance(file, str):
+            file = Path(file)
+        if file.exists() and not overwrite_ok:
+            raise FileExistsError(
+                f"File {file} already exists, and overwrite_ok is set to False"
+            )
+
+        file.parent.mkdir(parents=True, exist_ok=True)
+        torch.save((self.syndromes, self.observables), file)
+
+    def __len__(self):
+        return len(self.syndromes)
+
+    def __getitem__(self, idx):
+        return self.syndromes[idx], self.observables[idx]
+
+    def print_summary(self):
+        shots = len(self.syndromes)
+        sbits_per_shot = self.syndromes.shape[1]
+        obits_per_shot = self.observables.shape[1]
+        sbits_total = shots * sbits_per_shot
+        obits_total = shots * obits_per_shot
+        sbits_ones = torch.sum(self.syndromes == 1)
+        obits_ones = torch.sum(self.observables == 1)
+        print(f"Number of shots: {shots}")
+        print(f"Number of syndrome bits per shot: {sbits_per_shot}")
+        print(f"Number of observable bits per shot: {obits_per_shot}")
+        print(
+            f"Out of {shots} x {sbits_per_shot} syndrome bits, {sbits_ones} are one. ({sbits_ones / sbits_total * 100:.2f}%)"
+        )
+        print(
+            f"Out of {shots} x {obits_per_shot} observable bits, {obits_ones} are one. ({obits_ones / obits_total * 100:.2f}%)"
+        )

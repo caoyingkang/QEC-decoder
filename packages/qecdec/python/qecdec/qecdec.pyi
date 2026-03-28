@@ -1,0 +1,442 @@
+"""Type stubs for the qecdec Rust extension (PyO3)."""
+
+from __future__ import annotations
+
+from typing import Optional, TypeAlias
+
+from .types import (
+    Bit1DArray,
+    Bit2DArray,
+    Bool1DArray,
+    Float1DArray,
+    Float2DArray,
+    Int1DArray,
+)
+
+DecodeDetailedResult: TypeAlias = tuple[
+    Bit1DArray,  # ehat
+    bool,  # converged
+    int,  # num_iter
+    Optional[Float2DArray],  # llr_hist
+]
+
+DecodeBatchDetailedResult: TypeAlias = tuple[
+    Bit2DArray,  # ehat_batch
+    Bool1DArray,  # converged_mask
+    Int1DArray,  # decoding_iters
+]
+
+class BPDecoderRust:
+    """Min-sum belief propagation decoder (Rust implementation)."""
+
+    def __init__(
+        self,
+        pcm: Bit2DArray,
+        prior: Float1DArray,
+        *,
+        norm: Optional[float] = None,
+        max_iter: int,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        pcm : ndarray
+            Parity-check matrix, shape=(num_chks, num_vars), dtype=uint8.
+            Each row (check) must have at least two nonzero entries; each column
+            (variable) must have at least one nonzero entry.
+
+        prior : ndarray
+            Prior error probabilities, shape=(num_vars,), dtype=float64.
+
+        norm : float or None
+            Message normalization factor; `None` means no normalization.
+
+        max_iter : int
+            Max number of BP iterations.
+        """
+        ...
+
+    def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
+        """Decode a syndrome vector.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector, shape=(num_chks,), dtype=uint8.
+
+        Returns
+        -------
+        ndarray
+            Estimated error vector, shape=(num_vars,), dtype=uint8.
+        """
+        ...
+
+    def decode_detailed(
+        self,
+        syndrome: Bit1DArray,
+        *,
+        record_llr_history: bool,
+    ) -> DecodeDetailedResult:
+        """Decode a syndrome vector with detailed diagnostics.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector, shape=(num_chks,), dtype=uint8.
+
+        record_llr_history : bool
+            Whether to return the history of posterior LLR values.
+
+        Returns
+        -------
+        ehat : ndarray
+            Estimated error vector, shape=(num_vars,), dtype=uint8.
+
+        converged : bool
+            Whether the decoder converged (i.e. the syndrome was satisfied).
+
+        num_iter : int
+            The number of BP iterations actually run.
+
+        llr_hist : ndarray or None
+            If `record_llr_history` is True: posterior LLR values at each BP iteration,
+            shape=(num_iter, num_vars), dtype=float64; otherwise, `None`.
+        """
+        ...
+
+    def decode_batch(self, syndrome_batch: Bit2DArray) -> Bit2DArray:
+        """Decode a batch of syndrome vectors.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        Returns
+        -------
+        ndarray
+            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
+        """
+        ...
+
+    def decode_batch_detailed(
+        self, syndrome_batch: Bit2DArray
+    ) -> DecodeBatchDetailedResult:
+        """Decode a batch of syndrome vectors with detailed diagnostics.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        Returns
+        -------
+        ehat_batch : ndarray
+            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
+
+        converged_mask : ndarray
+            Whether the decoder converged in each shot, shape=(batch_size,), dtype=bool.
+
+        decoding_iters : ndarray
+            Number of BP iterations actually run in each shot, shape=(batch_size,), dtype=int64.
+        """
+        ...
+
+class DMemBPDecoderRust:
+    """Disordered-memory min-sum BP decoder (Rust implementation)."""
+
+    def __init__(
+        self,
+        pcm: Bit2DArray,
+        prior: Float1DArray,
+        *,
+        gamma: Float1DArray,
+        norm: Optional[float] = None,
+        max_iter: int,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        pcm : ndarray
+            Parity-check matrix, shape=(num_chks, num_vars), dtype=uint8.
+            Each row (check) must have at least two nonzero entries; each column
+            (variable) must have at least one nonzero entry.
+
+        prior : ndarray
+            Prior error probabilities, shape=(num_vars,), dtype=float64.
+
+        gamma : ndarray
+            Memory strength for each variable node, shape=(num_vars,), dtype=float64.
+            Use 0.0 for no memory at a node.
+
+        norm : float or None
+            Message normalization factor; `None` means no normalization.
+
+        max_iter : int
+            Max number of BP iterations.
+        """
+        ...
+
+    def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
+        """Decode a syndrome vector.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector, shape=(num_chks,), dtype=uint8.
+
+        Returns
+        -------
+        ndarray
+            Estimated error vector, shape=(num_vars,), dtype=uint8.
+        """
+        ...
+
+    def decode_detailed(
+        self,
+        syndrome: Bit1DArray,
+        *,
+        record_llr_history: bool,
+    ) -> DecodeDetailedResult:
+        """Decode a syndrome vector with detailed diagnostics.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector, shape=(num_chks,), dtype=uint8.
+
+        record_llr_history : bool
+            Whether to return the history of posterior LLR values.
+
+        Returns
+        -------
+        ehat : ndarray
+            Estimated error vector, shape=(num_vars,), dtype=uint8.
+
+        converged : bool
+            Whether the decoder converged (i.e. the syndrome was satisfied).
+
+        num_iter : int
+            The number of BP iterations actually run.
+
+        llr_hist : ndarray or None
+            If `record_llr_history` is True: posterior LLR values at each BP iteration,
+            shape=(num_iter, num_vars), dtype=float64; otherwise, `None`.
+        """
+        ...
+
+    def decode_batch(self, syndrome_batch: Bit2DArray) -> Bit2DArray:
+        """Decode a batch of syndrome vectors.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        Returns
+        -------
+        ndarray
+            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
+        """
+        ...
+
+    def decode_batch_detailed(
+        self, syndrome_batch: Bit2DArray
+    ) -> DecodeBatchDetailedResult:
+        """Decode a batch of syndrome vectors with detailed diagnostics.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        Returns
+        -------
+        ehat_batch : ndarray
+            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
+
+        converged_mask : ndarray
+            Whether the decoder converged in each shot, shape=(batch_size,), dtype=bool.
+
+        decoding_iters : ndarray
+            Number of BP iterations actually run in each shot, shape=(batch_size,), dtype=int64.
+        """
+        ...
+
+class DMemOffsetBPDecoderRust:
+    """Disordered-memory, offset-normalized min-sum BP decoder (Rust implementation)."""
+
+    def __init__(
+        self,
+        pcm: Bit2DArray,
+        prior: Float1DArray,
+        *,
+        gamma: Float1DArray,
+        offset: list[list[float]],
+        norm: list[list[float]],
+        max_iter: int,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        pcm : ndarray
+            Parity-check matrix, shape=(num_chks, num_vars), dtype=uint8.
+            Each row (check) must have at least two nonzero entries; each column
+            (variable) must have at least one nonzero entry.
+
+        prior : ndarray
+            Prior error probabilities, shape=(num_vars,), dtype=float64.
+
+        gamma : ndarray
+            Memory strength for each variable node, shape=(num_vars,), dtype=float64.
+            Use 0.0 for no memory at a node.
+
+        offset : list[list[float]]
+            `offset[i][k]` is the offset parameter for the edge from check node `i` to its
+            `k`-th neighboring variable node.
+
+        norm : list[list[float]]
+            `norm[i][k]` is the normalization factor for the edge from check node `i` to its
+            `k`-th neighboring variable node.
+
+        max_iter : int
+            Max number of BP iterations.
+        """
+        ...
+
+    def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
+        """Decode a syndrome vector.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector, shape=(num_chks,), dtype=uint8.
+
+        Returns
+        -------
+        ndarray
+            Estimated error vector, shape=(num_vars,), dtype=uint8.
+        """
+        ...
+
+    def decode_detailed(
+        self,
+        syndrome: Bit1DArray,
+        *,
+        record_llr_history: bool,
+    ) -> DecodeDetailedResult:
+        """Decode a syndrome vector with detailed diagnostics.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector, shape=(num_chks,), dtype=uint8.
+
+        record_llr_history : bool
+            Whether to return the history of posterior LLR values.
+
+        Returns
+        -------
+        ehat : ndarray
+            Estimated error vector, shape=(num_vars,), dtype=uint8.
+
+        converged : bool
+            Whether the decoder converged (i.e. the syndrome was satisfied).
+
+        num_iter : int
+            The number of BP iterations actually run.
+
+        llr_hist : ndarray or None
+            If `record_llr_history` is True: posterior LLR values at each BP iteration,
+            shape=(num_iter, num_vars), dtype=float64; otherwise, `None`.
+        """
+        ...
+
+    def decode_batch(self, syndrome_batch: Bit2DArray) -> Bit2DArray:
+        """Decode a batch of syndrome vectors.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        Returns
+        -------
+        ndarray
+            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
+        """
+        ...
+
+    def decode_batch_detailed(
+        self, syndrome_batch: Bit2DArray
+    ) -> DecodeBatchDetailedResult:
+        """Decode a batch of syndrome vectors with detailed diagnostics.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        Returns
+        -------
+        ehat_batch : ndarray
+            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
+
+        converged_mask : ndarray
+            Whether the decoder converged in each shot, shape=(batch_size,), dtype=bool.
+
+        decoding_iters : ndarray
+            Number of BP iterations actually run in each shot, shape=(batch_size,), dtype=int64.
+        """
+        ...
+
+class UnionFindDecoderRust:
+    """Union-Find decoder (Rust implementation)."""
+
+    def __init__(self, pcm: Bit2DArray) -> None:
+        """
+        Parameters
+        ----------
+        pcm : ndarray
+            Parity-check matrix, shape=(num_chks, num_vars), dtype=uint8.
+            Each row (check) must have at least two nonzero entries; each column
+            (variable) must have at least one and at most two nonzero entries.
+        """
+        ...
+
+    def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
+        """Decode a syndrome vector.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector, shape=(num_chks,), dtype=uint8.
+
+        Returns
+        -------
+        ndarray
+            Estimated error vector, shape=(num_vars,), dtype=uint8.
+        """
+        ...
+
+    def decode_batch(self, syndrome_batch: Bit2DArray) -> Bit2DArray:
+        """Decode a batch of syndrome vectors.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        Returns
+        -------
+        ndarray
+            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
+        """
+        ...
+
+__all__ = [
+    "BPDecoderRust",
+    "DMemBPDecoderRust",
+    "DMemOffsetBPDecoderRust",
+    "UnionFindDecoderRust",
+]

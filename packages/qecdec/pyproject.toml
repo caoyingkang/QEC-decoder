@@ -1,0 +1,26 @@
+[project]
+name = "qecdec"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dynamic = ["version"]
+dependencies = [
+    "numpy==2.2.*",
+    "stim",
+    "sinter",
+    "pymatching",
+]
+
+[dependency-groups]
+qecdec-notebooks = ["ipykernel", "ipywidgets", "sinter", "matplotlib", "plotly", "nbformat"]
+
+[build-system]
+requires = ["maturin>=1.9,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+python-source = "python"
+features = ["pyo3/extension-module"]
