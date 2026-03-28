@@ -2,7 +2,7 @@ from typing import Optional
 
 import numpy as np
 
-from .base import Decoder
+from .base import IterativeDecoder
 from ..qecdec import DMemOffsetBPDecoderRust
 from ..types import (
     Bool1DArray,
@@ -14,7 +14,7 @@ from ..types import (
 )
 
 
-class DMemOffsetBPDecoder(Decoder):
+class DMemOffsetBPDecoder(IterativeDecoder):
     """Disordered-memory, offset-normalized min-sum BP decoder."""
 
     def __init__(
@@ -55,11 +55,10 @@ class DMemOffsetBPDecoder(Decoder):
             `k`-th neighboring variable node. If a float is provided, the same value is used
             for all offset parameters. Default is 0.0, meaning no offset.
         """
-        super().__init__(pcm, prior)
+        super().__init__(max_iter, pcm, prior)
 
         assert isinstance(gamma, np.ndarray) and gamma.shape == (self.num_vars,)
         self.gamma = gamma
-        self.max_iter = max_iter
 
         if isinstance(norm, list):
             assert len(norm) == self.num_chks
@@ -88,10 +87,10 @@ class DMemOffsetBPDecoder(Decoder):
         self._decoder = DMemOffsetBPDecoderRust(
             self.pcm,
             self.prior,
-            gamma=gamma,
-            max_iter=max_iter,
-            norm=norm,
-            offset=offset,
+            gamma=self.gamma,
+            max_iter=self.max_iter,
+            norm=self.norm,
+            offset=self.offset,
         )
 
     def __getstate__(self):

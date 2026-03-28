@@ -139,3 +139,34 @@ class Decoder(ABC):
         this method simply calls `decode_batch` and returns the result.
         """
         return self.decode_batch(syndrome_batch)
+
+
+class IterativeDecoder(Decoder):
+    """Abstract base class for iterative decoders."""
+
+    def __init__(
+        self,
+        max_iter: int,
+        pcm: Bit2DArray,
+        prior: Optional[Float1DArray] = None,
+    ):
+        """
+        Parameters
+        ----------
+        max_iter : int
+            Max number of iterations.
+
+        pcm : ndarray
+            Parity-check matrix, shape=(num_chks, num_vars), uint8 ∈ {0,1}.
+            Each row (check) must have at least two nonzero entries; each column
+            (variable) must have at least one nonzero entry.
+
+        prior : ndarray or None
+            Prior error probabilities, shape=(num_vars,), float64 ∈ (0,0.5).
+            If None, the decoder either assumes a uniform prior or does not
+            depend on the prior at all.
+        """
+        super().__init__(pcm, prior)
+
+        assert max_iter > 0
+        self.max_iter = max_iter

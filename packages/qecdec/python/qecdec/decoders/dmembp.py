@@ -2,7 +2,7 @@ from typing import Optional
 
 import numpy as np
 
-from .base import Decoder
+from .base import IterativeDecoder
 from ..qecdec import DMemBPDecoderRust
 from ..types import (
     Bool1DArray,
@@ -14,7 +14,7 @@ from ..types import (
 )
 
 
-class DMemBPDecoder(Decoder):
+class DMemBPDecoder(IterativeDecoder):
     """Disordered-memory min-sum BP decoder."""
 
     def __init__(
@@ -47,15 +47,18 @@ class DMemBPDecoder(Decoder):
         norm : float or None
             Message normalization factor; `None` means no normalization.
         """
-        super().__init__(pcm, prior)
+        super().__init__(max_iter, pcm, prior)
 
         assert isinstance(gamma, np.ndarray) and gamma.shape == (self.num_vars,)
         self.gamma = gamma
-        self.max_iter = max_iter
         self.norm = norm
 
         self._decoder = DMemBPDecoderRust(
-            self.pcm, self.prior, gamma=gamma, max_iter=max_iter, norm=norm
+            self.pcm,
+            self.prior,
+            gamma=self.gamma,
+            max_iter=self.max_iter,
+            norm=self.norm,
         )
 
     def __getstate__(self):

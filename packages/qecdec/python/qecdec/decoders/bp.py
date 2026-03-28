@@ -1,6 +1,6 @@
 from typing import Optional
 
-from .base import Decoder
+from .base import IterativeDecoder
 from ..qecdec import BPDecoderRust
 from ..types import (
     Bool1DArray,
@@ -12,7 +12,7 @@ from ..types import (
 )
 
 
-class BPDecoder(Decoder):
+class BPDecoder(IterativeDecoder):
     """Belief Propagation decoder (min-sum variant)."""
 
     def __init__(
@@ -40,12 +40,11 @@ class BPDecoder(Decoder):
         norm : float or None
             Message normalization factor; `None` means no normalization.
         """
-        super().__init__(pcm, prior)
-        self.max_iter = max_iter
+        super().__init__(max_iter, pcm, prior)
         self.norm = norm
 
         self._decoder = BPDecoderRust(
-            self.pcm, self.prior, max_iter=max_iter, norm=norm
+            self.pcm, self.prior, max_iter=self.max_iter, norm=self.norm
         )
 
     def __getstate__(self):
