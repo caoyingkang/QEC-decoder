@@ -182,10 +182,10 @@ with tabs[2]:
         render_plot(fig, filename="benchmark_SMR_vs_PER.png")
 
 with tabs[3]:
+    st.markdown("##### Average Iterations vs Physical Error Rate (PER)")
     if len(iterative_stats) == 0:
         st.warning("No iterative decoders selected.")
     else:
-        st.subheader("Average Iterations vs Physical Error Rate (PER)")
         avg_over = st.radio(
             "Average over",
             options=["all shots", "converged shots", "successful shots"],
@@ -198,10 +198,10 @@ with tabs[3]:
         render_plot(fig, filename="benchmark_AvgIters_vs_PER.png")
 
 with tabs[4]:
+    st.markdown("##### Iterations Distributions")
     if len(iterative_stats) == 0:
         st.warning("No iterative decoders selected.")
     else:
-        st.subheader("Iterations Distributions")
         dist_over = st.radio(
             "Distribution over",
             options=["all shots", "converged shots", "successful shots"],
