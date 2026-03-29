@@ -33,7 +33,7 @@ from lightning.pytorch.profilers import PyTorchProfiler
 import torch
 from omegaconf import OmegaConf, DictConfig
 from omegaconf.errors import ConfigKeyError
-from qecdec import RotatedSurfaceCode_Memory
+from qecdec.experiments import RotatedSurfaceCode_Memory
 
 from lightning_utils import DecodingDataModule, DecodingModule
 

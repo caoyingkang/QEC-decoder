@@ -17,7 +17,7 @@ import warnings
 
 from omegaconf import OmegaConf, DictConfig
 import lightning as L
-from qecdec import RotatedSurfaceCode_Memory
+from qecdec.experiments import RotatedSurfaceCode_Memory
 
 from lightning_utils import DecodingDataModule, DecodingModule
 

@@ -16,7 +16,8 @@ import argparse
 import numpy as np
 from omegaconf import OmegaConf
 from stim import CompiledDemSampler
-from qecdec import BPDecoder, RotatedSurfaceCode_Memory
+from qecdec.decoders import BPDecoder
+from qecdec.experiments import RotatedSurfaceCode_Memory
 from torchdecoder_core.dataset import DecodingDataset
 
 DATASETS_ROOT = Path(__file__).resolve().parent.parent / "datasets"
