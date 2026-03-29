@@ -18,3 +18,13 @@ This package does not contain dataset builders or training/testing scripts; see 
 | **`src/torchdecoder_core/metrics/`** | Validation metrics. |
 | **`src/torchdecoder_core/dataset/`** | Dataset classes. |
 | **`src/torchdecoder_core/utils/`** | Helper modules and utility functions. |
+
+## Definitions of decoding metrics
+
+- **Convergence rate** — fraction of attempts where the decoder converged (i.e., the estimated error satisfied the syndrome).
+- **Logical success rate** — fraction of attempts where logical observables were predicted correctly.
+- **Strict success rate** — both converged and logically correct.
+- **Accidental success rate** — not converged but logically correct anyway.
+- **Success rate on convergence** — logically correct conditioned on convergence.
+- **Average iterations** — mean iteration count.
+- **Average iterations on convergence** — mean iteration count conditioned on convergence.
