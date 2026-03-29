@@ -113,7 +113,9 @@ class DMemBPDecoder(IterativeDecoder):
             If `record_llr_history` is True: posterior LLR values at each BP iteration,
             shape=(num_iter, num_vars), dtype=float64; otherwise, `None`.
         """
-        return self._decoder.decode_detailed(syndrome, record_llr_history)
+        return self._decoder.decode_detailed(
+            syndrome, record_llr_history=record_llr_history
+        )
 
     def decode_batch_detailed(
         self, syndrome_batch: Bit2DArray
