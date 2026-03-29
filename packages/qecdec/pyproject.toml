@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-qecdec-notebooks = ["ipykernel", "ipywidgets", "sinter", "matplotlib", "plotly", "nbformat"]
+qecdec-notebooks = ["ipykernel", "ipywidgets", "sinter", "matplotlib", "matplotlib-inline", "plotly", "nbformat"]
 
 [build-system]
 requires = ["maturin>=1.9,<2.0"]
