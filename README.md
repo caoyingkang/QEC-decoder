@@ -1,157 +1,50 @@
 # QEC-decoder
 
-A QEC decoding library that provides:
-- [stim](https://github.com/quantumlib/stim)-based syndrome sampling from noisy circuits of memory experiments;
-- implementation of different variants of the belief propagation decoder, written in Rust with Python bindings;
-- implementation of sliding window decoding with various choices of inner decoders;
-- a Python wrapper class that turns a `Decoder` object into a `sinter.Decoder` object for fast benchmarking via the [sinter](https://pypi.org/project/sinter/) package;
-- toolkits for interactive visualization of the belief propagation decoding process (via [plotly](https://github.com/plotly/plotly.py));
-- a [PyTorch](https://pytorch.org/)-based machine learning framework for training decoders with learnable parameters.
+A monorepository that provides:
 
-This codebase was originally designed to facilitate the search for a lightweight variant of the [RelayBP](https://github.com/trmue/relay) decoder.
-The ultimate goal is a fast real-time decoder implementable on FPGA with submicrosecond latency (whose implementation is not in this repository).
+- a unified library for QEC decoding (see [packages/qecdec/README.md](packages/qecdec/README.md));
+- a PyTorch stack for training decoders with learnable parameters (see [packages/torchdecoder-core/README.md](packages/torchdecoder-core/README.md) for core components and [torchdecoder/README.md](torchdecoder/README.md) for training entrypoints).
+- a Streamlit UI for Monte Carlo benchmarking of PyTorch decoders (see [benchmark-app/README.md](benchmark-app/README.md)).
 
-## Monorepo structure
+## Monorepo layout
 
-| Path | Description |
-|------|-------------|
-| `packages/qecdec` | Core QEC library (Rust + Python): experiments, decoders, sinter wrapper |
-| `packages/qecbench` | Monte Carlo benchmark tool — lightweight sinter alternative |
-| `pytorch` | Neural-network decoder training framework |
-| `benchmark_app` | Streamlit UI for benchmarking trained PyTorch decoders |
+| Path | Role |
+|------|------|
+| `packages/qecdec` | Core library: decoders (Rust implementation + Python bindings), QEC experiments, sliding window decoding, sinter integration. |
+| `packages/torchdecoder-core` | PyTorch decoder models, loss functions, metrics, and dataset helpers |
+| `torchdecoder` | PyTorch training/testing entrypoints and configs |
+| `benchmark-app` | Streamlit UI for Monte Carlo benchmarking of PyTorch decoders |
+| `misc` | Miscellaneous assets and ad hoc tooling not wired into the main packages |
 
-## Installation
+## Prerequisites
 
-- Python >= 3.10
-- [Rust](https://www.rust-lang.org/tools/install) (for building `qecdec`)
-- [uv](https://docs.astral.sh/uv/) (recommended) or pip
+- Python 3.10+
+- [uv](https://docs.astral.sh/uv/) (for Python package and project management)
+- [Rust](https://www.rust-lang.org/tools/install) (to build the `qecdec` package)
 
-**With uv:**
+## Setup with uv (manual)
+
+After cloning the repository, from the repository root:
 
 ```bash
-git clone https://github.com/caoyingkang/QEC-decoder.git
-cd QEC-decoder
 uv sync
 ```
 
-This creates a virtual environment, builds the Rust extension in `packages/qecdec`, and installs all workspace dependencies.
+This will create a virtual environment in `.venv`, resolve the workspace, and build/install member packages `qecdec` and `torchdecoder_core`.
 
-**With pip (alternative):**
-
-```bash
-git clone https://github.com/caoyingkang/QEC-decoder.git
-cd QEC-decoder
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e packages/qecdec -e packages/qecbench  # Core packages
-pip install -e pytorch      # For training neural decoders
-pip install -e benchmark_app  # For benchmark UI
-```
-
-
-### Usage examples
-
-- Sample syndrome-observable pairs from repetition code memory experiment under circuit-level noise, and decode the syndromes using BP decoder:
-  ```python
-  from qecdec import RepetitionCode_Memory
-  from qecdec import BPDecoder
-
-  expmt = RepetitionCode_Memory(
-      d=5,
-      rounds=5,
-      data_qubit_error_rate=0.01,
-      meas_error_rate=0.01,
-      prep_error_rate=0.01,
-      cnot_error_rate=0.01,
-  )
-  sampler = expmt.circuit.compile_detector_sampler(seed=42)
-  syndromes, observables = sampler.sample(shots=10_000, separate_observables=True)
-
-  decoder = BPDecoder(expmt.chkmat, expmt.prior, max_iter=50)
-  decoded_errors = decoder.decode_batch(syndromes)
-  ```
-
-- Sample syndrome-observable pairs from rotated surface code Z-basis memory experiment under phenomenological noise, and decode the syndromes using a sliding window decoder whose inner decoder is MWPM:
-  ```python
-  from qecdec import RotatedSurfaceCode_Memory
-  from qecdec import SlidingWindow_Decoder
-
-  expmt = RotatedSurfaceCode_Memory(
-      d=5,
-      rounds=50,
-      basis='Z',
-      data_qubit_error_rate=0.01,
-      meas_error_rate=0.01,
-  )
-  sampler = expmt.circuit.compile_detector_sampler(seed=42)
-  syndromes, observables = sampler.sample(shots=10_000, separate_observables=True)
-
-  decoder = SlidingWindow_Decoder.from_pcm_prior(
-      expmt.chkmat,
-      expmt.prior,
-      detectors_per_layer=expmt.num_detectors_per_layer,
-      window_size=5,
-      commit_size=1
-  )
-  decoder.configure_inner_decoders('MWPM')
-  decoded_errors = decoder.decode_batch(syndromes)
-  ```
-
-- Use `sinter` to collect the decoding results of DMemBP decoder (with randomly selected memory parameters) for rotated surface code Z-basis memory experiment under phenomenological noise:
-  ```python
-  import numpy as np
-  from qecdec import RotatedSurfaceCode_Memory
-  from qecdec import DMemBPDecoder, SinterDecoderWrapper
-  import sinter
-  import os
-
-  expmt = RotatedSurfaceCode_Memory(
-      d=5,
-      rounds=50,
-      basis='Z',
-      data_qubit_error_rate=0.01,
-      meas_error_rate=0.01,
-  )
-
-  decoder = DMemBPDecoder(
-      expmt.chkmat,
-      expmt.prior,
-      gamma=np.random.uniform(0, 1, size=(expmt.num_error_mechanisms,)),
-      max_iter=50
-  )
-  sinter_decoder = SinterDecoderWrapper(decoder, expmt.obsmat)
-  custom_decoders = {'dmembp': sinter_decoder}
-
-  tasks = [sinter.Task(
-      circuit=expmt.circuit,
-      decoder='dmembp',
-      json_metadata={'d': 5, 'rounds': 5, 'p': 0.01},
-  )]
-
-  stats = sinter.collect(
-      num_workers=os.cpu_count() - 1,
-      max_shots=10_000_000,
-      max_errors=100,
-      tasks=tasks,
-      custom_decoders=custom_decoders,
-      print_progress=True,
-  )
-  ```
-
-- More examples can be found under `notebooks/` and `pytorch/`.
-
-## Running the benchmark app
-
-To launch the Streamlit app for Monte Carlo benchmarking of PyTorch decoders:
+(Optional) By default, `uv sync` triggers a debug build of the Rust extension of `qecdec`. For a release build, run:
 
 ```bash
-uv run --project benchmark_app streamlit run benchmark_app/app.py
+cd packages/qecdec
+uvx maturin develop --release
 ```
 
-Or with pip, from the repo root with `benchmark_app` installed:
+(Optional) To run the notebooks in `packages/qecdec/notebooks/`, include extra dependencies by running from the repository root:
 
 ```bash
-streamlit run benchmark_app/app.py
+uv sync --all-packages --group qecdec-notebooks
 ```
 
-See [benchmark_app/README.md](benchmark_app/README.md) for details.
+## Dev container (alternative to manual setup)
+
+This repository includes a VS Code Dev Container under `.devcontainer/`. It requires GPU access on the host machine.
