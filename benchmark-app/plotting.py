@@ -3,6 +3,7 @@
 from io import BytesIO
 
 import matplotlib.figure
+import plotly.graph_objects as go
 import streamlit as st
 
 
@@ -20,3 +21,8 @@ def render_plot(fig: matplotlib.figure.Figure, filename: str) -> None:
         file_name=filename,
         mime="image/png",
     )
+
+
+def render_plotly(fig: go.Figure) -> None:
+    """Display a Plotly figure in Streamlit."""
+    st.plotly_chart(fig)

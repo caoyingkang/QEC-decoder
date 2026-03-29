@@ -5,7 +5,7 @@ import os
 import streamlit as st
 
 from constants import DEFAULT_BATCH_SIZE, BASELINES_CSV_DIR
-from plotting import render_plot
+from plotting import render_plot, render_plotly
 from shared_ui import (
     render_sidebar_baselines_selection,
     render_sidebar_bench_task_selection,
@@ -21,7 +21,13 @@ from torchdecoder_utils import (
     get_ckpt_path,
 )
 from bench.custom_bench.collector_params import CollectorParams
-from bench.custom_bench.plotting import plot_ler_vs_per
+from bench.custom_bench.plotting import (
+    plot_ler_vs_per,
+    plot_fr_vs_per,
+    plot_smr_vs_per,
+    plot_avg_iters_vs_per,
+    plot_iters_distribution,
+)
 from bench.custom_bench.stats_io import (
     get_torchdecoder_csv_path,
     load_and_merge_stats,
@@ -130,16 +136,80 @@ if len(pending_run_dirs) > 0 or len(pending_baseline_decoders) > 0:
     st.stop()
 
 # Data is complete -- plot
-st.subheader("Logical Error Rate (LER) vs Physical Error Rate (PER)")
-ler_mode = st.radio(
-    "LER calculation method",
-    options=["per shot", "per round"],
-    horizontal=True,
-)
+st.subheader("Benchmark Results")
+tabs = st.tabs(["FR", "LER", "SMR", "Iters (Avg)", "Iters (Dist)"])
 
-fig = plot_ler_vs_per(
-    stats,
-    qec_params=qec_params,
-    ler_mode=ler_mode,
-)
-render_plot(fig, filename="benchmark_LER_vs_PER.png")
+iterative_stats = [s for s in stats if s.metadata.is_iterative]
+
+with tabs[0]:
+    st.markdown("##### Failure Rate (FR) vs Physical Error Rate (PER)")
+    fr_mode = st.radio(
+        "FR calculation method",
+        options=["per shot", "per round"],
+        horizontal=True,
+        key="fr_mode",
+    )
+    fig = plot_fr_vs_per(stats, qec_params=qec_params, mode=fr_mode)
+    render_plot(fig, filename="benchmark_FR_vs_PER.png")
+
+with tabs[1]:
+    st.markdown("##### Logical Error Rate (LER) vs Physical Error Rate (PER)")
+    ler_mode = st.radio(
+        "LER calculation method",
+        options=["per shot", "per round"],
+        horizontal=True,
+        key="ler_mode",
+    )
+    fig = plot_ler_vs_per(stats, qec_params=qec_params, mode=ler_mode)
+    render_plot(fig, filename="benchmark_LER_vs_PER.png")
+
+with tabs[2]:
+    st.markdown("##### Syndrome Mismatch Rate (SMR) vs Physical Error Rate (PER)")
+
+    # Filter out stats with no syndrome mismatches.
+    filtered_stats = [s for s in stats if s.synd_mismatches > 0]
+
+    if len(filtered_stats) == 0:
+        st.warning("No syndrome mismatches found for the selected decoders.")
+    else:
+        smr_mode = st.radio(
+            "SMR calculation method",
+            options=["per shot", "per round"],
+            horizontal=True,
+            key="smr_mode",
+        )
+        fig = plot_smr_vs_per(filtered_stats, qec_params=qec_params, mode=smr_mode)
+        render_plot(fig, filename="benchmark_SMR_vs_PER.png")
+
+with tabs[3]:
+    if len(iterative_stats) == 0:
+        st.warning("No iterative decoders selected.")
+    else:
+        st.subheader("Average Iterations vs Physical Error Rate (PER)")
+        avg_over = st.radio(
+            "Average over",
+            options=["all shots", "converged shots", "successful shots"],
+            horizontal=True,
+            key="avg_over",
+        )
+        fig = plot_avg_iters_vs_per(
+            iterative_stats, qec_params=qec_params, avg_over=avg_over
+        )
+        render_plot(fig, filename="benchmark_AvgIters_vs_PER.png")
+
+with tabs[4]:
+    if len(iterative_stats) == 0:
+        st.warning("No iterative decoders selected.")
+    else:
+        st.subheader("Iterations Distributions")
+        dist_over = st.radio(
+            "Distribution over",
+            options=["all shots", "converged shots", "successful shots"],
+            horizontal=True,
+            key="iter_dist_over",
+        )
+        for p in benchtask_params.p_list:
+            fig = plot_iters_distribution(
+                iterative_stats, p=p, qec_params=qec_params, dist_over=dist_over
+            )
+            render_plotly(fig)
