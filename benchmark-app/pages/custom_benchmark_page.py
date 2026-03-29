@@ -5,6 +5,7 @@ import os
 import streamlit as st
 
 from constants import DEFAULT_BATCH_SIZE, BASELINES_CSV_DIR
+from plotting import render_plot
 from shared_ui import (
     render_sidebar_baselines_selection,
     render_sidebar_bench_task_selection,
@@ -20,6 +21,7 @@ from torchdecoder_utils import (
     get_ckpt_path,
 )
 from bench.custom_bench.collector_params import CollectorParams
+from bench.custom_bench.plotting import plot_ler_vs_per
 from bench.custom_bench.stats_io import (
     get_torchdecoder_csv_path,
     load_and_merge_stats,
@@ -129,5 +131,15 @@ if len(pending_run_dirs) > 0 or len(pending_baseline_decoders) > 0:
 
 # Data is complete -- plot
 st.subheader("Logical Error Rate (LER) vs Physical Error Rate (PER)")
-# TODO: implement custom benchmark plotting
-st.stop()
+ler_mode = st.radio(
+    "LER calculation method",
+    options=["per shot", "per round"],
+    horizontal=True,
+)
+
+fig = plot_ler_vs_per(
+    stats,
+    qec_params=qec_params,
+    ler_mode=ler_mode,
+)
+render_plot(fig, filename="benchmark_LER_vs_PER.png")
