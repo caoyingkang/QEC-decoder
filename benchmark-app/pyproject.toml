@@ -17,6 +17,7 @@ dependencies = [
     "sinter",
     "torch",
     "streamlit",
+    "plotly",
 ]
 
 [tool.uv]
