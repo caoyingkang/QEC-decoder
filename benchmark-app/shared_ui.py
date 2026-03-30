@@ -165,11 +165,21 @@ def render_qec_selection() -> tuple[QECParams, list[Path]]:
     return qec_params, run_dirs
 
 
-def render_decoder_selection(run_dirs: list[Path]) -> list[Path]:
+def render_decoder_selection(
+    run_dirs: list[Path], qec_params: QECParams
+) -> list[Path]:
     """Render torch decoder tables with row selection and config expanders.
 
     Return the list of selected run directories.
+
+    ``qec_params`` is used to namespace widget keys so that changing the
+    upstream QEC selection resets row selections instead of carrying over
+    stale indices from a previous table.
     """
+    qec_key = (
+        f"{qec_params.code}_{qec_params.noise_model}"
+        f"_{qec_params.d}_{qec_params.rounds}_{qec_params.basis}"
+    )
     st.subheader("Select PyTorch decoder(s)")
     st.caption(
         "One table per decoder model. "
@@ -203,7 +213,7 @@ def render_decoder_selection(run_dirs: list[Path]) -> list[Path]:
         event = st.dataframe(
             df,
             width="stretch",
-            key=f"pytorch_decoder_selection_{model_name}",
+            key=f"pytorch_decoder_selection_{qec_key}_{model_name}",
             on_select="rerun",
             selection_mode="multi-row",
             hide_index=True,

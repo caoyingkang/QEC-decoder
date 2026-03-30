@@ -60,7 +60,7 @@ selected_baseline_decoders = render_sidebar_baselines_selection()
 benchtask_params = render_sidebar_bench_task_selection()
 collector_params = _render_sidebar_collector_selection()
 qec_params, run_dirs = render_qec_selection()
-selected_run_dirs = render_decoder_selection(run_dirs)
+selected_run_dirs = render_decoder_selection(run_dirs, qec_params)
 stop_if_no_decoders_selected(selected_run_dirs, selected_baseline_decoders)
 
 # Load and merge statistics
