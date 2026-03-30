@@ -1,1 +1,1 @@
-BASELINE_DECODERS = ["MWPM", "BP"]
+BASELINE_DECODERS = ["MWPM", "UnionFind", "BP"]

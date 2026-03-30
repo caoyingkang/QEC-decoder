@@ -32,10 +32,7 @@ from bench.custom_bench.stats_io import (
     get_torchdecoder_csv_path,
     load_and_merge_stats,
 )
-from bench.custom_bench.baselines_runner import (
-    run_MWPM_benchmark,
-    run_BP_benchmark,
-)
+from bench.custom_bench.baselines_runner import run_baseline_benchmark
 from bench.custom_bench.torchdecoder_runner import run_torchdecoder_benchmark
 
 
@@ -108,26 +105,20 @@ if len(pending_run_dirs) > 0 or len(pending_baseline_decoders) > 0:
     )
     if clicked:
         with st.spinner("Running benchmark..."):
+            for baseline_decoder in pending_baseline_decoders:
+                run_baseline_benchmark(
+                    BASELINES_CSV_DIR,
+                    baseline_decoder,
+                    qec_params=qec_params,
+                    benchtask_params=benchtask_params,
+                    collector_params=collector_params,
+                )
             for run_dir in pending_run_dirs:
                 run_torchdecoder_benchmark(
                     csv_path=get_torchdecoder_csv_path(run_dir),
                     decoder_name=extract_pytorch_decoder_name(run_dir),
                     model_cfg=load_model_config_from_run_dir(run_dir),
                     ckpt_path=get_ckpt_path(run_dir),
-                    qec_params=qec_params,
-                    benchtask_params=benchtask_params,
-                    collector_params=collector_params,
-                )
-            if "MWPM" in pending_baseline_decoders:
-                run_MWPM_benchmark(
-                    BASELINES_CSV_DIR,
-                    qec_params=qec_params,
-                    benchtask_params=benchtask_params,
-                    collector_params=collector_params,
-                )
-            if "BP" in pending_baseline_decoders:
-                run_BP_benchmark(
-                    BASELINES_CSV_DIR,
                     qec_params=qec_params,
                     benchtask_params=benchtask_params,
                     collector_params=collector_params,
