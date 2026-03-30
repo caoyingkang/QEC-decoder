@@ -1,5 +1,6 @@
 """Base class for loss functions used to train iterative QEC decoders."""
 
+from abc import ABC, abstractmethod
 from typing import NamedTuple
 
 import numpy as np
@@ -18,7 +19,7 @@ class LossResult(NamedTuple):
     obser_loss: torch.Tensor
 
 
-class DecodingLoss(nn.Module):
+class DecodingLoss(nn.Module, ABC):
     """
     A `torch.nn.Module` that serves as the base class for loss functions used to
     train iterative QEC decoders. Every decoding loss function should inherit from
@@ -102,6 +103,7 @@ class DecodingLoss(nn.Module):
             "obs_mask", torch.tensor(obs_mask, dtype=torch.bool), persistent=False
         )  # (num_obsers, max_obs_weight)
 
+    @abstractmethod
     def forward(
         self,
         llrs: torch.Tensor,
@@ -125,4 +127,4 @@ class DecodingLoss(nn.Module):
             LossResult
                 Named tuple with fields `loss`, `synd_loss`, `obser_loss` (all float scalar tensors).
         """
-        raise NotImplementedError("Subclasses must implement this method.")
+        ...

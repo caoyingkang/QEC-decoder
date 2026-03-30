@@ -1,5 +1,6 @@
 """Base class for PyTorch iterative decoder models."""
 
+from abc import ABC, abstractmethod
 from pathlib import Path
 
 import numpy as np
@@ -7,9 +8,9 @@ import torch
 import torch.nn as nn
 
 
-class DecoderModel(nn.Module):
+class DecoderModel(nn.Module, ABC):
     """
-    Base class for PyTorch iterative decoder models.
+    Abstract base class for PyTorch iterative decoder models.
 
     This is the `torch.nn.Module` that implements the neural network architecture. Every decoder model
     should inherit from this class, and is assumed to have an iterative (recurrent) nature: the
@@ -28,6 +29,7 @@ class DecoderModel(nn.Module):
             raise ValueError(f"num_iters must be at least 1, but got {num_iters}")
         self.num_iters = num_iters
 
+    @abstractmethod
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
         """
         Forward pass. Subclasses must implement this method.
@@ -42,7 +44,7 @@ class DecoderModel(nn.Module):
             llrs : torch.Tensor
                 LLR outputs at all iterations, shape=(num_iters, batch_size, num_vars), float
         """
-        raise NotImplementedError("Subclasses must implement this method.")
+        ...
 
     def load_lightning_checkpoint(
         self, ckpt_path: Path, skip_keys: list[str] = []
