@@ -14,7 +14,7 @@ from ..params import QECParams
 from .stats import BenchmarkStats
 
 
-def _wilson_ci(p_hat: float, n: int, *, z: float = 1.0) -> tuple[float, float]:
+def _wilson_ci(p_hat: float, n: int, *, z: float = 1.96) -> tuple[float, float]:
     """Compute the Wilson score confidence interval for a binomial distribution.
 
     Parameters
@@ -24,7 +24,7 @@ def _wilson_ci(p_hat: float, n: int, *, z: float = 1.0) -> tuple[float, float]:
     n : int
         Number of trials.
     z : float
-        Number of standard deviations for the interval (default 1.0 for ~68%).
+        Number of standard deviations for the interval (default 1.96 for ~95% confidence level).
 
     Returns
     -------
