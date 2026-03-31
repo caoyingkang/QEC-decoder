@@ -1,6 +1,8 @@
 """Unified benchmark for PyTorch decoders (LearnedDMemBP, MultiDMemBP, etc.)."""
 
+import threading
 from pathlib import Path
+from typing import Optional
 
 from omegaconf import DictConfig
 import stim
@@ -23,7 +25,8 @@ def run_torchdecoder_benchmark(
     qec_params: QECParams,
     benchtask_params: BenchTaskParams,
     collector_params: CollectorParams,
-):
+    stop_event: Optional[threading.Event] = None,
+) -> None:
     metadata_list: list[TaskMetadata] = []
     decoder_list: list[PyTorchBenchmarkDecoder] = []
     dem_list: list[stim.DetectorErrorModel] = []
@@ -66,6 +69,8 @@ def run_torchdecoder_benchmark(
         dem_list.append(expmt.dem)
 
     for metadata, decoder, dem in zip(metadata_list, decoder_list, dem_list):
+        if stop_event is not None and stop_event.is_set():
+            return
         collect_stats(
             dem,
             decoder,
@@ -75,4 +80,5 @@ def run_torchdecoder_benchmark(
             errors_cap=collector_params.errors_cap,
             num_parallel_workers=collector_params.num_parallel_workers,
             csv_path=csv_path,
+            th_stop_event=stop_event,
         )

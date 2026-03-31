@@ -1,25 +1,11 @@
 """Custom Monte Carlo benchmark page."""
 
 import os
+import threading
+from pathlib import Path
 
 import streamlit as st
 
-from constants import DEFAULT_BATCH_SIZE, BASELINES_CSV_DIR
-from plotting import render_plot, render_plotly
-from shared_ui import (
-    render_sidebar_baselines_selection,
-    render_sidebar_bench_task_selection,
-    render_sidebar_collector_selection_common,
-    render_qec_selection,
-    render_decoder_selection,
-    stop_if_no_decoders_selected,
-    render_missing_data_warning_and_benchmark_button,
-)
-from torchdecoder_utils import (
-    extract_pytorch_decoder_name,
-    load_model_config_from_run_dir,
-    get_ckpt_path,
-)
 from bench.custom_bench.collector_params import CollectorParams
 from bench.custom_bench.plotting import (
     plot_ler_vs_per,
@@ -34,6 +20,26 @@ from bench.custom_bench.stats_io import (
 )
 from bench.custom_bench.baselines_runner import run_baseline_benchmark
 from bench.custom_bench.torchdecoder_runner import run_torchdecoder_benchmark
+from bench.params import BenchTaskParams, QECParams
+from constants import DEFAULT_BATCH_SIZE, BASELINES_CSV_DIR
+from plotting import render_plot, render_plotly
+from shared_ui import (
+    benchmark_modal,
+    is_benchmark_running,
+    render_sidebar_baselines_selection,
+    render_sidebar_bench_task_selection,
+    render_sidebar_collector_selection_common,
+    render_qec_selection,
+    render_decoder_selection,
+    start_benchmark_thread,
+    stop_if_no_decoders_selected,
+    render_missing_data_warning_and_benchmark_button,
+)
+from torchdecoder_utils import (
+    extract_pytorch_decoder_name,
+    load_model_config_from_run_dir,
+    get_ckpt_path,
+)
 
 
 def _render_sidebar_collector_selection() -> CollectorParams:
@@ -81,6 +87,42 @@ def _render_sidebar_collector_selection() -> CollectorParams:
     )
 
 
+def _run_all_benchmarks(
+    stop_event: threading.Event,
+    pending_baseline_decoders: list[str],
+    pending_run_dirs: list[Path],
+    *,
+    qec_params: QECParams,
+    benchtask_params: BenchTaskParams,
+    collector_params: CollectorParams,
+) -> None:
+    """Run all pending benchmarks, checking *stop_event* between tasks."""
+    for baseline_decoder in pending_baseline_decoders:
+        if stop_event.is_set():
+            return
+        run_baseline_benchmark(
+            BASELINES_CSV_DIR,
+            baseline_decoder,
+            qec_params=qec_params,
+            benchtask_params=benchtask_params,
+            collector_params=collector_params,
+            stop_event=stop_event,
+        )
+    for run_dir in pending_run_dirs:
+        if stop_event.is_set():
+            return
+        run_torchdecoder_benchmark(
+            csv_path=get_torchdecoder_csv_path(run_dir),
+            decoder_name=extract_pytorch_decoder_name(run_dir),
+            model_cfg=load_model_config_from_run_dir(run_dir),
+            ckpt_path=get_ckpt_path(run_dir),
+            qec_params=qec_params,
+            benchtask_params=benchtask_params,
+            collector_params=collector_params,
+            stop_event=stop_event,
+        )
+
+
 selected_baseline_decoders = render_sidebar_baselines_selection()
 benchtask_params = render_sidebar_bench_task_selection()
 collector_params = _render_sidebar_collector_selection()
@@ -98,32 +140,25 @@ stats, pending_run_dirs, pending_baseline_decoders = load_and_merge_stats(
     qec_params=qec_params,
 )
 
+# If a benchmark is already running, reopen the modal immediately.
+if is_benchmark_running():
+    benchmark_modal()
+
 # Handle missing data
 if len(pending_run_dirs) > 0 or len(pending_baseline_decoders) > 0:
     clicked = render_missing_data_warning_and_benchmark_button(
         pending_run_dirs, pending_baseline_decoders
     )
     if clicked:
-        with st.spinner("Running benchmark..."):
-            for baseline_decoder in pending_baseline_decoders:
-                run_baseline_benchmark(
-                    BASELINES_CSV_DIR,
-                    baseline_decoder,
-                    qec_params=qec_params,
-                    benchtask_params=benchtask_params,
-                    collector_params=collector_params,
-                )
-            for run_dir in pending_run_dirs:
-                run_torchdecoder_benchmark(
-                    csv_path=get_torchdecoder_csv_path(run_dir),
-                    decoder_name=extract_pytorch_decoder_name(run_dir),
-                    model_cfg=load_model_config_from_run_dir(run_dir),
-                    ckpt_path=get_ckpt_path(run_dir),
-                    qec_params=qec_params,
-                    benchtask_params=benchtask_params,
-                    collector_params=collector_params,
-                )
-            st.rerun()
+        start_benchmark_thread(
+            _run_all_benchmarks,
+            pending_baseline_decoders,
+            pending_run_dirs,
+            qec_params=qec_params,
+            benchtask_params=benchtask_params,
+            collector_params=collector_params,
+        )
+        benchmark_modal()
     st.stop()
 
 # Data is complete -- plot

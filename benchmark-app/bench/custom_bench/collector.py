@@ -1,11 +1,13 @@
 """Monte Carlo collection loop — replacement for sinter.collect."""
 
 import multiprocessing
-from multiprocessing import Process, Queue, Lock, Event
+import multiprocessing.synchronize
 from queue import Empty
+import threading
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 import humanize
 import numpy as np
@@ -56,6 +58,7 @@ def _run_serial_collect(
     shots_cap: int,
     errors_cap: int,
     verbose: bool,
+    th_stop_event: Optional[threading.Event] = None,
 ) -> BenchmarkStats:
     """Single-process MC collection loop."""
     sampler = dem.compile_sampler()
@@ -74,6 +77,8 @@ def _run_serial_collect(
         shots_task = progress.add_task("[cyan]Shots", total=shots_cap)
         errors_task = progress.add_task("[cyan]Errors", total=errors_cap)
         while not stats.is_complete(shots_cap, errors_cap):
+            if th_stop_event is not None and th_stop_event.is_set():
+                break
             syndromes, observables = _sample(sampler, batch_size)
             result = decoder.decode(syndromes)
             obser_correct_mask = np.all(result.obser_pred == observables, axis=1)
@@ -122,16 +127,16 @@ def _worker_loop(
     seed: int,
     shots_arr,
     errors_arr,
-    locks,
-    stop_event,
-    result_queue,
+    locks: list[multiprocessing.synchronize.Lock],
+    mp_stop_event: multiprocessing.synchronize.Event,
+    result_queue: multiprocessing.Queue,
 ) -> None:
     """Worker loop: publish cumulative stats to shared arrays `shots_arr` and
-    `errors_arr`; exit when `stop_event` is set."""
+    `errors_arr`; exit when `mp_stop_event` is set."""
     stats = BenchmarkStats(metadata=metadata)
     try:
         sampler = dem.compile_sampler(seed=seed)
-        while not stop_event.is_set():
+        while not mp_stop_event.is_set():
             syndromes, observables = _sample(sampler, batch_size)
             result = decoder.decode(syndromes)
             obser_correct_mask = np.all(result.obser_pred == observables, axis=1)
@@ -158,6 +163,7 @@ def _run_parallel_collect(
     num_workers: int,
     poll_interval_sec: float,
     verbose: bool,
+    th_stop_event: Optional[threading.Event] = None,
 ) -> BenchmarkStats:
     """Multi-processing MC collection loop."""
     if num_workers <= 0:
@@ -170,14 +176,14 @@ def _run_parallel_collect(
     # --- Create shared memory arrays -------------------------------------
     shots_arr = multiprocessing.Array("q", num_workers, lock=False)
     errors_arr = multiprocessing.Array("q", num_workers, lock=False)
-    locks = [Lock() for _ in range(num_workers)]
-    stop_event = Event()
-    result_queue = Queue()
+    locks = [multiprocessing.Lock() for _ in range(num_workers)]
+    mp_stop_event = multiprocessing.Event()
+    result_queue = multiprocessing.Queue()
 
     # --- Create worker processes -----------------------------------------
     rng = np.random.default_rng()
     seeds = rng.integers(2**31, size=num_workers)
-    processes: list[Process] = []
+    processes: list[multiprocessing.Process] = []
     for i in range(num_workers):
         args = (
             i,
@@ -189,10 +195,10 @@ def _run_parallel_collect(
             shots_arr,
             errors_arr,
             locks,
-            stop_event,
+            mp_stop_event,
             result_queue,
         )
-        processes.append(Process(target=_worker_loop, args=args))
+        processes.append(multiprocessing.Process(target=_worker_loop, args=args))
 
     # --- Start worker processes ------------------------------------------
     if verbose:
@@ -209,13 +215,16 @@ def _run_parallel_collect(
             TimeRemainingColumn(),
             TimeElapsedColumn(),
             console=Console(file=sys.stdout),
-            refresh_per_second=4,
+            refresh_per_second=1,
             disable=not verbose,
         ) as progress:
             shots_task = progress.add_task("[cyan]Shots", total=shots_cap)
             errors_task = progress.add_task("[cyan]Errors", total=errors_cap)
 
             while True:
+                if th_stop_event is not None and th_stop_event.is_set():
+                    mp_stop_event.set()
+                    break
                 time.sleep(poll_interval_sec)
                 total_shots, total_errors = _read_global_totals(
                     num_workers, shots_arr, errors_arr, locks
@@ -229,12 +238,12 @@ def _run_parallel_collect(
                     completed=total_errors,
                 )
                 if total_shots >= shots_cap or total_errors >= errors_cap:
-                    stop_event.set()
+                    mp_stop_event.set()
                     break
                 if not all(p.is_alive() for p in processes):
                     raise RuntimeError("One or more workers terminated unexpectedly.")
     finally:
-        stop_event.set()
+        mp_stop_event.set()
         for p in processes:
             p.join()
 
@@ -269,6 +278,7 @@ def collect_stats(
     poll_interval_sec: float = 1.0,
     csv_path: Path | str | None = None,
     verbose: bool = True,
+    th_stop_event: Optional[threading.Event] = None,
 ) -> BenchmarkStats:
     """Collect Monte Carlo benchmark statistics for a single task.
 
@@ -304,6 +314,10 @@ def collect_stats(
 
     verbose : bool
         Whether to print progress to stdout.
+
+    th_stop_event : threading.Event or None
+        If provided, the collection loop checks this event every batch (serial mode) or
+        every poll interval (parallel mode) and exits early when it is set.
 
     Returns
     -------
@@ -350,6 +364,7 @@ def collect_stats(
             shots_cap=shots_cap,
             errors_cap=errors_cap,
             verbose=verbose,
+            th_stop_event=th_stop_event,
         )
     else:  # multiprocessing mode
         stats = _run_parallel_collect(
@@ -362,15 +377,21 @@ def collect_stats(
             num_workers=num_parallel_workers,
             poll_interval_sec=poll_interval_sec,
             verbose=verbose,
+            th_stop_event=th_stop_event,
         )
 
     if verbose:
         elapsed = time.time() - t_start
         elapsed_str = humanize.precisedelta(elapsed)
         speed_str = f" ({stats.shots / elapsed:.1f} shots/s)" if elapsed > 1.0 else ""
-        _info(
-            f"Task completed. Collected {stats.shots:,} shots in {elapsed_str}{speed_str}."
-        )
+        if th_stop_event is not None and th_stop_event.is_set():
+            _info(
+                f"Task stopped. Collected {stats.shots:,} shots in {elapsed_str}{speed_str}."
+            )
+        else:
+            _info(
+                f"Task completed. Collected {stats.shots:,} shots in {elapsed_str}{speed_str}."
+            )
         print()
 
     # Merge with previous partial stats if resuming
@@ -380,8 +401,6 @@ def collect_stats(
     # --- Save -----------------------------------------------------------------
     if csv_path is not None:
         BenchmarkStats.upsert(csv_stats_list, stats)
-        BenchmarkStats.save_csv(
-            csv_stats_list, csv_path
-        )  # TODO: should I add a lock to prevent concurrent writes?
+        BenchmarkStats.save_csv(csv_stats_list, csv_path)
 
     return stats
