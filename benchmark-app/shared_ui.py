@@ -1,10 +1,7 @@
 """Shared Streamlit UI components used by all benchmark pages."""
 
-import threading
-import time
-import traceback
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, cast
 
 import pandas as pd
 import torch
@@ -262,83 +259,3 @@ def render_missing_data_warning_and_benchmark_button(
     )
     clicked = st.button("Run benchmark", type="primary")
     return clicked
-
-
-# ---------------------------------------------------------------------------
-# Benchmark modal dialog
-# ---------------------------------------------------------------------------
-
-_BENCH_THREAD_KEY = "_bench_thread"
-_BENCH_STOP_EVENT_KEY = "_bench_stop_event"
-_BENCH_STATE_KEY = "_bench_state"
-
-
-def _cleanup_bench_session_state() -> None:
-    """Remove all benchmark-related keys from session state."""
-    for key in (_BENCH_THREAD_KEY, _BENCH_STOP_EVENT_KEY, _BENCH_STATE_KEY):
-        st.session_state.pop(key, None)
-
-
-def is_benchmark_running() -> bool:
-    """Return True if a benchmark thread is tracked in session state."""
-    return _BENCH_THREAD_KEY in st.session_state
-
-
-def start_benchmark_thread(
-    target_fn: Callable[..., None],
-    *args: Any,
-    **kwargs: Any,
-) -> None:
-    """Start `target_fn` in a daemon thread and store handles in session state.
-
-    `target_fn` is called as `target_fn(stop_event, *args, **kwargs)` where
-    `stop_event` is a `threading.Event` that the function should check
-    periodically so it can exit early when "Stop benchmark" button is clicked.
-    """
-    stop_event = threading.Event()
-    bench_state: dict[str, str | None] = {"error": None}
-
-    def _worker() -> None:
-        try:
-            target_fn(stop_event, *args, **kwargs)
-        except Exception:
-            bench_state["error"] = traceback.format_exc()
-
-    thread = threading.Thread(target=_worker, daemon=True)
-    thread.start()
-    st.session_state[_BENCH_THREAD_KEY] = thread
-    st.session_state[_BENCH_STOP_EVENT_KEY] = stop_event
-    st.session_state[_BENCH_STATE_KEY] = bench_state
-
-
-@st.dialog("Running Benchmark", dismissible=False)
-def benchmark_modal() -> None:
-    """Modal dialog shown while a benchmark is in progress.
-
-    Blocks all interaction with the rest of the app.  The only way to dismiss
-    the dialog is by clicking the "Stop benchmark" button or waiting for the
-    benchmark to finish.
-    """
-    thread: threading.Thread = st.session_state[_BENCH_THREAD_KEY]
-    stop_event: threading.Event = st.session_state[_BENCH_STOP_EVENT_KEY]
-    bench_state: dict[str, str | None] = st.session_state[_BENCH_STATE_KEY]
-
-    if thread.is_alive():
-        st.info("Benchmark is running. Please wait...")
-        if st.button("Stop benchmark", type="primary", use_container_width=True):
-            stop_event.set()
-            _cleanup_bench_session_state()
-            st.rerun(scope="app")
-        time.sleep(2)
-        st.rerun()
-    else:
-        thread.join()
-        error = bench_state.get("error")
-        if error:
-            st.error(f"Benchmark failed:\n\n```\n{error}\n```")
-            if st.button("Close", use_container_width=True):
-                _cleanup_bench_session_state()
-                st.rerun(scope="app")
-        else:
-            _cleanup_bench_session_state()
-            st.rerun(scope="app")

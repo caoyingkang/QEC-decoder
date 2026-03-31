@@ -3,6 +3,7 @@
 import os
 import threading
 from pathlib import Path
+import queue
 
 import streamlit as st
 
@@ -24,14 +25,11 @@ from bench.params import BenchTaskParams, QECParams
 from constants import DEFAULT_BATCH_SIZE, BASELINES_CSV_DIR
 from plotting import render_plot, render_plotly
 from shared_ui import (
-    benchmark_modal,
-    is_benchmark_running,
     render_sidebar_baselines_selection,
     render_sidebar_bench_task_selection,
     render_sidebar_collector_selection_common,
     render_qec_selection,
     render_decoder_selection,
-    start_benchmark_thread,
     stop_if_no_decoders_selected,
     render_missing_data_warning_and_benchmark_button,
 )
@@ -89,6 +87,65 @@ def _render_sidebar_collector_selection() -> CollectorParams:
 
 def _run_all_benchmarks(
     stop_event: threading.Event,
+    exc_queue: queue.Queue,
+    pending_baseline_decoders: list[str],
+    pending_run_dirs: list[Path],
+    qec_params: QECParams,
+    benchtask_params: BenchTaskParams,
+    collector_params: CollectorParams,
+) -> None:
+    """Run all pending benchmark tasks. Exit early if `stop_event` is set.
+    Put any exception that occurs into `exc_queue`."""
+    try:
+        for baseline_decoder in pending_baseline_decoders:
+            if stop_event.is_set():
+                return
+            run_baseline_benchmark(
+                BASELINES_CSV_DIR,
+                baseline_decoder,
+                qec_params=qec_params,
+                benchtask_params=benchtask_params,
+                collector_params=collector_params,
+                stop_event=stop_event,
+            )
+        for run_dir in pending_run_dirs:
+            if stop_event.is_set():
+                return
+            run_torchdecoder_benchmark(
+                csv_path=get_torchdecoder_csv_path(run_dir),
+                decoder_name=extract_pytorch_decoder_name(run_dir),
+                model_cfg=load_model_config_from_run_dir(run_dir),
+                ckpt_path=get_ckpt_path(run_dir),
+                qec_params=qec_params,
+                benchtask_params=benchtask_params,
+                collector_params=collector_params,
+                stop_event=stop_event,
+            )
+    except Exception as e:
+        exc_queue.put(e)
+
+
+@st.fragment(run_every=2)
+def _stop_monitor(
+    thread: threading.Thread,
+    stop_event: threading.Event,
+    exc_queue: queue.Queue,
+) -> None:
+    """Monitor the benchmark thread and stop event."""
+    st.info("Benchmark is running. Please wait...")
+    if not thread.is_alive():
+        if not exc_queue.empty():
+            raise exc_queue.get()
+        st.rerun(scope="app")
+    if st.button("Stop benchmark", type="primary", use_container_width=True):
+        stop_event.set()
+        with st.spinner("Stopping benchmark..."):
+            thread.join()
+        st.rerun(scope="app")
+
+
+@st.dialog("Running Benchmark", dismissible=False)
+def _benchmark_progress_modal(
     pending_baseline_decoders: list[str],
     pending_run_dirs: list[Path],
     *,
@@ -96,31 +153,29 @@ def _run_all_benchmarks(
     benchtask_params: BenchTaskParams,
     collector_params: CollectorParams,
 ) -> None:
-    """Run all pending benchmarks, checking *stop_event* between tasks."""
-    for baseline_decoder in pending_baseline_decoders:
-        if stop_event.is_set():
-            return
-        run_baseline_benchmark(
-            BASELINES_CSV_DIR,
-            baseline_decoder,
-            qec_params=qec_params,
-            benchtask_params=benchtask_params,
-            collector_params=collector_params,
-            stop_event=stop_event,
-        )
-    for run_dir in pending_run_dirs:
-        if stop_event.is_set():
-            return
-        run_torchdecoder_benchmark(
-            csv_path=get_torchdecoder_csv_path(run_dir),
-            decoder_name=extract_pytorch_decoder_name(run_dir),
-            model_cfg=load_model_config_from_run_dir(run_dir),
-            ckpt_path=get_ckpt_path(run_dir),
-            qec_params=qec_params,
-            benchtask_params=benchtask_params,
-            collector_params=collector_params,
-            stop_event=stop_event,
-        )
+    """Modal dialog shown while a benchmark is in progress.
+
+    Blocks all interaction with the rest of the app.  The only way to dismiss
+    the dialog is by clicking the "Stop benchmark" button or waiting for the
+    benchmark to finish.
+    """
+    stop_event = threading.Event()
+    exc_queue = queue.Queue()
+    thread = threading.Thread(
+        target=_run_all_benchmarks,
+        args=(
+            stop_event,
+            exc_queue,
+            pending_baseline_decoders,
+            pending_run_dirs,
+            qec_params,
+            benchtask_params,
+            collector_params,
+        ),
+        daemon=True,
+    )
+    thread.start()
+    _stop_monitor(thread, stop_event, exc_queue)
 
 
 selected_baseline_decoders = render_sidebar_baselines_selection()
@@ -140,25 +195,19 @@ stats, pending_run_dirs, pending_baseline_decoders = load_and_merge_stats(
     qec_params=qec_params,
 )
 
-# If a benchmark is already running, reopen the modal immediately.
-if is_benchmark_running():
-    benchmark_modal()
-
 # Handle missing data
 if len(pending_run_dirs) > 0 or len(pending_baseline_decoders) > 0:
     clicked = render_missing_data_warning_and_benchmark_button(
         pending_run_dirs, pending_baseline_decoders
     )
     if clicked:
-        start_benchmark_thread(
-            _run_all_benchmarks,
+        _benchmark_progress_modal(
             pending_baseline_decoders,
             pending_run_dirs,
             qec_params=qec_params,
             benchtask_params=benchtask_params,
             collector_params=collector_params,
         )
-        benchmark_modal()
     st.stop()
 
 # Data is complete -- plot
