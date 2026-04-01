@@ -8,7 +8,6 @@ import torch
 import qecdec
 from qecdec.decoders import IterativeDecoder
 from torchdecoder_core.models import DecoderModel
-from torchdecoder_core.utils.decoding_utils import diagnose_convergence, gather_ehat
 from torchdecoder_core.utils.tensor_utils import matmul_GF2
 
 from ..types import Bool1DArray, Bit2DArray, Int1DArray
@@ -81,6 +80,10 @@ class PyTorchBenchmarkDecoder(BenchmarkDecoder):
         self.model.to(device)
         # Set model to evaluation mode.
         self.model.eval()
+
+        # Compile model.
+        # self.model.compile()
+
         # Store helper tensors on device.
         self._chkmat = torch.tensor(model.pcm, dtype=torch.float32, device=device)
         self._obsmat = torch.tensor(obsmat, dtype=torch.float32, device=device)
@@ -89,29 +92,17 @@ class PyTorchBenchmarkDecoder(BenchmarkDecoder):
         syndromes_t = torch.as_tensor(
             syndromes, dtype=torch.int32, device=self.device
         )  # (B, C), int ∈ {0, 1}
-        trivial_mask = torch.all(syndromes_t == 0, dim=1)  # (B,), bool
 
         with torch.inference_mode():
-            llrs = self.model(syndromes_t)  # (I, B, V), float
-            hard_decisions = (llrs < 0).float()  # (I, B, V), float ∈ {0.0, 1.0}
-            converged_mask, output_iters = diagnose_convergence(
-                hard_decisions,
-                syndromes_t,
-                self._chkmat,
-            )  # (B,), bool; (B,), long
-            ehat = gather_ehat(
-                hard_decisions, output_iters
-            )  # (B, V), float ∈ {0.0, 1.0}
+            ehat, converged_mask, decoding_iters = self.model.decode_inference(
+                syndromes_t, self._chkmat
+            )
 
             obser_pred = matmul_GF2(ehat, self._obsmat.T)  # (B, O), int ∈ {0,1}
-            obser_pred[trivial_mask] = 0
-            synd_match_mask = converged_mask | trivial_mask  # (B,), bool
-            decoding_iters = output_iters + 1  # (B,), long
-            decoding_iters[trivial_mask] = 0
 
         return DecodeResult(
             obser_pred=obser_pred.cpu().numpy().astype(np.uint8),
-            synd_match_mask=synd_match_mask.cpu().numpy(),
+            synd_match_mask=converged_mask.cpu().numpy(),
             decoding_iters=decoding_iters.cpu().numpy(),
         )
 

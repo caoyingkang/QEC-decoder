@@ -25,8 +25,6 @@ def matmul_GF2(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     or boolean tensors, they will be converted to float tensors before applying the
     `@` operator. This is usually more efficient than using the `@` operator directly
     (even on CPU). Moreover, some CUDA devices do not support integer matmul.
-
-    See pytorch/notebooks/benchmark_tensor_ops.ipynb for more details.
     """
     return (x.float() @ y.float()).round().int() % 2
 

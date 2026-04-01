@@ -71,7 +71,7 @@ def _run_serial_collect(
         TimeRemainingColumn(),
         TimeElapsedColumn(),
         console=Console(file=sys.stdout),
-        refresh_per_second=4,
+        refresh_per_second=2,
         disable=not verbose,
     ) as progress:
         shots_task = progress.add_task("[cyan]Shots", total=shots_cap)

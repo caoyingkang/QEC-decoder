@@ -4,7 +4,6 @@ import numpy as np
 import torch
 import sinter
 from torchdecoder_core.models import DecoderModel
-from torchdecoder_core.utils.decoding_utils import diagnose_convergence, gather_ehat
 from torchdecoder_core.utils.tensor_utils import matmul_GF2
 
 
@@ -59,22 +58,10 @@ class PyTorchSinterDecoder(sinter.Decoder):
         )
         syndromes = unpacked[:, : self.num_chks]
         syndromes_t = torch.as_tensor(syndromes, dtype=torch.int32, device=self.device)
-        trivial_mask = torch.all(syndromes_t == 0, dim=1)  # (B,), bool
 
         with torch.inference_mode():
-            llrs = self.model(syndromes_t)  # (I, B, V), float
-            hard_decisions = (llrs < 0).float()  # (I, B, V), float ∈ {0.0, 1.0}
-            _, output_iters = diagnose_convergence(
-                hard_decisions,
-                syndromes_t,
-                self._chkmat,
-            )  # (B,), long
-            ehat = gather_ehat(
-                hard_decisions, output_iters
-            )  # (B, V), float ∈ {0.0, 1.0}
-
+            ehat, _, _ = self.model.decode_inference(syndromes_t, self._chkmat)
             obser_pred = matmul_GF2(ehat, self._obsmat.T)  # (B, O), int ∈ {0,1}
-            obser_pred[trivial_mask] = 0
 
         obser_pred_np = obser_pred.cpu().numpy().astype(np.uint8)
         return np.packbits(obser_pred_np, axis=1, bitorder="little")

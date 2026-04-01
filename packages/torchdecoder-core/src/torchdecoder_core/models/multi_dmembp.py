@@ -42,8 +42,9 @@ from ..utils.tensor_utils import (
     smooth_min,
     leave_one_out_sign_product,
     leave_one_out_min,
+    matmul_GF2,
 )
-from .base import DecoderModel
+from .base import DecoderModel, InferenceResult
 
 EPS = 1e-6
 BIG = 1e8
@@ -395,3 +396,105 @@ class MultiDMemBP(DecoderModel):
                 vn_to_cn.scatter_(1, vn_flat_idx, vn_out_for_scatter)
 
         return torch.stack(llrs_list, dim=0)  # (num_iters, B, V)
+
+    def decode_inference(
+        self, syndromes: torch.Tensor, chkmat: torch.Tensor
+    ) -> InferenceResult:
+        device = syndromes.device
+        batch_size = syndromes.shape[0]
+        synd_sgn = (1 - 2 * syndromes).float()  # (B, C)
+        mf = self.msg_features
+
+        vn_to_cn = torch.zeros(batch_size, self.num_edges + 1, mf, device=device)
+        cn_to_vn = torch.zeros(batch_size, self.num_edges + 1, mf, device=device)
+
+        vn_to_cn[:, : self.num_edges, :] = (
+            self.prior_llr[self.edge_to_vn].unsqueeze(0).unsqueeze(-1)
+        )
+
+        cn_flat_idx = self.cn_edge_idx.reshape(1, -1, 1).expand(
+            batch_size, -1, mf
+        )  # (B, C * Δc, M)
+        vn_flat_idx = self.vn_edge_idx.reshape(1, -1, 1).expand(
+            batch_size, -1, mf
+        )  # (B, V * Δv, M)
+
+        cn_mask_4d = self.cn_mask.unsqueeze(0).unsqueeze(-1)  # (1, C, Δc, 1)
+        vn_mask_4d = self.vn_mask.unsqueeze(0).unsqueeze(-1)  # (1, V, Δv, 1)
+
+        ehat = torch.zeros(batch_size, self.num_vars, device=device)
+        converged_mask = torch.all(syndromes == 0, dim=1)  # (B,), bool
+        decoding_iters = torch.zeros(batch_size, dtype=torch.long, device=device)
+        prev_llrs_all_components = None
+
+        for t in range(self.num_iters):
+            msgs_cn = vn_to_cn[:, self.cn_edge_idx, :]  # (B, C, Δc, M)
+
+            msgs_cn_masked = msgs_cn.masked_fill(~cn_mask_4d, 1.0)  # (B, C, Δc, M)
+            loo_sgn_prod = leave_one_out_sign_product(
+                msgs_cn_masked, dim=2
+            )  # (B, C, Δc, M)
+
+            msgs_abs = msgs_cn.abs().masked_fill(~cn_mask_4d, BIG)  # (B, C, Δc, M)
+            loo_abs_min = leave_one_out_min(msgs_abs, dim=2)  # (B, C, Δc, M)
+
+            cn_out = (
+                synd_sgn.unsqueeze(-1).unsqueeze(-1) * loo_sgn_prod * loo_abs_min
+            )  # (B, C, Δc, M)
+
+            cn_out_flat = cn_out.reshape(-1, mf)  # (B * C * Δc, M)
+            cn_out_flat = self.c2v_mlp(cn_out_flat)  # (B * C * Δc, M)
+            cn_out = cn_out_flat.reshape(
+                batch_size, self.num_chks, self.max_cn_deg, mf
+            )  # (B, C, Δc, M)
+
+            cn_out_for_scatter = cn_out.reshape(batch_size, -1, mf)  # (B, C * Δc, M)
+            cn_to_vn.scatter_(1, cn_flat_idx, cn_out_for_scatter)
+
+            msgs_vn = cn_to_vn[:, self.vn_edge_idx, :]  # (B, V, Δv, M)
+            msgs_vn = msgs_vn.masked_fill(~vn_mask_4d, 0.0)  # (B, V, Δv, M)
+
+            incoming_sum = msgs_vn.sum(dim=2)  # (B, V, M)
+
+            pllr = self.prior_llr.unsqueeze(0).unsqueeze(-1)  # (1, V, 1)
+            if self.gamma_shared:
+                g = self.gamma.unsqueeze(0).unsqueeze(-1)  # (1, V, 1)
+            else:
+                g = self.gamma.unsqueeze(0)  # (1, V, M)
+            if t == 0:
+                llrs_all_components = incoming_sum + pllr  # (B, V, M)
+            else:
+                llrs_all_components = (
+                    incoming_sum + (1.0 - g) * pllr + g * prev_llrs_all_components
+                )  # (B, V, M)
+            prev_llrs_all_components = llrs_all_components
+
+            llrs = llrs_all_components.mean(dim=2)  # (B, V)
+
+            hard_decisions = (llrs < 0).float()  # (B, V), float ∈ {0.0, 1.0}
+            synd_pred = matmul_GF2(hard_decisions, chkmat.T)  # (B, C), int ∈ {0, 1}
+            matched = torch.all(synd_pred == syndromes, dim=1)  # (B,)
+            newly_converged = matched & ~converged_mask
+            ehat[newly_converged] = hard_decisions[newly_converged]
+            converged_mask |= matched
+            decoding_iters[newly_converged] = t + 1
+            if torch.all(converged_mask):
+                break
+
+            if t < self.num_iters - 1:
+                vn_out = llrs_all_components.unsqueeze(2) - msgs_vn  # (B, V, Δv, M)
+                vn_out_flat = vn_out.reshape(-1, mf)  # (B * V * Δv, M)
+                vn_out_flat = self.v2c_mlp(vn_out_flat)  # (B * V * Δv, M)
+                vn_out = vn_out_flat.reshape(
+                    batch_size, self.num_vars, self.max_vn_deg, mf
+                )  # (B, V, Δv, M)
+                vn_out_for_scatter = vn_out.reshape(
+                    batch_size, -1, mf
+                )  # (B, V * Δv, M)
+                vn_to_cn.scatter_(1, vn_flat_idx, vn_out_for_scatter)
+
+        not_converged = ~converged_mask
+        ehat[not_converged] = hard_decisions[not_converged]
+        decoding_iters[not_converged] = self.num_iters
+
+        return InferenceResult(ehat, converged_mask, decoding_iters)
