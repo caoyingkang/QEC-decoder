@@ -42,23 +42,23 @@ class RelayBPDecoder(IterativeDecoder):
             Prior error probabilities, shape=(num_vars,), float64 ∈ (0,0.5).
 
         gamma0 : float
-            Ordered memory parameter for the first ensemble.
+            Memory parameter for the first MemBP instance.
 
         gamma_dist_interval : tuple[float, float]
-            The uniform distribution range to select random memory weights over.
+            The uniform distribution for random memory weights used in DMemBP relays.
             Must be tuned per decoding graph.
 
         num_relays : int
-            Number of relays (beyond the first ensemble).
+            Number of DMemBP relays (beyond the first MemBP instance).
 
         pre_iter : int
-            Number of iterations for the first ensemble.
+            Number of iterations for the first MemBP instance.
 
         max_iter_per_relay : int
-            Max number of iterations per relay.
+            Max number of iterations per DMemBP relay.
 
         stop_nconv : int
-            How many Relay ensemble solutions to find before terminating.
+            How many solutions to find before terminating.
         """
         super().__init__(pre_iter + num_relays * max_iter_per_relay, pcm, prior)
 
