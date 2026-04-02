@@ -25,6 +25,8 @@ def run_baseline_benchmark(
     csv_path = get_baseline_csv_path(baseline_csv_dir, qec_params, decoder_name)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
 
+    decoder_params = benchtask_params.baseline_decoder_params[decoder_name]
+
     for p in benchtask_params.p_list:
         if stop_event is not None and stop_event.is_set():
             return
@@ -41,20 +43,17 @@ def run_baseline_benchmark(
             d=qec_params.d,
             rounds=qec_params.rounds,
             basis=qec_params.basis,
-            decoder=decoder_name,
             p=p,
-            max_iter=(
-                benchtask_params.max_iter
-                if decoder_name in ITERATIVE_DECODERS
-                else None
-            ),
+            decoder_name=decoder_name,
+            decoder_params=decoder_params,
+            is_iterative=decoder_name in ITERATIVE_DECODERS,
         )
         decoder = QecdecBenchmarkDecoder(
             create_decoder(
                 decoder_name,
                 pcm=expmt.chkmat,
                 prior=expmt.prior,
-                max_iter=benchtask_params.max_iter,
+                **decoder_params,
             ),
             expmt.obsmat,
         )

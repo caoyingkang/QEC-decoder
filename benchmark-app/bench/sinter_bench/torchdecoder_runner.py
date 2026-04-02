@@ -22,6 +22,10 @@ def run_torchdecoder_benchmark(
     benchtask_params: BenchTaskParams,
     collector_params: CollectorParams,
 ):
+    decoder_params = benchtask_params.torchdecoder_shared_params
+    max_iter = decoder_params["max_iter"]
+    use_prior_in_ckpt = decoder_params["use_prior_in_ckpt"]
+
     tasks: list[sinter.Task] = []
     custom_decoders: dict[str, sinter.Decoder] = {}
     for p in benchtask_params.p_list:
@@ -36,9 +40,9 @@ def run_torchdecoder_benchmark(
             chkmat=expmt.chkmat,
             prior=expmt.prior,
             model_cfg=model_cfg,
-            max_iter=benchtask_params.max_iter,
+            max_iter=max_iter,
             ckpt_path=ckpt_path,
-            use_prior_in_ckpt=benchtask_params.use_prior_in_ckpt,
+            use_prior_in_ckpt=use_prior_in_ckpt,
         )
         custom_decoder_id = f"custom_decoder_{len(custom_decoders)}"
         custom_decoders[custom_decoder_id] = PyTorchSinterDecoder(
@@ -52,13 +56,14 @@ def run_torchdecoder_benchmark(
                 detector_error_model=expmt.dem,
                 decoder=custom_decoder_id,
                 json_metadata={
+                    "code": qec_params.code,
+                    "noise_model": qec_params.noise_model,
                     "d": qec_params.d,
                     "rounds": qec_params.rounds,
                     "basis": qec_params.basis,
                     "p": p,
-                    "decoder": decoder_name,
-                    "max_iter": benchtask_params.max_iter,
-                    "use_prior_in_ckpt": benchtask_params.use_prior_in_ckpt,
+                    "decoder_name": decoder_name,
+                    "decoder_params": decoder_params,
                 },
             )
         )

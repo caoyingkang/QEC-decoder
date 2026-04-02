@@ -23,7 +23,7 @@ def plot_ler_vs_per(
     """
 
     def group_func(stat: sinter.TaskStats) -> dict:
-        decoder = stat.json_metadata["decoder"]
+        decoder = stat.json_metadata["decoder_name"]
         return {
             "label": decoder,
             "linestyle": "dashed" if decoder in BASELINE_DECODERS else "solid",

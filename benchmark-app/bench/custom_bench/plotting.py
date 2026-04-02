@@ -69,7 +69,7 @@ def _plot_rate_vs_per(
     """
     groups: defaultdict[str, list[BenchmarkStats]] = defaultdict(list)
     for s in stats:
-        groups[s.metadata.decoder].append(s)
+        groups[s.metadata.decoder_name].append(s)
 
     fig, ax = plt.subplots(1, 1)
 
@@ -180,7 +180,7 @@ def plot_avg_iters_vs_per(
     """Plot average iterations vs PER for iterative decoders."""
     groups: defaultdict[str, list[BenchmarkStats]] = defaultdict(list)
     for s in stats:
-        groups[s.metadata.decoder].append(s)
+        groups[s.metadata.decoder_name].append(s)
 
     fig, ax = plt.subplots(1, 1)
 
@@ -228,7 +228,7 @@ def plot_iters_distribution(
 ) -> go.Figure:
     """Plotly overlaid bar chart of iteration distributions at a given PER."""
     selected_stats = [s for s in stats if s.metadata.p == p]
-    selected_stats.sort(key=lambda s: s.metadata.decoder)
+    selected_stats.sort(key=lambda s: s.metadata.decoder_name)
 
     fig = go.Figure()
 
@@ -251,7 +251,7 @@ def plot_iters_distribution(
             go.Bar(
                 x=np.arange(len(hist)),
                 y=fractions,
-                name=s.metadata.decoder,
+                name=s.metadata.decoder_name,
                 opacity=0.6,
             )
         )

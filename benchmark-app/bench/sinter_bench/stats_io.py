@@ -1,6 +1,7 @@
 """Utility functions for manipulating Sinter stats."""
 
 from pathlib import Path
+from typing import Any
 
 import sinter
 
@@ -28,28 +29,21 @@ def get_baseline_csv_path(
 def _filter_stats(
     stats: list[sinter.TaskStats],
     *,
-    benchtask_params: BenchTaskParams,
+    p_list: list[float],
+    decoder_params: dict[str, Any],
     collector_params: CollectorParams,
 ) -> list[sinter.TaskStats]:
     """
     Filter the list of `sinter.TaskStats` to only include those elements `s` such that:
-    - `s.json_metadata["max_iter"] == max_iter` or the key `"max_iter"` does not exist
     - `s.json_metadata["p"]` is in `p_list`
-    - `s.json_metadata["use_prior_in_ckpt"] == use_prior_in_ckpt` or the key
-    `"use_prior_in_ckpt"` does not exist
+    - `s.json_metadata["decoder_params"]` equals `decoder_params`
     - either `s.shots >= shots_cap` or `s.errors >= errors_cap`
     """
     filtered: list[sinter.TaskStats] = []
     for s in stats:
-        if "max_iter" in s.json_metadata and (
-            s.json_metadata["max_iter"] != benchtask_params.max_iter
-        ):
+        if s.json_metadata["p"] not in p_list:
             continue
-        if s.json_metadata["p"] not in benchtask_params.p_list:
-            continue
-        if "use_prior_in_ckpt" in s.json_metadata and (
-            s.json_metadata["use_prior_in_ckpt"] != benchtask_params.use_prior_in_ckpt
-        ):
+        if s.json_metadata["decoder_params"] != decoder_params:
             continue
         if (
             s.shots < collector_params.shots_cap
@@ -90,7 +84,8 @@ def load_and_merge_stats(
         stats = sinter.read_stats_from_csv_files(csv_path)
         stats = _filter_stats(
             stats,
-            benchtask_params=benchtask_params,
+            p_list=benchtask_params.p_list,
+            decoder_params=benchtask_params.torchdecoder_shared_params,
             collector_params=collector_params,
         )
         if set(s.json_metadata["p"] for s in stats) != set(benchtask_params.p_list):
@@ -107,7 +102,8 @@ def load_and_merge_stats(
         stats = sinter.read_stats_from_csv_files(csv_path)
         stats = _filter_stats(
             stats,
-            benchtask_params=benchtask_params,
+            p_list=benchtask_params.p_list,
+            decoder_params=benchtask_params.baseline_decoder_params[decoder],
             collector_params=collector_params,
         )
         if set(s.json_metadata["p"] for s in stats) != set(benchtask_params.p_list):

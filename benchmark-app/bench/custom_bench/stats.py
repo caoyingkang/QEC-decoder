@@ -6,7 +6,7 @@ import csv
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, NamedTuple
+from typing import Any, Optional, NamedTuple
 
 import numpy as np
 
@@ -28,15 +28,15 @@ class TaskMetadata(NamedTuple):
         Number of stabilizer measurement rounds.
     basis : str
         "Z" or "X".
-    decoder : str
-        Decoder name.
     p : float
         Physical error rate.
-    max_iter : int or None
-        Max number of iterations. `None` for non-iterative decoders.
-    use_prior_in_ckpt : bool or None
-        Whether to use the prior stored in the checkpoint for PyTorch decoders.
-        `None` for non-PyTorch decoders.
+    decoder_name : str
+        Decoder name.
+    decoder_params : dict[str, Any]
+        Decoder-specific parameters (JSON-serializable). Use empty dict for
+        parameterless decoders.
+    is_iterative : bool
+        Whether the decoder is iterative.
     """
 
     code: str
@@ -44,15 +44,28 @@ class TaskMetadata(NamedTuple):
     d: int
     rounds: int
     basis: str
-    decoder: str
     p: float
-    max_iter: Optional[int] = None
-    use_prior_in_ckpt: Optional[bool] = None
+    decoder_name: str
+    decoder_params: dict[str, Any]
+    is_iterative: bool
 
     @property
-    def is_iterative(self) -> bool:
-        """Whether the decoder is iterative."""
-        return self.max_iter is not None
+    def max_iter(self) -> int:
+        """Max number of iterations.
+
+        For RelayBP: ``decoder_params["pre_iter"] + decoder_params["num_relays"] * decoder_params["max_iter_per_relay"]``.
+        For other iterative decoders: ``decoder_params["max_iter"]``.
+        For non-iterative decoders: raises ``ValueError``.
+        """
+        if not self.is_iterative:
+            raise ValueError("Non-iterative decoder has no max_iter.")
+        params = self.decoder_params
+        if self.decoder_name == "RelayBP":
+            return (
+                params["pre_iter"] + params["num_relays"] * params["max_iter_per_relay"]
+            )
+        else:
+            return params["max_iter"]
 
 
 METADATA_COLUMNS = list(TaskMetadata._fields)
@@ -300,9 +313,12 @@ class BenchmarkStats:
             writer.writeheader()
             for s in stats_list:
                 row = {
-                    k: (v if v is not None else "")
+                    k: v
                     for k, v in s.metadata._asdict().items()
+                    if k != "decoder_params"
                 }
+                # Serialize decoder_params as JSON
+                row["decoder_params"] = json.dumps(s.metadata.decoder_params)
                 row["shots"] = s.shots
                 row["obser_correct"] = s.obser_correct
                 row["synd_matches"] = s.synd_matches
@@ -328,11 +344,8 @@ class BenchmarkStats:
         if not path.exists():
             return []
 
-        def _int_or_none(v: str) -> int | None:
-            return int(v) if v != "" else None
-
-        def _bool_or_none(v: str) -> bool | None:
-            return v.lower() == "true" if v != "" else None
+        def _bool(v: str) -> bool:
+            return v.lower() == "true"
 
         def _intarray_or_none(v: str) -> np.ndarray | None:
             return np.array(json.loads(v), dtype=np.int64) if v != "" else None
@@ -347,10 +360,10 @@ class BenchmarkStats:
                     d=int(row["d"]),
                     rounds=int(row["rounds"]),
                     basis=row["basis"],
-                    decoder=row["decoder"],
                     p=float(row["p"]),
-                    max_iter=_int_or_none(row.get("max_iter", "")),
-                    use_prior_in_ckpt=_bool_or_none(row.get("use_prior_in_ckpt", "")),
+                    decoder_name=row["decoder_name"],
+                    decoder_params=json.loads(row["decoder_params"]),
+                    is_iterative=_bool(row["is_iterative"]),
                 )
                 stats_list.append(
                     BenchmarkStats(

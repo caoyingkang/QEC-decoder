@@ -27,6 +27,10 @@ def run_torchdecoder_benchmark(
     collector_params: CollectorParams,
     stop_event: Optional[threading.Event] = None,
 ) -> None:
+    decoder_params = benchtask_params.torchdecoder_shared_params
+    max_iter = decoder_params["max_iter"]
+    use_prior_in_ckpt = decoder_params["use_prior_in_ckpt"]
+
     metadata_list: list[TaskMetadata] = []
     decoder_list: list[PyTorchBenchmarkDecoder] = []
     dem_list: list[stim.DetectorErrorModel] = []
@@ -45,19 +49,19 @@ def run_torchdecoder_benchmark(
                 d=qec_params.d,
                 rounds=qec_params.rounds,
                 basis=qec_params.basis,
-                decoder=decoder_name,
                 p=p,
-                max_iter=benchtask_params.max_iter,
-                use_prior_in_ckpt=benchtask_params.use_prior_in_ckpt,
+                decoder_name=decoder_name,
+                decoder_params=decoder_params,
+                is_iterative=True,
             )
         )
         model = load_torchdecoder(
             chkmat=expmt.chkmat,
             prior=expmt.prior,
             model_cfg=model_cfg,
-            max_iter=benchtask_params.max_iter,
+            max_iter=max_iter,
             ckpt_path=ckpt_path,
-            use_prior_in_ckpt=benchtask_params.use_prior_in_ckpt,
+            use_prior_in_ckpt=use_prior_in_ckpt,
         )
         decoder_list.append(
             PyTorchBenchmarkDecoder(

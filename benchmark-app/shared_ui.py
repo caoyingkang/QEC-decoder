@@ -9,10 +9,11 @@ import streamlit as st
 from omegaconf import OmegaConf
 
 from bench.constants import BASELINE_DECODERS
-from bench.params import BenchTaskParams, QECParams
+from bench.params import QECParams
 from constants import (
     DEFAULT_BASELINE_DECODERS,
-    DEFAULT_MAX_ITER,
+    DEFAULT_BP_MAX_ITER,
+    DEFAULT_PYTORCH_MAX_ITER,
     DEFAULT_P_LIST,
     DEFAULT_SHOTS_CAP,
     DEFAULT_ERRORS_CAP,
@@ -31,35 +32,113 @@ from torchdecoder_utils import (
 )
 
 
-def render_sidebar_baselines_selection() -> list[str]:
-    """Render the baseline decoders selection sidebar.
+def render_baselines_selection() -> tuple[list[str], dict[str, dict]]:
+    """Render baseline decoder selection and per-decoder config panels in the main area.
 
-    Return the selected baseline decoders.
+    Return ``(selected_decoders, baseline_decoder_params)`` where
+    ``baseline_decoder_params`` maps each selected decoder name to its config dict.
+    """
+    st.subheader("Select baseline decoder(s)")
+    selected_decoders = st.multiselect(
+        "Baseline decoder(s) to benchmark against",
+        options=BASELINE_DECODERS,
+        default=DEFAULT_BASELINE_DECODERS,
+    )
+
+    baseline_decoder_params: dict[str, dict] = {}
+    for name in selected_decoders:
+        if name == "BP":
+            with st.expander("BP configuration", expanded=True):
+                col1, _, _ = st.columns(3)
+                with col1:
+                    bp_max_iter = st.number_input(
+                        "max_iter",
+                        value=DEFAULT_BP_MAX_ITER,
+                        min_value=1,
+                        key="bp_max_iter",
+                        help="Max number of BP iterations.",
+                    )
+            baseline_decoder_params["BP"] = {"max_iter": bp_max_iter}
+        elif name == "RelayBP":
+            with st.expander("RelayBP configuration", expanded=True):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    gamma0 = st.number_input(
+                        "gamma0",
+                        value=0.0,
+                        format="%.4f",
+                        step=0.0001,
+                        key="relaybp_gamma0",
+                        help="Memory parameter for the first MemBP instance.",
+                    )
+                with col2:
+                    gdi_low = st.number_input(
+                        "gamma_dist_interval low",
+                        value=-0.5,
+                        format="%.4f",
+                        step=0.0001,
+                        key="relaybp_gdi_low",
+                        help="Lower bound of the uniform distribution for random memory weights used in DMemBP relays.",
+                    )
+                with col3:
+                    gdi_high = st.number_input(
+                        "gamma_dist_interval high",
+                        value=0.5,
+                        format="%.4f",
+                        step=0.0001,
+                        key="relaybp_gdi_high",
+                        help="Upper bound of the uniform distribution for random memory weights used in DMemBP relays.",
+                    )
+                if gdi_low >= gdi_high:
+                    st.error(
+                        "gamma_dist_interval: low must be strictly less than high."
+                    )
+                    st.stop()
+                col4, col5, col6 = st.columns(3)
+                with col4:
+                    num_relays = st.number_input(
+                        "num_relays",
+                        value=16,
+                        min_value=1,
+                        key="relaybp_num_relays",
+                        help="Number of DMemBP relays (beyond the first MemBP instance).",
+                    )
+                with col5:
+                    pre_iter = st.number_input(
+                        "pre_iter",
+                        value=50,
+                        min_value=1,
+                        key="relaybp_pre_iter",
+                        help="Number of iterations for the first MemBP instance.",
+                    )
+                with col6:
+                    max_iter_per_relay = st.number_input(
+                        "max_iter_per_relay",
+                        value=50,
+                        min_value=1,
+                        key="relaybp_max_iter_per_relay",
+                        help="Max number of iterations per DMemBP relay.",
+                    )
+            baseline_decoder_params["RelayBP"] = {
+                "gamma0": gamma0,
+                "gamma_dist_interval": [gdi_low, gdi_high],
+                "num_relays": num_relays,
+                "pre_iter": pre_iter,
+                "max_iter_per_relay": max_iter_per_relay,
+            }
+        else:
+            baseline_decoder_params[name] = {}
+
+    return selected_decoders, baseline_decoder_params
+
+
+def render_p_list_selection() -> list[float]:
+    """Render physical error rates selection in the sidebar.
+
+    Return ``p_list``. Call ``st.stop()`` if the user input ``p_list`` is empty or unparsable.
     """
     with st.sidebar:
-        st.subheader("Select baseline decoder(s)")
-        selected_baseline_decoders = st.multiselect(
-            "Baseline decoder(s) to benchmark against",
-            options=BASELINE_DECODERS,
-            default=DEFAULT_BASELINE_DECODERS,
-        )
-    return selected_baseline_decoders
-
-
-def render_sidebar_bench_task_selection() -> BenchTaskParams:
-    """Render the benchmark task parameters selection sidebar.
-
-    Return the selected benchmark task parameters. Call `st.stop()` if the user input
-    p_list is empty or unparsable.
-    """
-    with st.sidebar:
-        st.subheader("Select benchmark task parameters")
-        max_iter = st.number_input(
-            "Max number of decoding iterations",
-            value=DEFAULT_MAX_ITER,
-            min_value=1,
-            help="Only apply to iterative decoders (e.g., BP, LearnedDMemBP).",
-        )
+        st.subheader("Select benchmark settings")
         p_list_str = st.text_input(
             "Physical error rates (comma-separated)",
             value=", ".join(str(p) for p in DEFAULT_P_LIST),
@@ -73,17 +152,7 @@ def render_sidebar_bench_task_selection() -> BenchTaskParams:
         if len(p_list) == 0:
             st.warning("Please enter at least one physical error rate.")
             st.stop()
-        use_prior_in_ckpt = st.checkbox(
-            "Use prior from checkpoint",
-            value=True,
-            help="If checked, use the prior from the checkpoint; otherwise, use the prior "
-            "derived from the physical error rate. Only applies to PyTorch decoders.",
-        )
-    return BenchTaskParams(
-        max_iter=max_iter,
-        p_list=p_list,
-        use_prior_in_ckpt=use_prior_in_ckpt,
-    )
+    return p_list
 
 
 def render_sidebar_collector_selection_common() -> tuple[int, int, str]:
@@ -165,12 +234,13 @@ def render_qec_selection() -> tuple[QECParams, list[Path]]:
     return qec_params, run_dirs
 
 
-def render_decoder_selection(
+def render_torchdecoder_selection(
     run_dirs: list[Path], qec_params: QECParams
-) -> list[Path]:
-    """Render torch decoder tables with row selection and config expanders.
+) -> tuple[list[Path], dict[str, Any]]:
+    """Render torch decoder tables with row selection and individual config expanders,
+    as well as a shared configuration panel for the PyTorch decoder(s).
 
-    Return the list of selected run directories.
+    Return ``(selected_run_dirs, torchdecoder_shared_params)``.
 
     ``qec_params`` is used to namespace widget keys so that changing the
     upstream QEC selection resets row selections instead of carrying over
@@ -181,6 +251,7 @@ def render_decoder_selection(
         f"_{qec_params.d}_{qec_params.rounds}_{qec_params.basis}"
     )
     st.subheader("Select PyTorch decoder(s)")
+
     st.caption(
         "One table per decoder model. "
         "Only differing config fields are shown in each table. "
@@ -221,7 +292,7 @@ def render_decoder_selection(
         selected_indices = event.selection.rows or []  # type: ignore
         selected_run_dirs.extend([group[i] for i in selected_indices])
 
-        with st.expander("View full configs"):
+        with st.expander(f"View full configs of {model_name} used for training"):
             selected_view_config = st.selectbox(
                 f"{model_name} config",
                 options=group,
@@ -235,7 +306,33 @@ def render_decoder_selection(
                 cfg_yaml = OmegaConf.to_yaml(cfg)
                 st.code(cfg_yaml, language="yaml")
 
-    return selected_run_dirs
+    with st.expander("PyTorch decoder configuration", expanded=True):
+        col1, col2, _ = st.columns(3)
+        with col1:
+            which_prior = st.selectbox(
+                "prior",
+                options=[
+                    "Load from model checkpoint",
+                    "Derive from physical error rate",
+                ],
+                index=0,
+                help="Which prior vector to use for decoding.",
+            )
+            use_prior_in_ckpt = which_prior == "Load from model checkpoint"
+        with col2:
+            max_iter = st.number_input(
+                "max_iter",
+                value=DEFAULT_PYTORCH_MAX_ITER,
+                min_value=1,
+                key="pytorch_max_iter",
+                help="Max number of decoding iterations for inference.",
+            )
+
+    torchdecoder_shared_params = {
+        "use_prior_in_ckpt": use_prior_in_ckpt,
+        "max_iter": max_iter,
+    }
+    return selected_run_dirs, torchdecoder_shared_params
 
 
 def stop_if_no_decoders_selected(

@@ -25,11 +25,11 @@ from bench.params import BenchTaskParams, QECParams
 from constants import DEFAULT_BATCH_SIZE, BASELINES_CSV_DIR
 from plotting import render_plot, render_plotly
 from shared_ui import (
-    render_sidebar_baselines_selection,
-    render_sidebar_bench_task_selection,
+    render_baselines_selection,
+    render_p_list_selection,
     render_sidebar_collector_selection_common,
     render_qec_selection,
-    render_decoder_selection,
+    render_torchdecoder_selection,
     stop_if_no_decoders_selected,
     render_missing_data_warning_and_benchmark_button,
 )
@@ -178,12 +178,22 @@ def _benchmark_progress_modal(
     _stop_monitor(thread, stop_event, exc_queue)
 
 
-selected_baseline_decoders = render_sidebar_baselines_selection()
-benchtask_params = render_sidebar_bench_task_selection()
+# -- Page layout ---------------------------------------------------------------
+
+p_list = render_p_list_selection()
 collector_params = _render_sidebar_collector_selection()
 qec_params, run_dirs = render_qec_selection()
-selected_run_dirs = render_decoder_selection(run_dirs, qec_params)
+selected_baseline_decoders, baseline_decoder_params = render_baselines_selection()
+selected_run_dirs, torchdecoder_shared_params = render_torchdecoder_selection(
+    run_dirs, qec_params
+)
 stop_if_no_decoders_selected(selected_run_dirs, selected_baseline_decoders)
+
+benchtask_params = BenchTaskParams(
+    p_list=p_list,
+    baseline_decoder_params=baseline_decoder_params,
+    torchdecoder_shared_params=torchdecoder_shared_params,
+)
 
 # Load and merge statistics
 stats, pending_run_dirs, pending_baseline_decoders = load_and_merge_stats(

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 from ..params import BenchTaskParams, QECParams
 from .collector_params import CollectorParams
@@ -25,29 +26,21 @@ def get_baseline_csv_path(
 def _filter_stats(
     stats: list[BenchmarkStats],
     *,
-    benchtask_params: BenchTaskParams,
+    p_list: list[float],
+    decoder_params: dict[str, Any],
     collector_params: CollectorParams,
 ) -> list[BenchmarkStats]:
     """
     Filter the list of `BenchmarkStats` to only include those elements `s` such that:
-    - `s.metadata.max_iter == max_iter` or is `None`
     - `s.metadata.p` is in `p_list`
-    - `s.metadata.use_prior_in_ckpt == use_prior_in_ckpt` or is `None`
-    - `s.is_complete(shots_cap, errors_cap)` equals `True`
+    - `s.metadata.decoder_params` equals `decoder_params`
+    - `s.is_complete(collector_params.shots_cap, collector_params.errors_cap)` equals `True`
     """
     filtered: list[BenchmarkStats] = []
     for s in stats:
-        if (
-            s.metadata.max_iter is not None
-            and s.metadata.max_iter != benchtask_params.max_iter
-        ):
+        if s.metadata.p not in p_list:
             continue
-        if s.metadata.p not in benchtask_params.p_list:
-            continue
-        if (
-            s.metadata.use_prior_in_ckpt is not None
-            and s.metadata.use_prior_in_ckpt != benchtask_params.use_prior_in_ckpt
-        ):
+        if s.metadata.decoder_params != decoder_params:
             continue
         if not s.is_complete(collector_params.shots_cap, collector_params.errors_cap):
             continue
@@ -85,7 +78,8 @@ def load_and_merge_stats(
         stats = BenchmarkStats.load_csv(csv_path)
         stats = _filter_stats(
             stats,
-            benchtask_params=benchtask_params,
+            p_list=benchtask_params.p_list,
+            decoder_params=benchtask_params.torchdecoder_shared_params,
             collector_params=collector_params,
         )
         if set(s.metadata.p for s in stats) != set(benchtask_params.p_list):
@@ -102,7 +96,8 @@ def load_and_merge_stats(
         stats = BenchmarkStats.load_csv(csv_path)
         stats = _filter_stats(
             stats,
-            benchtask_params=benchtask_params,
+            p_list=benchtask_params.p_list,
+            decoder_params=benchtask_params.baseline_decoder_params[decoder],
             collector_params=collector_params,
         )
         if set(s.metadata.p for s in stats) != set(benchtask_params.p_list):
