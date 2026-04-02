@@ -5,6 +5,7 @@ from .bp import BPDecoder
 from .dmembp import DMemBPDecoder
 from .dmemoffsetbp import DMemOffsetBPDecoder
 from .mwpm import MWPMDecoder
+from .relaybp import RelayBPDecoder
 from .uf import UnionFindDecoder
 from .factory import (
     DECODER_NAME_TO_CLASS,
@@ -20,6 +21,7 @@ __all__ = [
     "DMemBPDecoder",
     "DMemOffsetBPDecoder",
     "MWPMDecoder",
+    "RelayBPDecoder",
     "UnionFindDecoder",
     "DECODER_NAME_TO_CLASS",
     "ALL_DECODERS",

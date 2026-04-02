@@ -43,8 +43,14 @@ class BPDecoder(IterativeDecoder):
         super().__init__(max_iter, pcm, prior)
         self.norm = norm
 
-        self._decoder = BPDecoderRust(
-            self.pcm, self.prior, max_iter=self.max_iter, norm=self.norm
+        self._decoder = self._build_decoder()
+
+    def _build_decoder(self) -> BPDecoderRust:
+        return BPDecoderRust(
+            self.pcm,
+            self.prior,
+            max_iter=self.max_iter,
+            norm=self.norm,
         )
 
     def __getstate__(self):
@@ -54,9 +60,7 @@ class BPDecoder(IterativeDecoder):
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self._decoder = BPDecoderRust(
-            self.pcm, self.prior, max_iter=self.max_iter, norm=self.norm
-        )
+        self._decoder = self._build_decoder()
 
     def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
         return self._decoder.decode(syndrome)

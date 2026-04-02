@@ -53,7 +53,10 @@ class DMemBPDecoder(IterativeDecoder):
         self.gamma = gamma
         self.norm = norm
 
-        self._decoder = DMemBPDecoderRust(
+        self._decoder = self._build_decoder()
+
+    def _build_decoder(self) -> DMemBPDecoderRust:
+        return DMemBPDecoderRust(
             self.pcm,
             self.prior,
             gamma=self.gamma,
@@ -68,13 +71,7 @@ class DMemBPDecoder(IterativeDecoder):
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self._decoder = DMemBPDecoderRust(
-            self.pcm,
-            self.prior,
-            gamma=self.gamma,
-            max_iter=self.max_iter,
-            norm=self.norm,
-        )
+        self._decoder = self._build_decoder()
 
     def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
         return self._decoder.decode(syndrome)

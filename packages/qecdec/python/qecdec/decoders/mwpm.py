@@ -37,9 +37,10 @@ class MWPMDecoder(Decoder):
         self.llr = (
             np.log((1.0 - self.prior) / self.prior) if self.prior is not None else None
         )
-        self._decoder = pymatching.Matching.from_check_matrix(
-            self.pcm, weights=self.llr
-        )
+        self._decoder = self._build_decoder()
+
+    def _build_decoder(self) -> pymatching.Matching:
+        return pymatching.Matching.from_check_matrix(self.pcm, weights=self.llr)
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -48,9 +49,7 @@ class MWPMDecoder(Decoder):
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self._decoder = pymatching.Matching.from_check_matrix(
-            self.pcm, weights=self.llr
-        )
+        self._decoder = self._build_decoder()
 
     def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
         return self._decoder.decode(syndrome)

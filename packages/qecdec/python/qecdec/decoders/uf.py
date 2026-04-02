@@ -27,7 +27,10 @@ class UnionFindDecoder(Decoder):
                 "Each column (variable) must have at most two nonzero entries."
             )
 
-        self._decoder = UnionFindDecoderRust(self.pcm)
+        self._decoder = self._build_decoder()
+
+    def _build_decoder(self) -> UnionFindDecoderRust:
+        return UnionFindDecoderRust(self.pcm)
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -36,7 +39,7 @@ class UnionFindDecoder(Decoder):
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self._decoder = UnionFindDecoderRust(self.pcm)
+        self._decoder = self._build_decoder()
 
     def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
         return self._decoder.decode(syndrome)

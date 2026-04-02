@@ -84,7 +84,10 @@ class DMemOffsetBPDecoder(IterativeDecoder):
             raise ValueError("Invalid data type for `offset`")
         self.offset = offset
 
-        self._decoder = DMemOffsetBPDecoderRust(
+        self._decoder = self._build_decoder()
+
+    def _build_decoder(self) -> DMemOffsetBPDecoderRust:
+        return DMemOffsetBPDecoderRust(
             self.pcm,
             self.prior,
             gamma=self.gamma,
@@ -100,14 +103,7 @@ class DMemOffsetBPDecoder(IterativeDecoder):
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self._decoder = DMemOffsetBPDecoderRust(
-            self.pcm,
-            self.prior,
-            gamma=self.gamma,
-            max_iter=self.max_iter,
-            norm=self.norm,
-            offset=self.offset,
-        )
+        self._decoder = self._build_decoder()
 
     def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
         return self._decoder.decode(syndrome)
