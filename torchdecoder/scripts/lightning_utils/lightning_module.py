@@ -98,6 +98,8 @@ class DecodingModule(L.LightningModule):
 
     def on_before_optimizer_step(self, optimizer):
         global_step = self.trainer.global_step
+        if self.logger is None:
+            return
         if global_step % 100 == 1:  # Log every 100 steps to avoid slowing down training
             for name, p in self.model.named_parameters():
                 # Inspect parameter values distribution
