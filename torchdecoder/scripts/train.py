@@ -35,7 +35,11 @@ from omegaconf import OmegaConf, DictConfig
 from omegaconf.errors import ConfigKeyError
 from qecdec.experiments import RotatedSurfaceCode_Memory
 
-from lightning_utils import DecodingDataModule, DecodingModule
+from lightning_utils import (
+    CurriculumCallback,
+    DecodingDataModule,
+    DecodingModule,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATASETS_ROOT = PROJECT_ROOT / "datasets"
@@ -227,6 +231,13 @@ def main():
         if args.profile
         else None
     )
+    callbacks = [
+        ModelSummary(max_depth=-1),
+        CurriculumCallback(),
+        LearningRateMonitor(logging_interval="epoch"),
+        early_stopping_callback,
+        model_checkpoint_callback,
+    ]
     trainer = L.Trainer(
         accelerator=cfg.trainer.accelerator,
         max_epochs=cfg.trainer.max_epochs if profiler is None else 1,
@@ -234,12 +245,7 @@ def main():
         limit_val_batches=None if profiler is None else 50,
         num_sanity_val_steps=-1 if profiler is None else 0,  # Pre-train validation
         enable_progress_bar=cfg.trainer.enable_progress_bar,
-        callbacks=[
-            ModelSummary(max_depth=-1),
-            LearningRateMonitor(logging_interval="epoch"),
-            early_stopping_callback,
-            model_checkpoint_callback,
-        ],
+        callbacks=callbacks,
         logger=tb_logger,
         enable_model_summary=False,  # We've already added model summary as a callback
         profiler=profiler,

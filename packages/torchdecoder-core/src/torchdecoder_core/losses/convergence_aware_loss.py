@@ -1,7 +1,10 @@
+from typing import Optional
+
 import numpy as np
 import torch
 
 from .base import DecodingLoss, LossResult
+from .curriculum import Curriculum
 from ..utils.decoding_utils import diagnose_convergence
 from ..utils.tensor_utils import focal_BCE_with_logits
 
@@ -35,6 +38,7 @@ class ConvergenceAwareLoss(DecodingLoss):
         *,
         beta: float,
         focal_gamma: float,
+        curriculum: Optional[Curriculum],
     ):
         """
         Parameters
@@ -53,12 +57,16 @@ class ConvergenceAwareLoss(DecodingLoss):
                 Positive γ can help the decoder focus on hard-to-predict bits by introducing
                 a (1 - p_t)^γ factor on the BCE loss, where p_t is the predicted probability
                 of the ground truth bit value.
+
+            curriculum : Curriculum or None
+                Sample-level curriculum learning.
         """
         super().__init__(chkmat, obsmat, beta=beta)
         if focal_gamma < 0:
             raise ValueError(f"focal_gamma must be non-negative, but got {focal_gamma}")
         self.num_vars = chkmat.shape[1]
         self.focal_gamma = focal_gamma
+        self.curriculum = curriculum
 
         # Register the check matrix as a buffer, used for convergence detection.
         self.register_buffer(
@@ -76,7 +84,7 @@ class ConvergenceAwareLoss(DecodingLoss):
 
         # --- Convergence detection: Identify active iterations (non-differentiable) ---
         hard_decisions = (llrs < 0).float()  # (I, B, V), float ∈ {0.0, 1.0}
-        _, output_iters = diagnose_convergence(
+        converged_mask, output_iters = diagnose_convergence(
             hard_decisions, syndromes, self.chkmat
         )  # (B,), long
         iter_indices = torch.arange(num_iters, device=device)  # (I,), long
@@ -84,9 +92,21 @@ class ConvergenceAwareLoss(DecodingLoss):
             0
         )  # (I, B), bool
 
+        # --- Sample-level curriculum weighting ---
+        if self.curriculum is not None:
+            sample_weights = (
+                1.0 + self.curriculum.hard_emphasis * (~converged_mask).float()
+            )  # (B,)
+        else:
+            sample_weights = torch.ones(syndromes.size(0), device=device)  # (B,)
+
         tanhhalfllrs = torch.tanh(llrs * 0.5)  # (I, B, V)
-        synd_loss = self._get_syndrome_loss(tanhhalfllrs, syndromes, active_iters_mask)
-        obser_loss = self._get_observable_loss(tanhhalfllrs, observables, output_iters)
+        synd_loss = self._get_syndrome_loss(
+            tanhhalfllrs, syndromes, active_iters_mask, sample_weights
+        )
+        obser_loss = self._get_observable_loss(
+            tanhhalfllrs, observables, output_iters, sample_weights
+        )
         loss = self.beta * synd_loss + (1.0 - self.beta) * obser_loss
         return LossResult(loss=loss, synd_loss=synd_loss, obser_loss=obser_loss)
 
@@ -95,9 +115,10 @@ class ConvergenceAwareLoss(DecodingLoss):
         tanhhalfllrs: torch.Tensor,  # (I, B, V), float
         syndromes: torch.Tensor,  # (B, C), int ∈ {0,1}
         active_iters_mask: torch.Tensor,  # (I, B), bool
+        sample_weights: torch.Tensor,  # (B,), float
     ) -> torch.Tensor:
         """
-        Syndrome loss: sum over active iterations, mean over batch, mean over checks.
+        Syndrome loss: sum over active iterations, weighted mean over batch, mean over checks.
         """
         # Gather LLRs of variables in the support of each check.
         gathered = tanhhalfllrs[:, :, self.chk_supp]  # (I, B, C, Wc)
@@ -118,16 +139,17 @@ class ConvergenceAwareLoss(DecodingLoss):
         loss_per_shot = torch.sum(
             loss_per_iter * active_iters_mask.float(), dim=0
         )  # (B,)
-        return loss_per_shot.mean()
+        return (loss_per_shot * sample_weights).sum() / sample_weights.sum()
 
     def _get_observable_loss(
         self,
         tanhhalfllrs: torch.Tensor,  # (I, B, V), float
         observables: torch.Tensor,  # (B, O), int ∈ {0,1}
         output_iters: torch.Tensor,  # (B,), long
+        sample_weights: torch.Tensor,  # (B,), float
     ) -> torch.Tensor:
         """
-        Observable loss: at output iteration only, mean over batch, mean over observables.
+        Observable loss: at output iteration only, weighted mean over batch, mean over observables.
         """
         # Gather LLRs at the output iteration.
         index = output_iters.reshape(1, -1, 1).expand(1, -1, self.num_vars)  # (1, B, V)
@@ -145,8 +167,9 @@ class ConvergenceAwareLoss(DecodingLoss):
             .atanh()
         )  # (B, O)
 
-        return focal_BCE_with_logits(
+        loss_per_shot = focal_BCE_with_logits(
             -obser_pred_llr,
             observables.float(),
             gamma=self.focal_gamma,
-        ).mean()
+        ).mean(dim=-1)  # (B,)
+        return (loss_per_shot * sample_weights).sum() / sample_weights.sum()

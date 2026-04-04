@@ -1,8 +1,8 @@
 qec:
   code: RotatedSurfaceCode
   noise_model: Phenomenological
-  d: 5
-  rounds: 5
+  d: 7
+  rounds: 7
   basis: Z
   p: 0.01
 
