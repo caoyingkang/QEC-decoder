@@ -1,7 +1,7 @@
 """Factory for building PyTorch decoder models."""
 
 import numpy as np
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from .base import DecoderModel
 from .learned_dmembp import LearnedDMemBP
@@ -38,6 +38,7 @@ def build_decoder_model(
             sign_impl_method=model_cfg.sign_impl_method,
             gamma_shared=model_cfg.gamma_shared,
             gamma_init=model_cfg.gamma_init,
+            llr_pooling=OmegaConf.select(model_cfg, "llr_pooling", default="mean"),
         )
     else:
         raise ValueError(f"Invalid model name: {model_name!r}")

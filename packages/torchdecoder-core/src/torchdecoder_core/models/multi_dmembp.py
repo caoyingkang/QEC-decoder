@@ -80,6 +80,7 @@ class MultiDMemBP(DecoderModel):
         sign_impl_method: Literal["smooth", "hard"],
         gamma_shared: bool,
         gamma_init: Union[float, list[float]],
+        llr_pooling: Literal["mean", "weighted_mean", "per_variable_weighted_mean"],
     ):
         """
         Parameters
@@ -129,6 +130,14 @@ class MultiDMemBP(DecoderModel):
             gamma_init : float | list[float]
                 Initial value(s) for gamma. If a single float, all gamma values are set to it.
                 If a list of two floats [a, b], each gamma is sampled independently and uniformly from [a, b].
+
+            llr_pooling : Literal["mean", "weighted_mean", "per_variable_weighted_mean"]
+                Method for pooling per-component LLRs into a scalar LLR per variable node.
+                - "mean": simple average across message components.
+                - "weighted_mean": learned weights shared across all variable nodes, shape (M,).
+                - "per_variable_weighted_mean": learned weights per variable node, shape (V, M).
+                The learned weights are initialized to zero so that softmax yields uniform weights (1/M),
+                making the initial behavior identical to "mean".
         """
         super().__init__(pcm, prior, num_iters)
 
@@ -243,6 +252,19 @@ class MultiDMemBP(DecoderModel):
         self.gamma_shared = gamma_shared
         self.gamma = nn.Parameter(self._init_gamma(gamma_init))  # (V,) or (V, M)
 
+        # LLR pooling method.
+        self.llr_pooling = llr_pooling
+        if llr_pooling == "mean":
+            pass
+        elif llr_pooling == "weighted_mean":
+            self.llr_pooling_weights = nn.Parameter(torch.zeros(msg_features))  # (M,)
+        elif llr_pooling == "per_variable_weighted_mean":
+            self.llr_pooling_weights = nn.Parameter(
+                torch.zeros(self.num_vars, msg_features)
+            )  # (V, M)
+        else:
+            raise ValueError(f"Invalid llr_pooling: {llr_pooling!r}")
+
     def _init_gamma(self, gamma_init: Union[float, list[float]]) -> torch.Tensor:
         if self.gamma_shared:
             shape = (self.num_vars,)
@@ -266,6 +288,13 @@ class MultiDMemBP(DecoderModel):
             raise ValueError(
                 f"gamma_init must be a float or a list of two floats [low, high], got {gamma_init!r}"
             )
+
+    def _pool_llrs(self, llrs_all_components: torch.Tensor) -> torch.Tensor:
+        """Pool LLRs across the message feature dimension. (B, V, M) -> (B, V)"""
+        if self.llr_pooling == "mean":
+            return llrs_all_components.mean(dim=2)
+        w = torch.softmax(self.llr_pooling_weights, dim=-1)  # (M,) or (V, M)
+        return (llrs_all_components * w).sum(dim=2)
 
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
         device = syndromes.device
@@ -374,8 +403,8 @@ class MultiDMemBP(DecoderModel):
                 )  # (B, V, M)
             prev_llrs_all_components = llrs_all_components
 
-            # Soft majority vote: average over LLRs along the message feature dimension.
-            llrs = llrs_all_components.mean(dim=2)  # (B, V)
+            # Pool LLRs along the message feature dimension.
+            llrs = self._pool_llrs(llrs_all_components)  # (B, V)
             llrs_list.append(llrs)
 
             if t < self.num_iters - 1:  # skip VN→CN messages in the last iteration
@@ -469,7 +498,7 @@ class MultiDMemBP(DecoderModel):
                 )  # (B, V, M)
             prev_llrs_all_components = llrs_all_components
 
-            llrs = llrs_all_components.mean(dim=2)  # (B, V)
+            llrs = self._pool_llrs(llrs_all_components)  # (B, V)
 
             hard_decisions = (llrs < 0).float()  # (B, V), float ∈ {0.0, 1.0}
             synd_pred = matmul_GF2(hard_decisions, chkmat.T)  # (B, C), int ∈ {0, 1}

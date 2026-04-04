@@ -71,7 +71,7 @@ class TestDecodeInferenceLearnedDMemBP(unittest.TestCase):
 
 
 class TestDecodeInferenceMultiDMemBP(unittest.TestCase):
-    def test_matches_reference(self) -> None:
+    def _run_pooling_test(self, llr_pooling: str) -> None:
         pcm, prior = _pcm_and_prior()
         num_iters = 10
         model = MultiDMemBP(
@@ -88,6 +88,7 @@ class TestDecodeInferenceMultiDMemBP(unittest.TestCase):
             sign_impl_method="hard",
             gamma_shared=False,
             gamma_init=[-0.1, 0.8],
+            llr_pooling=llr_pooling,
         )
         model.eval()
         chkmat = torch.tensor(pcm, dtype=torch.float32)
@@ -101,3 +102,12 @@ class TestDecodeInferenceMultiDMemBP(unittest.TestCase):
         torch.testing.assert_close(result.ehat, result_ref.ehat)
         self.assertTrue(torch.equal(result.converged_mask, result_ref.converged_mask))
         self.assertTrue(torch.equal(result.decoding_iters, result_ref.decoding_iters))
+
+    def test_matches_reference_mean(self) -> None:
+        self._run_pooling_test("mean")
+
+    def test_matches_reference_weighted_mean(self) -> None:
+        self._run_pooling_test("weighted_mean")
+
+    def test_matches_reference_per_variable_weighted_mean(self) -> None:
+        self._run_pooling_test("per_variable_weighted_mean")

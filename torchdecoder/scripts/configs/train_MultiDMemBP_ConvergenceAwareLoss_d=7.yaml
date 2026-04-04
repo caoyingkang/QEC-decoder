@@ -14,6 +14,7 @@ model:
   sign_impl_method: hard
   gamma_shared: false  # true = one gamma per VN, shared across message components; false = one gamma per VN and per message component
   gamma_init: 0  # single scalar: all gamma use this value; [a, b]: sample independently and uniformly from [a, b]
+  llr_pooling: mean  # options: "mean", "weighted_mean", "per_variable_weighted_mean"
   mlp:
     hidden_features: 64
     hidden_depth: 2
@@ -25,9 +26,9 @@ loss:
   name: ConvergenceAwareLoss
   beta: 0.5
   focal_gamma: 2.0
-  curriculum:
-    max_emphasis: 5.0
-    ramp_epochs: 15
+  # curriculum:
+  #   max_emphasis: 5.0
+  #   ramp_epochs: 15
 
 optim:
   lr: 0.002
