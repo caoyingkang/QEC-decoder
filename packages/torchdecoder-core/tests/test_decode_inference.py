@@ -70,6 +70,32 @@ class TestDecodeInferenceLearnedDMemBP(unittest.TestCase):
         self.assertTrue(torch.equal(result.decoding_iters, result_ref.decoding_iters))
 
 
+class TestDecodeInferenceLearnedDMemBPEdgeWeights(unittest.TestCase):
+    def test_matches_reference(self) -> None:
+        pcm, prior = _pcm_and_prior()
+        num_iters = 10
+        model = LearnedDMemBP(
+            pcm,
+            prior,
+            num_iters,
+            min_impl_method="hard",
+            sign_impl_method="hard",
+            use_edge_weights=True,
+        )
+        model.eval()
+        chkmat = torch.tensor(pcm, dtype=torch.float32)
+        torch.manual_seed(42)
+        syndromes = torch.randint(0, 2, (1024, pcm.shape[0]), dtype=torch.int32)
+
+        with torch.inference_mode():
+            result_ref = _decode_ref(model, syndromes, chkmat)
+            result = model.decode_inference(syndromes, chkmat)
+
+        torch.testing.assert_close(result.ehat, result_ref.ehat)
+        self.assertTrue(torch.equal(result.converged_mask, result_ref.converged_mask))
+        self.assertTrue(torch.equal(result.decoding_iters, result_ref.decoding_iters))
+
+
 class TestDecodeInferenceMultiDMemBP(unittest.TestCase):
     def _run_pooling_test(self, llr_pooling: str) -> None:
         pcm, prior = _pcm_and_prior()
@@ -89,6 +115,50 @@ class TestDecodeInferenceMultiDMemBP(unittest.TestCase):
             gamma_shared=False,
             gamma_init=[-0.1, 0.8],
             llr_pooling=llr_pooling,
+        )
+        model.eval()
+        chkmat = torch.tensor(pcm, dtype=torch.float32)
+        torch.manual_seed(42)
+        syndromes = torch.randint(0, 2, (1024, pcm.shape[0]), dtype=torch.int32)
+
+        with torch.inference_mode():
+            result_ref = _decode_ref(model, syndromes, chkmat)
+            result = model.decode_inference(syndromes, chkmat)
+
+        torch.testing.assert_close(result.ehat, result_ref.ehat)
+        self.assertTrue(torch.equal(result.converged_mask, result_ref.converged_mask))
+        self.assertTrue(torch.equal(result.decoding_iters, result_ref.decoding_iters))
+
+    def test_matches_reference_mean(self) -> None:
+        self._run_pooling_test("mean")
+
+    def test_matches_reference_weighted_mean(self) -> None:
+        self._run_pooling_test("weighted_mean")
+
+    def test_matches_reference_per_variable_weighted_mean(self) -> None:
+        self._run_pooling_test("per_variable_weighted_mean")
+
+
+class TestDecodeInferenceMultiDMemBPEdgeWeights(unittest.TestCase):
+    def _run_pooling_test(self, llr_pooling: str) -> None:
+        pcm, prior = _pcm_and_prior()
+        num_iters = 10
+        model = MultiDMemBP(
+            pcm,
+            prior,
+            num_iters,
+            msg_features=16,
+            mlp_hidden_features=64,
+            mlp_hidden_depth=2,
+            mlp_activation="Tanh",
+            mlp_norm=None,
+            mlp_dropout_p=None,
+            min_impl_method="hard",
+            sign_impl_method="hard",
+            gamma_shared=False,
+            gamma_init=[-0.1, 0.8],
+            llr_pooling=llr_pooling,
+            use_edge_weights=True,
         )
         model.eval()
         chkmat = torch.tensor(pcm, dtype=torch.float32)

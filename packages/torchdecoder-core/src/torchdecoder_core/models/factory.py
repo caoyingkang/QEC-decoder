@@ -22,6 +22,9 @@ def build_decoder_model(
             model_cfg.num_iters,
             min_impl_method=model_cfg.min_impl_method,
             sign_impl_method=model_cfg.sign_impl_method,
+            use_edge_weights=OmegaConf.select(
+                model_cfg, "use_edge_weights", default=False
+            ),
         )
     elif model_name == "MultiDMemBP":
         return MultiDMemBP(
@@ -39,6 +42,9 @@ def build_decoder_model(
             gamma_shared=model_cfg.gamma_shared,
             gamma_init=model_cfg.gamma_init,
             llr_pooling=OmegaConf.select(model_cfg, "llr_pooling", default="mean"),
+            use_edge_weights=OmegaConf.select(
+                model_cfg, "use_edge_weights", default=False
+            ),
         )
     else:
         raise ValueError(f"Invalid model name: {model_name!r}")

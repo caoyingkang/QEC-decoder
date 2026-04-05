@@ -35,6 +35,7 @@ from typing import Literal, Optional, Union
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from ..utils.mlp import MLP
 from ..utils.tensor_utils import (
@@ -80,7 +81,10 @@ class MultiDMemBP(DecoderModel):
         sign_impl_method: Literal["smooth", "hard"],
         gamma_shared: bool,
         gamma_init: Union[float, list[float]],
-        llr_pooling: Literal["mean", "weighted_mean", "per_variable_weighted_mean"],
+        llr_pooling: Literal[
+            "mean", "weighted_mean", "per_variable_weighted_mean"
+        ] = "mean",
+        use_edge_weights: bool = False,
     ):
         """
         Parameters
@@ -138,6 +142,9 @@ class MultiDMemBP(DecoderModel):
                 - "per_variable_weighted_mean": learned weights per variable node, shape (V, M).
                 The learned weights are initialized to zero so that softmax yields uniform weights (1/M),
                 making the initial behavior identical to "mean".
+
+            use_edge_weights : bool
+                If True, introduce learnable per-edge multiplicative weights for CN→VN messages.
         """
         super().__init__(pcm, prior, num_iters)
 
@@ -265,6 +272,13 @@ class MultiDMemBP(DecoderModel):
         else:
             raise ValueError(f"Invalid llr_pooling: {llr_pooling!r}")
 
+        # Learnable per-edge weights for CN→VN messages.
+        self.use_edge_weights = use_edge_weights
+        if use_edge_weights:
+            self.edge_weights_raw = nn.Parameter(
+                torch.full((num_edges,), 0.5413, dtype=torch.float32)
+            )
+
     def _init_gamma(self, gamma_init: Union[float, list[float]]) -> torch.Tensor:
         if self.gamma_shared:
             shape = (self.num_vars,)
@@ -381,6 +395,11 @@ class MultiDMemBP(DecoderModel):
             cn_out_for_scatter = cn_out.reshape(batch_size, -1, mf)  # (B, C * Δc, M)
             cn_to_vn.scatter_(1, cn_flat_idx, cn_out_for_scatter)
 
+            if self.use_edge_weights:
+                cn_to_vn[:, : self.num_edges, :] *= F.softplus(
+                    self.edge_weights_raw
+                ).unsqueeze(-1)
+
             # ==================== VN update ====================
             # Gather incoming messages at all VNs.
             msgs_vn = cn_to_vn[:, self.vn_edge_idx, :]  # (B, V, Δv, M)
@@ -479,6 +498,11 @@ class MultiDMemBP(DecoderModel):
 
             cn_out_for_scatter = cn_out.reshape(batch_size, -1, mf)  # (B, C * Δc, M)
             cn_to_vn.scatter_(1, cn_flat_idx, cn_out_for_scatter)
+
+            if self.use_edge_weights:
+                cn_to_vn[:, : self.num_edges, :] *= F.softplus(
+                    self.edge_weights_raw
+                ).unsqueeze(-1)
 
             msgs_vn = cn_to_vn[:, self.vn_edge_idx, :]  # (B, V, Δv, M)
             msgs_vn = msgs_vn.masked_fill(~vn_mask_4d, 0.0)  # (B, V, Δv, M)

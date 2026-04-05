@@ -3,6 +3,7 @@ from typing import Literal
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from ..utils.tensor_utils import (
     smooth_sign,
@@ -38,6 +39,7 @@ class LearnedDMemBP(DecoderModel):
         *,
         min_impl_method: Literal["smooth", "hard"],
         sign_impl_method: Literal["smooth", "hard"],
+        use_edge_weights: bool = False,
     ):
         """
         Parameters
@@ -60,6 +62,9 @@ class LearnedDMemBP(DecoderModel):
                 Implementation method of the sign function during training.
                 Options: "smooth" (based on tanh), "hard".
                 Note that during inference, we always use "hard" sign.
+
+            use_edge_weights : bool
+                If True, introduce learnable per-edge multiplicative weights for CN→VN messages.
         """
         super().__init__(pcm, prior, num_iters)
 
@@ -145,6 +150,15 @@ class LearnedDMemBP(DecoderModel):
         # Initialize trainable parameter: memory strength.
         self.gamma = nn.Parameter(torch.zeros(self.num_vars))  # (V,)
 
+        # Learnable per-edge weights for CN→VN messages.
+        self.use_edge_weights = use_edge_weights
+        if use_edge_weights:
+            # Initialize raw parameter so that softplus(raw) = 1.0.
+            # softplus(x) = log(1 + exp(x)) = 1.0  =>  x = log(e - 1) ≈ 0.5413
+            self.edge_weights_raw = nn.Parameter(
+                torch.full((num_edges,), 0.5413, dtype=torch.float32)
+            )
+
     def forward(self, syndromes: torch.Tensor) -> torch.Tensor:
         device = syndromes.device
         batch_size = syndromes.shape[0]
@@ -220,6 +234,9 @@ class LearnedDMemBP(DecoderModel):
             # The values in cn_to_vn[:, num_edges] will be non-deterministic, but it's okay because they will be masked out during VN update.
             cn_to_vn.scatter_(1, cn_flat_idx, cn_out.reshape(batch_size, -1))
 
+            if self.use_edge_weights:
+                cn_to_vn[:, : self.num_edges] *= F.softplus(self.edge_weights_raw)
+
             # ==================== VN update ====================
             # Gather incoming messages at all VNs.
             msgs_vn = cn_to_vn[:, self.vn_edge_idx]  # (B, V, Δv)
@@ -289,7 +306,11 @@ class LearnedDMemBP(DecoderModel):
             loo_abs_min = leave_one_out_min(msgs_abs, dim=2)  # (B, C, Δc)
 
             cn_out = synd_sgn.unsqueeze(2) * loo_sgn_prod * loo_abs_min  # (B, C, Δc)
+
             cn_to_vn.scatter_(1, cn_flat_idx, cn_out.reshape(batch_size, -1))
+
+            if self.use_edge_weights:
+                cn_to_vn[:, : self.num_edges] *= F.softplus(self.edge_weights_raw)
 
             msgs_vn = cn_to_vn[:, self.vn_edge_idx]  # (B, V, Δv)
             msgs_vn = msgs_vn.masked_fill(~vn_mask_3d, 0.0)  # (B, V, Δv)

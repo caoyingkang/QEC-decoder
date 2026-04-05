@@ -11,6 +11,7 @@ model:
   num_iters: 10
   min_impl_method: hard
   sign_impl_method: hard
+  use_edge_weights: false
 
 loss:
   name: ConvergenceAwareLoss
