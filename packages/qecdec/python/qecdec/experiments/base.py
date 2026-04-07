@@ -26,17 +26,11 @@ class ErrorMechanism:
         Flipped observables (in increasing order).
     p : float
         Probability of occurrence.
-    start_layer : int
-        The first layer in the decoding graph to find a flipped detector.
-    end_layer : int
-        The last layer plus one in the decoding graph to find a flipped detector.
     """
 
     dets: tuple[int, ...]
     obsers: tuple[int, ...]
     p: float
-    start_layer: int
-    end_layer: int
 
     def __eq__(self, other) -> bool:
         """
@@ -46,14 +40,41 @@ class ErrorMechanism:
         """
         if not isinstance(other, ErrorMechanism):
             raise TypeError(f"Cannot compare {type(self)} with {type(other)}")
-        # The following guarantees that self.start_layer == other.start_layer and self.end_layer == other.end_layer
         return self.dets == other.dets
+
+    def __lt__(self, other) -> bool:
+        if not isinstance(other, ErrorMechanism):
+            raise TypeError(f"Cannot compare {type(self)} with {type(other)}")
+        return self.dets < other.dets
+
+
+@total_ordering
+@dataclass(frozen=True)
+class LayeredErrorMechanism(ErrorMechanism):
+    """An error mechanism with layer information for memory experiments.
+
+    Attributes
+    ----------
+    dets : tuple[int, ...]
+        Flipped detectors (in increasing order), nonempty.
+    obsers : tuple[int, ...]
+        Flipped observables (in increasing order).
+    p : float
+        Probability of occurrence.
+    start_layer : int
+        The first layer in the decoding graph to find a flipped detector.
+    end_layer : int
+        The last layer plus one in the decoding graph to find a flipped detector.
+    """
+
+    start_layer: int
+    end_layer: int
 
     def __lt__(self, other) -> bool:
         """
         To sort error mechanisms, we first compare `start_layer`, then `end_layer`, and finally `dets`.
         """
-        if not isinstance(other, ErrorMechanism):
+        if not isinstance(other, LayeredErrorMechanism):
             raise TypeError(f"Cannot compare {type(self)} with {type(other)}")
         if self.start_layer != other.start_layer:
             return self.start_layer < other.start_layer
@@ -63,30 +84,11 @@ class ErrorMechanism:
             return self.dets < other.dets
 
 
-class MemoryExperiment(ABC):
-    """Abstract base class for memory experiments."""
+class Experiment(ABC):
+    """Abstract base class for QEC experiments.
 
-    def __init__(
-        self,
-        rounds: int,
-        num_detectors_per_layer: int,
-        num_observables: int,
-    ):
-        """
-        Parameters
-        ----------
-        rounds : int
-            Number of rounds of stabilizer measurement.
-        num_detectors_per_layer : int
-            Number of layers of detectors in the decoding graph.
-        num_observables : int
-            Number of logical observables.
-        """
-        self.rounds = rounds
-        self.layers = rounds + 1
-        self.num_detectors_per_layer = num_detectors_per_layer
-        self.num_detectors = self.layers * num_detectors_per_layer
-        self.num_observables = num_observables
+    Provides properties chkmat, obsmat, prior, etc. from a stim circuit.
+    """
 
     @property
     @abstractmethod
@@ -100,6 +102,16 @@ class MemoryExperiment(ABC):
         return self.circuit.detector_error_model()
 
     @cached_property
+    def num_detectors(self) -> int:
+        """Number of detectors in the circuit."""
+        return self.circuit.num_detectors
+
+    @cached_property
+    def num_observables(self) -> int:
+        """Number of observables in the circuit."""
+        return self.circuit.num_observables
+
+    @cached_property
     def eid2emech(self) -> dict[int, ErrorMechanism]:
         """Dictionary mapping error ids to ErrorMechanism objects."""
         eff2prob = extract_error_mechanisms_from_dem(self.dem)
@@ -107,9 +119,7 @@ class MemoryExperiment(ABC):
         emechs: list[ErrorMechanism] = []
         for (dets, obsers), p in eff2prob.items():
             assert len(dets) > 0
-            start_layer = dets[0] // self.num_detectors_per_layer
-            end_layer = dets[-1] // self.num_detectors_per_layer + 1
-            emechs.append(ErrorMechanism(dets, obsers, p, start_layer, end_layer))
+            emechs.append(ErrorMechanism(dets, obsers, p))
         emechs.sort()
 
         return {i: e for i, e in enumerate(emechs)}
@@ -162,6 +172,49 @@ class MemoryExperiment(ABC):
         This can be used to visualize the decoding graph.
         """
         return extract_detector_coords_from_dem(self.dem)
+
+
+class MemoryExperiment(Experiment, ABC):
+    """Abstract base class for memory experiments."""
+
+    def __init__(
+        self,
+        rounds: int,
+        num_detectors_per_layer: int,
+        num_observables: int,
+    ):
+        """
+        Parameters
+        ----------
+        rounds : int
+            Number of rounds of stabilizer measurement.
+        num_detectors_per_layer : int
+            Number of layers of detectors in the decoding graph.
+        num_observables : int
+            Number of logical observables.
+        """
+        self.rounds = rounds
+        self.layers = rounds + 1
+        self.num_detectors_per_layer = num_detectors_per_layer
+        self.num_detectors = self.layers * num_detectors_per_layer
+        self.num_observables = num_observables
+
+    @cached_property
+    def eid2emech(self) -> dict[int, LayeredErrorMechanism]:
+        """Dictionary mapping error ids to LayeredErrorMechanism objects."""
+        eff2prob = extract_error_mechanisms_from_dem(self.dem)
+
+        emechs: list[LayeredErrorMechanism] = []
+        for (dets, obsers), p in eff2prob.items():
+            assert len(dets) > 0
+            start_layer = dets[0] // self.num_detectors_per_layer
+            end_layer = dets[-1] // self.num_detectors_per_layer + 1
+            emechs.append(
+                LayeredErrorMechanism(dets, obsers, p, start_layer, end_layer)
+            )
+        emechs.sort()
+
+        return {i: e for i, e in enumerate(emechs)}
 
     @property
     @abstractmethod
