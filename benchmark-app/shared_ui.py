@@ -11,6 +11,7 @@ from omegaconf import OmegaConf
 from bench.constants import BASELINE_DECODERS
 from bench.params import QECParams
 from constants import (
+    CIRCUITS_ROOT,
     DEFAULT_BASELINE_DECODERS,
     DEFAULT_BP_MAX_ITER,
     DEFAULT_PYTORCH_MAX_ITER,
@@ -345,6 +346,123 @@ def stop_if_no_decoders_selected(
             "Please select at least one PyTorch decoder or baseline decoder to benchmark."
         )
         st.stop()
+
+
+def render_circuit_source_selection() -> str:
+    """Render circuit source toggle in the main area.
+
+    Return ``"generate"`` or ``"stim_file"``.
+    """
+    source = st.radio(
+        "Circuit source",
+        options=["Generate from code parameters", "Load from circuit files"],
+        horizontal=True,
+    )
+    return "generate" if source == "Generate from code parameters" else "stim_file"
+
+
+def _parse_d_rounds_basis_dirname(dirname: str) -> tuple[int, int, str]:
+    """Parse d, rounds, basis from a subdirectory name.
+
+    E.g. ``"d=6_rounds=6_basis=Z"`` -> ``(6, 6, "Z")``.
+    """
+    params = {}
+    for token in dirname.split("_"):
+        key, _, value = token.partition("=")
+        params[key] = value
+    return int(params["d"]), int(params["rounds"]), params["basis"]
+
+
+def render_stim_file_selection(
+    p_list: list[float],
+) -> tuple[QECParams, dict[float, Path]]:
+    """Render stim circuit file selection UI.
+
+    Scans the ``circuits/`` directory for code families and d/rounds/basis
+    subfolders. Validates that a ``.stim`` file exists for each error rate
+    in ``p_list``.
+
+    Return ``(qec_params, stim_file_paths)`` where ``stim_file_paths``
+    maps each ``p`` to its ``.stim`` file path.
+    """
+    st.subheader("Select circuit files")
+
+    if not CIRCUITS_ROOT.is_dir():
+        st.warning(f"Circuits directory not found: `{CIRCUITS_ROOT}`")
+        st.stop()
+
+    code_noise_dirnames = sorted(
+        d.name
+        for d in CIRCUITS_ROOT.iterdir()
+        if d.is_dir() and not d.name.startswith(".")
+    )
+    if not code_noise_dirnames:
+        st.warning(
+            "No (code, noise model) subdirectories found in the circuits directory."
+        )
+        st.stop()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        selected_code_noise_dirname = st.selectbox(
+            "code, noise model",
+            options=code_noise_dirnames,
+            index=None,
+            format_func=lambda x: ", ".join(x.rsplit("_", 1)),
+        )
+    if selected_code_noise_dirname is None:
+        st.stop()
+
+    code, noise_model = selected_code_noise_dirname.rsplit("_", 1)
+    subdir = CIRCUITS_ROOT / selected_code_noise_dirname
+
+    d_rounds_basis_dirnames = sorted(
+        d.name for d in subdir.iterdir() if d.is_dir() and not d.name.startswith(".")
+    )
+    if not d_rounds_basis_dirnames:
+        st.warning("No (d, rounds, basis) subdirectories found.")
+        st.stop()
+
+    with col2:
+        selected_d_rounds_basis_dirname = st.selectbox(
+            "d, rounds, basis",
+            options=d_rounds_basis_dirnames,
+            index=None,
+            format_func=lambda x: x.replace("_", ", "),
+        )
+    if selected_d_rounds_basis_dirname is None:
+        st.stop()
+
+    d, rounds, basis = _parse_d_rounds_basis_dirname(selected_d_rounds_basis_dirname)
+    subdir = subdir / selected_d_rounds_basis_dirname
+
+    # Map each p to its .stim file, validating existence
+    stim_file_paths: dict[float, Path] = {}
+    missing: list[float] = []
+    available_files = {f.stem: f for f in subdir.glob("*.stim")}
+    for p in p_list:
+        key = f"error_rate={p}"
+        if key in available_files:
+            stim_file_paths[p] = available_files[key]
+        else:
+            missing.append(p)
+
+    if missing:
+        available_rates = sorted(f.stem.split("=", 1)[1] for f in subdir.glob("*.stim"))
+        st.error(
+            f"No circuit file found for error rate(s): {missing}. "
+            f"Available error rates: {available_rates}"
+        )
+        st.stop()
+
+    qec_params = QECParams(
+        code=code,
+        noise_model=noise_model,
+        d=d,
+        rounds=rounds,
+        basis=basis,
+    )
+    return qec_params, stim_file_paths
 
 
 def render_missing_data_warning_and_benchmark_button(

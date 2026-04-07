@@ -1,9 +1,10 @@
 """Functions for benchmarking baseline decoders."""
 
 from pathlib import Path
+from typing import Optional
 
 import sinter
-from qecdec.experiments import RotatedSurfaceCode_Memory
+from qecdec.experiments import Experiment, RotatedSurfaceCode_Memory
 from qecdec.decoders import create_decoder
 from qecdec.sinter_utils import QecdecSinterDecoder
 
@@ -19,6 +20,7 @@ def run_baseline_benchmark(
     qec_params: QECParams,
     benchtask_params: BenchTaskParams,
     collector_params: CollectorParams,
+    experiments: Optional[dict[float, Experiment]] = None,
 ):
     csv_path = get_baseline_csv_path(baseline_csv_dir, qec_params, decoder_name)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -28,13 +30,16 @@ def run_baseline_benchmark(
     tasks: list[sinter.Task] = []
     custom_decoders: dict[str, sinter.Decoder] = {}
     for p in benchtask_params.p_list:
-        expmt = RotatedSurfaceCode_Memory(
-            d=qec_params.d,
-            rounds=qec_params.rounds,
-            basis=qec_params.basis,
-            data_qubit_error_rate=p,
-            meas_error_rate=p,
-        )
+        if experiments is not None:
+            expmt = experiments[p]
+        else:
+            expmt = RotatedSurfaceCode_Memory(
+                d=qec_params.d,
+                rounds=qec_params.rounds,
+                basis=qec_params.basis,
+                data_qubit_error_rate=p,
+                meas_error_rate=p,
+            )
         dec = create_decoder(
             decoder_name,
             pcm=expmt.chkmat,

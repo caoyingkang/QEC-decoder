@@ -1,6 +1,7 @@
 """Sinter-based Monte Carlo benchmark page."""
 
 import os
+from pathlib import Path
 
 import streamlit as st
 
@@ -13,21 +14,27 @@ from bench.sinter_bench.stats_io import (
 from bench.sinter_bench.baselines_runner import run_baseline_benchmark
 from bench.sinter_bench.torchdecoder_runner import run_torchdecoder_benchmark
 from bench.params import BenchTaskParams
-from torchdecoder_utils import (
-    extract_pytorch_decoder_name,
-    load_model_config_from_run_dir,
-    get_ckpt_path,
-)
-from constants import BASELINES_CSV_DIR
+from constants import BASELINES_CSV_DIR, TORCH_RUNS_ROOT
 from plotting import render_plot
+from qecdec.experiments import Experiment, StimFileExperiment
 from shared_ui import (
     render_baselines_selection,
+    render_circuit_source_selection,
     render_p_list_selection,
     render_sidebar_collector_selection_common,
     render_qec_selection,
+    render_stim_file_selection,
     render_torchdecoder_selection,
     stop_if_no_decoders_selected,
     render_missing_data_warning_and_benchmark_button,
+)
+from torchdecoder_utils import (
+    discover_run_dirs,
+    extract_pytorch_decoder_name,
+    group_run_dirs_by_code_and_noise,
+    group_run_dirs_by_d_rounds_basis,
+    load_model_config_from_run_dir,
+    get_ckpt_path,
 )
 
 
@@ -61,11 +68,40 @@ def _render_sidebar_collector_selection() -> CollectorParams:
 
 p_list = render_p_list_selection()
 collector_params = _render_sidebar_collector_selection()
-qec_params, run_dirs = render_qec_selection()
+
+circuit_source = render_circuit_source_selection()
+experiments: dict[float, Experiment] | None = None
+
+if circuit_source == "stim_file":
+    qec_params, stim_file_paths = render_stim_file_selection(p_list)
+    experiments = {
+        p: StimFileExperiment.load_from_file(path)
+        for p, path in stim_file_paths.items()
+    }
+    # Discover matching torch run dirs if any exist
+    all_run_dirs = discover_run_dirs(TORCH_RUNS_ROOT)
+    run_dirs: list[Path] = []
+    if len(all_run_dirs) > 0:
+        grouped = group_run_dirs_by_code_and_noise(all_run_dirs)
+        key = (qec_params.code, qec_params.noise_model)
+        if key in grouped:
+            grouped = group_run_dirs_by_d_rounds_basis(grouped[key])
+            key = (qec_params.d, qec_params.rounds, qec_params.basis)
+            if key in grouped:
+                run_dirs = grouped[key]
+else:
+    qec_params, run_dirs = render_qec_selection()
+
 selected_baseline_decoders, baseline_decoder_params = render_baselines_selection()
-selected_run_dirs, torchdecoder_shared_params = render_torchdecoder_selection(
-    run_dirs, qec_params
-)
+
+if len(run_dirs) > 0:
+    selected_run_dirs, torchdecoder_shared_params = render_torchdecoder_selection(
+        run_dirs, qec_params
+    )
+else:
+    selected_run_dirs = []
+    torchdecoder_shared_params = {}
+
 stop_if_no_decoders_selected(selected_run_dirs, selected_baseline_decoders)
 
 benchtask_params = BenchTaskParams(
@@ -98,6 +134,7 @@ if len(pending_run_dirs) > 0 or len(pending_baseline_decoders) > 0:
                     qec_params=qec_params,
                     benchtask_params=benchtask_params,
                     collector_params=collector_params,
+                    experiments=experiments,
                 )
             for run_dir in pending_run_dirs:
                 run_torchdecoder_benchmark(
@@ -108,6 +145,7 @@ if len(pending_run_dirs) > 0 or len(pending_baseline_decoders) > 0:
                     qec_params=qec_params,
                     benchtask_params=benchtask_params,
                     collector_params=collector_params,
+                    experiments=experiments,
                 )
             st.rerun()
     st.stop()

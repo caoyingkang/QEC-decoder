@@ -2,7 +2,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from qecdec.experiments import RotatedSurfaceCode_Memory
+from qecdec.experiments import Experiment, RotatedSurfaceCode_Memory
 from qecdec.decoders import ITERATIVE_DECODERS, create_decoder
 
 from ..params import QECParams, BenchTaskParams
@@ -21,6 +21,7 @@ def run_baseline_benchmark(
     benchtask_params: BenchTaskParams,
     collector_params: CollectorParams,
     stop_event: Optional[threading.Event] = None,
+    experiments: Optional[dict[float, Experiment]] = None,
 ) -> None:
     csv_path = get_baseline_csv_path(baseline_csv_dir, qec_params, decoder_name)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -30,13 +31,16 @@ def run_baseline_benchmark(
     for p in benchtask_params.p_list:
         if stop_event is not None and stop_event.is_set():
             return
-        expmt = RotatedSurfaceCode_Memory(
-            d=qec_params.d,
-            rounds=qec_params.rounds,
-            basis=qec_params.basis,
-            data_qubit_error_rate=p,
-            meas_error_rate=p,
-        )
+        if experiments is not None:
+            expmt = experiments[p]
+        else:
+            expmt = RotatedSurfaceCode_Memory(
+                d=qec_params.d,
+                rounds=qec_params.rounds,
+                basis=qec_params.basis,
+                data_qubit_error_rate=p,
+                meas_error_rate=p,
+            )
         metadata = TaskMetadata(
             code=qec_params.code,
             noise_model=qec_params.noise_model,

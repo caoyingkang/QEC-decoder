@@ -1,10 +1,11 @@
 """Unified benchmark for PyTorch decoders (LearnedDMemBP, MultiDMemBP, etc.)."""
 
 from pathlib import Path
+from typing import Optional
 
 from omegaconf import DictConfig
 import sinter
-from qecdec.experiments import RotatedSurfaceCode_Memory
+from qecdec.experiments import Experiment, RotatedSurfaceCode_Memory
 
 from ..params import QECParams, BenchTaskParams
 from ..torchdecoder_loader import load_torchdecoder
@@ -21,6 +22,7 @@ def run_torchdecoder_benchmark(
     qec_params: QECParams,
     benchtask_params: BenchTaskParams,
     collector_params: CollectorParams,
+    experiments: Optional[dict[float, Experiment]] = None,
 ):
     decoder_params = benchtask_params.torchdecoder_shared_params
     max_iter = decoder_params["max_iter"]
@@ -29,13 +31,16 @@ def run_torchdecoder_benchmark(
     tasks: list[sinter.Task] = []
     custom_decoders: dict[str, sinter.Decoder] = {}
     for p in benchtask_params.p_list:
-        expmt = RotatedSurfaceCode_Memory(
-            d=qec_params.d,
-            rounds=qec_params.rounds,
-            basis=qec_params.basis,
-            data_qubit_error_rate=p,
-            meas_error_rate=p,
-        )
+        if experiments is not None:
+            expmt = experiments[p]
+        else:
+            expmt = RotatedSurfaceCode_Memory(
+                d=qec_params.d,
+                rounds=qec_params.rounds,
+                basis=qec_params.basis,
+                data_qubit_error_rate=p,
+                meas_error_rate=p,
+            )
         model = load_torchdecoder(
             chkmat=expmt.chkmat,
             prior=expmt.prior,

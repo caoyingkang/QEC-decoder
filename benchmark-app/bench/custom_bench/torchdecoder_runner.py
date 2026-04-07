@@ -6,7 +6,7 @@ from typing import Optional
 
 from omegaconf import DictConfig
 import stim
-from qecdec.experiments import RotatedSurfaceCode_Memory
+from qecdec.experiments import Experiment, RotatedSurfaceCode_Memory
 
 from ..params import QECParams, BenchTaskParams
 from ..torchdecoder_loader import load_torchdecoder
@@ -26,6 +26,7 @@ def run_torchdecoder_benchmark(
     benchtask_params: BenchTaskParams,
     collector_params: CollectorParams,
     stop_event: Optional[threading.Event] = None,
+    experiments: Optional[dict[float, Experiment]] = None,
 ) -> None:
     decoder_params = benchtask_params.torchdecoder_shared_params
     max_iter = decoder_params["max_iter"]
@@ -35,13 +36,16 @@ def run_torchdecoder_benchmark(
     decoder_list: list[PyTorchBenchmarkDecoder] = []
     dem_list: list[stim.DetectorErrorModel] = []
     for p in benchtask_params.p_list:
-        expmt = RotatedSurfaceCode_Memory(
-            d=qec_params.d,
-            rounds=qec_params.rounds,
-            basis=qec_params.basis,
-            data_qubit_error_rate=p,
-            meas_error_rate=p,
-        )
+        if experiments is not None:
+            expmt = experiments[p]
+        else:
+            expmt = RotatedSurfaceCode_Memory(
+                d=qec_params.d,
+                rounds=qec_params.rounds,
+                basis=qec_params.basis,
+                data_qubit_error_rate=p,
+                meas_error_rate=p,
+            )
         metadata_list.append(
             TaskMetadata(
                 code=qec_params.code,
