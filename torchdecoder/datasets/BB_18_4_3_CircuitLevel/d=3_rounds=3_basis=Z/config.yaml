@@ -1,0 +1,14 @@
+qec:
+  code: BB_18_4_3
+  noise_model: CircuitLevel
+  d: 3
+  rounds: 3
+  basis: Z
+  p_range: [0.007, 0.008, 0.009, 0.01]
+
+data:
+  train_size: 100000
+  val_size: 10000
+  test_size: 10000
+  hard_sample_ratio: 0.5
+  bp_max_iter: 10

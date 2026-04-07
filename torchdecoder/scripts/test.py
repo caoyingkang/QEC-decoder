@@ -17,9 +17,9 @@ import warnings
 
 from omegaconf import OmegaConf, DictConfig
 import lightning as L
-from qecdec.experiments import RotatedSurfaceCode_Memory
 
 from lightning_utils import DecodingDataModule, DecodingModule
+from utils import create_experiment
 
 DATASETS_ROOT = Path(__file__).resolve().parent.parent / "datasets"
 
@@ -69,21 +69,7 @@ def main():
     print(f">>>>>> Data directory: {data_dir}")
     print(f">>>>>> Checkpoint path: {ckpt_path}")
 
-    if (
-        qec_cfg.code == "RotatedSurfaceCode"
-        and qec_cfg.noise_model == "Phenomenological"
-    ):
-        expmt = RotatedSurfaceCode_Memory(
-            d=qec_cfg.d,
-            rounds=qec_cfg.rounds,
-            basis=qec_cfg.basis,
-            data_qubit_error_rate=qec_cfg.p,
-            meas_error_rate=qec_cfg.p,
-        )
-    else:
-        raise ValueError(
-            f"Unsupported combination: {qec_cfg.code} + {qec_cfg.noise_model}"
-        )
+    expmt = create_experiment(qec_cfg, qec_cfg.p)
     decoder = DecodingModule.load_from_checkpoint(
         str(ckpt_path),
         weights_only=False,

@@ -14,11 +14,11 @@ from pathlib import Path
 import argparse
 
 import numpy as np
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 from stim import CompiledDemSampler
 from qecdec.decoders import BPDecoder
-from qecdec.experiments import RotatedSurfaceCode_Memory
 from torchdecoder_core.dataset import DecodingDataset
+from utils import create_experiment, get_stim_dir
 
 DATASETS_ROOT = Path(__file__).resolve().parent.parent / "datasets"
 
@@ -74,9 +74,7 @@ def classify_hard_easy(
 
 def collect_dataset(
     *,
-    d: int,
-    rounds: int,
-    basis: str,
+    qec_cfg: DictConfig,
     p_range: list[float],
     target_size: int,
     hard_sample_ratio: float,
@@ -103,13 +101,7 @@ def collect_dataset(
         synd_list: list[np.ndarray] = []
         obs_list: list[np.ndarray] = []
         for p in p_range:
-            expmt = RotatedSurfaceCode_Memory(
-                d=d,
-                rounds=rounds,
-                basis=basis,
-                data_qubit_error_rate=p,
-                meas_error_rate=p,
-            )
+            expmt = create_experiment(qec_cfg, p)
             sampler = expmt.dem.compile_sampler()
             s, o, _ = sampler.sample(10000)
             synd_list.append(s)
@@ -169,9 +161,7 @@ def collect_dataset(
 
 def sample_test_dataset(
     *,
-    d: int,
-    rounds: int,
-    basis: str,
+    qec_cfg: DictConfig,
     p_range: list[float],
     target_size: int,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -185,13 +175,7 @@ def sample_test_dataset(
     obs_list: list[np.ndarray] = []
     for i, p in enumerate(p_range):
         shots = shots_per_p + (1 if i < remainder else 0)
-        expmt = RotatedSurfaceCode_Memory(
-            d=d,
-            rounds=rounds,
-            basis=basis,
-            data_qubit_error_rate=p,
-            meas_error_rate=p,
-        )
+        expmt = create_experiment(qec_cfg, p)
         sampler = expmt.dem.compile_sampler()
         synd, obs = sample_shots(sampler, shots)
         synd_list.append(synd)
@@ -214,23 +198,23 @@ def build_dataset_for_config(config_dir: Path, force: bool) -> None:
 
     cfg = OmegaConf.load(config_path)
     OmegaConf.resolve(cfg)
-    d = cfg.qec.d
-    rounds = cfg.qec.rounds
-    basis = cfg.qec.basis
-    p_range: list[float] = list(cfg.qec.p_range)
+    qec_cfg = cfg.qec
+    p_range: list[float] = list(qec_cfg.p_range)
     train_size = cfg.data.train_size
     val_size = cfg.data.val_size
     test_size = cfg.data.test_size
     hard_sample_ratio = cfg.data.hard_sample_ratio
     bp_max_iter = cfg.data.bp_max_iter
 
-    if (
-        cfg.qec.code != "RotatedSurfaceCode"
-        or cfg.qec.noise_model != "Phenomenological"
-    ):
-        raise ValueError(
-            f"Unsupported combination: {cfg.qec.code} + {cfg.qec.noise_model}"
-        )
+    # For stim-file experiments, validate that all p_range values have a circuit file.
+    if qec_cfg.code != "RotatedSurfaceCode":
+        stim_dir = get_stim_dir(qec_cfg)
+        for p in p_range:
+            circuit_file = stim_dir / f"error_rate={p}.stim"
+            if not circuit_file.exists():
+                raise FileNotFoundError(
+                    f"Missing circuit file for p={p}: {circuit_file}"
+                )
 
     if not force and train_path.exists() and val_path.exists():
         print(f">>>>>> Skipping train and val datasets inside {config_dir}.")
@@ -239,9 +223,7 @@ def build_dataset_for_config(config_dir: Path, force: bool) -> None:
 
         # Collect train_size + val_size shots, about hard_sample_ratio fraction of which are hard
         syndromes, observables = collect_dataset(
-            d=d,
-            rounds=rounds,
-            basis=basis,
+            qec_cfg=qec_cfg,
             p_range=p_range,
             target_size=train_size + val_size,
             hard_sample_ratio=hard_sample_ratio,
@@ -270,9 +252,7 @@ def build_dataset_for_config(config_dir: Path, force: bool) -> None:
         print(f">>>>>> Building test dataset inside {config_dir}.")
 
         test_syndromes, test_observables = sample_test_dataset(
-            d=d,
-            rounds=rounds,
-            basis=basis,
+            qec_cfg=qec_cfg,
             p_range=p_range,
             target_size=test_size,
         )

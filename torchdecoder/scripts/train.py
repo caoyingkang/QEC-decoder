@@ -33,13 +33,12 @@ from lightning.pytorch.profilers import PyTorchProfiler
 import torch
 from omegaconf import OmegaConf, DictConfig
 from omegaconf.errors import ConfigKeyError
-from qecdec.experiments import RotatedSurfaceCode_Memory
-
 from lightning_utils import (
     CurriculumCallback,
     DecodingDataModule,
     DecodingModule,
 )
+from utils import create_experiment
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATASETS_ROOT = PROJECT_ROOT / "datasets"
@@ -161,21 +160,7 @@ def main():
     run_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(cfg, run_dir / "config.yaml")
 
-    if (
-        qec_cfg.code == "RotatedSurfaceCode"
-        and qec_cfg.noise_model == "Phenomenological"
-    ):
-        expmt = RotatedSurfaceCode_Memory(
-            d=qec_cfg.d,
-            rounds=qec_cfg.rounds,
-            basis=qec_cfg.basis,
-            data_qubit_error_rate=qec_cfg.p,
-            meas_error_rate=qec_cfg.p,
-        )
-    else:
-        raise ValueError(
-            f"Unsupported combination: {qec_cfg.code} + {qec_cfg.noise_model}"
-        )
+    expmt = create_experiment(qec_cfg, qec_cfg.p)
     print(f">>>>>> Number of error mechanisms: {expmt.num_error_mechanisms}")
     print(f">>>>>> Number of detectors: {expmt.num_detectors}")
     print(f">>>>>> Number of observables: {expmt.num_observables}")
