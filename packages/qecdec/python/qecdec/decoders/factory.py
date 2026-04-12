@@ -6,6 +6,7 @@ from .base import Decoder, IterativeDecoder
 from .bp import BPDecoder
 from .dmembp import DMemBPDecoder
 from .dmemoffsetbp import DMemOffsetBPDecoder
+from .bposd import BPOSDDecoder
 from .relaybp import RelayBPDecoder
 from .mwpm import MWPMDecoder
 from .uf import UnionFindDecoder
@@ -15,6 +16,7 @@ DECODER_NAME_TO_CLASS: dict[str, type[Decoder]] = {
     "BP": BPDecoder,
     "DMemBP": DMemBPDecoder,
     "DMemOffsetBP": DMemOffsetBPDecoder,
+    "BPOSD": BPOSDDecoder,
     "RelayBP": RelayBPDecoder,
     "MWPM": MWPMDecoder,
     "UnionFind": UnionFindDecoder,

@@ -25,10 +25,10 @@ class RelayBPDecoder(IterativeDecoder):
         *,
         gamma0: float,
         gamma_dist_interval: tuple[float, float],
-        num_relays: int = 300,
-        pre_iter: int = 80,
-        max_iter_per_relay: int = 60,
-        stop_nconv: int = 1,
+        num_relays: int,
+        pre_iter: int,
+        max_iter_per_relay: int,
+        stop_nconv: int,
     ):
         """
         Parameters

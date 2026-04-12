@@ -4,6 +4,7 @@ from .base import Decoder, IterativeDecoder
 from .bp import BPDecoder
 from .dmembp import DMemBPDecoder
 from .dmemoffsetbp import DMemOffsetBPDecoder
+from .bposd import BPOSDDecoder
 from .mwpm import MWPMDecoder
 from .relaybp import RelayBPDecoder
 from .uf import UnionFindDecoder
@@ -20,6 +21,7 @@ __all__ = [
     "BPDecoder",
     "DMemBPDecoder",
     "DMemOffsetBPDecoder",
+    "BPOSDDecoder",
     "MWPMDecoder",
     "RelayBPDecoder",
     "UnionFindDecoder",

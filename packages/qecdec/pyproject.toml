@@ -14,6 +14,7 @@ dependencies = [
     "sinter",
     "pymatching",
     "relay-bp",
+    "ldpc",
 ]
 
 [dependency-groups]
