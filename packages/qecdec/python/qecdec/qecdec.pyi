@@ -104,13 +104,16 @@ class BPDecoderRust:
         """
         ...
 
-    def decode_batch(self, syndrome_batch: Bit2DArray) -> Bit2DArray:
+    def decode_batch(self, syndrome_batch: Bit2DArray, *, parallel: bool = False) -> Bit2DArray:
         """Decode a batch of syndrome vectors.
 
         Parameters
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        parallel : bool
+            Whether to use multithreaded decoding. Default is False.
 
         Returns
         -------
@@ -120,7 +123,7 @@ class BPDecoderRust:
         ...
 
     def decode_batch_detailed(
-        self, syndrome_batch: Bit2DArray
+        self, syndrome_batch: Bit2DArray, *, parallel: bool = False
     ) -> DecodeBatchDetailedResult:
         """Decode a batch of syndrome vectors with detailed diagnostics.
 
@@ -128,6 +131,9 @@ class BPDecoderRust:
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        parallel : bool
+            Whether to use multithreaded decoding. Default is False.
 
         Returns
         -------
@@ -225,13 +231,16 @@ class DMemBPDecoderRust:
         """
         ...
 
-    def decode_batch(self, syndrome_batch: Bit2DArray) -> Bit2DArray:
+    def decode_batch(self, syndrome_batch: Bit2DArray, *, parallel: bool = False) -> Bit2DArray:
         """Decode a batch of syndrome vectors.
 
         Parameters
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        parallel : bool
+            Whether to use multithreaded decoding. Default is False.
 
         Returns
         -------
@@ -241,7 +250,7 @@ class DMemBPDecoderRust:
         ...
 
     def decode_batch_detailed(
-        self, syndrome_batch: Bit2DArray
+        self, syndrome_batch: Bit2DArray, *, parallel: bool = False
     ) -> DecodeBatchDetailedResult:
         """Decode a batch of syndrome vectors with detailed diagnostics.
 
@@ -249,6 +258,9 @@ class DMemBPDecoderRust:
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        parallel : bool
+            Whether to use multithreaded decoding. Default is False.
 
         Returns
         -------
@@ -352,13 +364,16 @@ class DMemOffsetBPDecoderRust:
         """
         ...
 
-    def decode_batch(self, syndrome_batch: Bit2DArray) -> Bit2DArray:
+    def decode_batch(self, syndrome_batch: Bit2DArray, *, parallel: bool = False) -> Bit2DArray:
         """Decode a batch of syndrome vectors.
 
         Parameters
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        parallel : bool
+            Whether to use multithreaded decoding. Default is False.
 
         Returns
         -------
@@ -368,7 +383,7 @@ class DMemOffsetBPDecoderRust:
         ...
 
     def decode_batch_detailed(
-        self, syndrome_batch: Bit2DArray
+        self, syndrome_batch: Bit2DArray, *, parallel: bool = False
     ) -> DecodeBatchDetailedResult:
         """Decode a batch of syndrome vectors with detailed diagnostics.
 
@@ -376,6 +391,9 @@ class DMemOffsetBPDecoderRust:
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        parallel : bool
+            Whether to use multithreaded decoding. Default is False.
 
         Returns
         -------

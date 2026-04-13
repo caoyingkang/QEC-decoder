@@ -76,8 +76,10 @@ class DMemBPDecoder(IterativeDecoder):
     def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
         return self._decoder.decode(syndrome)
 
-    def decode_batch(self, syndrome_batch: Bit2DArray) -> Bit2DArray:
-        return self._decoder.decode_batch(syndrome_batch)
+    def decode_batch(
+        self, syndrome_batch: Bit2DArray, *, parallel: bool = False
+    ) -> Bit2DArray:
+        return self._decoder.decode_batch(syndrome_batch, parallel=parallel)
 
     def decode_detailed(
         self,
@@ -115,7 +117,7 @@ class DMemBPDecoder(IterativeDecoder):
         )
 
     def decode_batch_detailed(
-        self, syndrome_batch: Bit2DArray
+        self, syndrome_batch: Bit2DArray, *, parallel: bool = False
     ) -> tuple[Bit2DArray, Bool1DArray, Int1DArray]:
         """Decode a batch of syndrome vectors with detailed diagnostics.
 
@@ -123,6 +125,9 @@ class DMemBPDecoder(IterativeDecoder):
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        parallel : bool
+            Whether to use multithreaded decoding.
 
         Returns
         -------
@@ -135,4 +140,4 @@ class DMemBPDecoder(IterativeDecoder):
         decoding_iters : ndarray
             Number of BP iterations actually run in each shot, shape=(batch_size,), dtype=int64.
         """
-        return self._decoder.decode_batch_detailed(syndrome_batch)
+        return self._decoder.decode_batch_detailed(syndrome_batch, parallel=parallel)

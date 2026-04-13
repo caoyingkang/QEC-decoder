@@ -16,6 +16,7 @@ This package is a member of the repository’s [uv](https://docs.astral.sh/uv/) 
 | **`python/qecdec/sinter_utils/`** | Helpers to plug decoders into [sinter](https://pypi.org/project/sinter/). |
 | **`python/qecdec/slwin/`** | Helpers to use decoders in sliding-window decoding. |
 | **`notebooks/`** | Example Jupyter notebooks. |
+| **`tests/`** | Unit tests. |
 
 Extra dependencies for `notebooks/` are listed under `[dependency-groups]` in `pyproject.toml`. To include them, run the following command from the repository root:
 ```bash

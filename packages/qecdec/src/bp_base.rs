@@ -70,4 +70,14 @@ impl BPBase {
             var_nbr_pos: var_nbr_pos,
         }
     }
+
+    /// Initialize VN-to-CN messages from prior LLRs.
+    pub(crate) fn init_messages(&self, chk_inmsg: &mut [Vec<f64>]) {
+        for j in 0..self.num_vars {
+            let msg = self.prior_llr[j];
+            for (k, &i) in self.var_nbrs[j].iter().enumerate() {
+                chk_inmsg[i][self.var_nbr_pos[j][k]] = msg;
+            }
+        }
+    }
 }

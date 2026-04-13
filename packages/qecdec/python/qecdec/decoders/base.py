@@ -111,13 +111,18 @@ class Decoder(ABC):
         ...
 
     @abstractmethod
-    def decode_batch(self, syndrome_batch: Bit2DArray) -> Bit2DArray:
+    def decode_batch(
+        self, syndrome_batch: Bit2DArray, *, parallel: bool = False
+    ) -> Bit2DArray:
         """Decode a batch of syndrome vectors.
 
         Parameters
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        parallel : bool
+            Whether to use multithreaded decoding.
 
         Returns
         -------
@@ -133,12 +138,14 @@ class Decoder(ABC):
         """
         return self.decode(syndrome)
 
-    def decode_batch_detailed(self, syndrome_batch: Bit2DArray, **kwargs) -> Any:
+    def decode_batch_detailed(
+        self, syndrome_batch: Bit2DArray, *, parallel: bool = False, **kwargs
+    ) -> Any:
         """
         Decode a batch of syndrome vectors with detailed diagnostics. Unless overridden,
         this method simply calls `decode_batch` and returns the result.
         """
-        return self.decode_batch(syndrome_batch)
+        return self.decode_batch(syndrome_batch, parallel=parallel)
 
 
 class IterativeDecoder(Decoder):

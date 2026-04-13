@@ -2,6 +2,202 @@ use crate::bp_base::BPBase;
 use numpy::ndarray::{Array1, Array2, ArrayView1};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
+use rayon::prelude::*;
+
+/// Decode a single syndrome vector using disordered-memory min-sum BP.
+fn decode_single(
+    base: &BPBase,
+    gamma: &Array1<f64>,
+    norm: f64,
+    max_iter: usize,
+    chk_inmsg: &mut [Vec<f64>],
+    var_inmsg: &mut [Vec<f64>],
+    synd: ArrayView1<u8>,
+) -> Array1<u8> {
+    base.init_messages(chk_inmsg);
+    // Estimated error vector at the current iteration.
+    let mut ehat = Array1::<u8>::zeros(base.num_vars);
+    // Posterior LLR values at the current iteration.
+    let mut llr = base.prior_llr.to_vec();
+
+    // Main BP iteration loop.
+    for _ in 0..max_iter {
+        // Message processing at CNs.
+        for i in 0..base.num_chks {
+            // List of incoming messages.
+            let inmsg = &chk_inmsg[i];
+            // List of sign parities of the incoming messages (0 for positive, 1 for negative).
+            let inmsg_sgnpar: Vec<u8> =
+                inmsg.iter().map(|&x| if x < 0.0 { 1 } else { 0 }).collect();
+            // Total sign parity of the incoming messages (i.e. XOR of the entries in inmsg_sgnpar).
+            let total_sgnpar = inmsg_sgnpar.iter().fold(0, |acc, &x| acc ^ x);
+            // Minimum absolute value of the incoming messages.
+            let mut minabs1 = f64::MAX;
+            // Second minimum absolute value of the incoming messages.
+            let mut minabs2 = f64::MAX;
+            // Index of the incoming message with minimum absolute value.
+            let mut minidx = 0;
+            for (k, &val) in inmsg.iter().enumerate() {
+                let val_abs = val.abs();
+                if val_abs < minabs1 {
+                    minabs2 = minabs1;
+                    minabs1 = val_abs;
+                    minidx = k;
+                } else if val_abs < minabs2 {
+                    minabs2 = val_abs;
+                }
+            }
+            // Calculate the outgoing messages.
+            for (k, &j) in base.chk_nbrs[i].iter().enumerate() {
+                let msg_sgnpar = synd[i] ^ total_sgnpar ^ inmsg_sgnpar[k];
+                let msg_abs = if k == minidx { minabs2 } else { minabs1 };
+                let msg = if msg_sgnpar == 0 { msg_abs } else { -msg_abs };
+                var_inmsg[j][base.chk_nbr_pos[i][k]] = norm * msg;
+            }
+        }
+
+        // Message processing at VNs.
+        for j in 0..base.num_vars {
+            // List of incoming messages.
+            let inmsg = &var_inmsg[j];
+            // Get posterior LLR.
+            llr[j] = (1.0 - gamma[j]) * base.prior_llr[j]
+                + gamma[j] * llr[j]
+                + inmsg.iter().sum::<f64>();
+            // Hard decision.
+            ehat[j] = if llr[j] < 0.0 { 1 } else { 0 };
+            // Calculate the outgoing messages.
+            for (k, &i) in base.var_nbrs[j].iter().enumerate() {
+                chk_inmsg[i][base.var_nbr_pos[j][k]] = llr[j] - inmsg[k];
+            }
+        }
+
+        // Check if the syndrome is satisfied. If so, early stop.
+        let mut satisfied = true;
+        for i in 0..base.num_chks {
+            let mut parity = 0_u8;
+            for &j in base.chk_nbrs[i].iter() {
+                parity ^= ehat[j];
+            }
+            if parity != synd[i] {
+                satisfied = false;
+                break;
+            }
+        }
+        if satisfied {
+            break;
+        }
+    }
+    ehat
+}
+
+/// Decode a single syndrome vector with detailed diagnostics.
+fn decode_single_detailed(
+    base: &BPBase,
+    gamma: &Array1<f64>,
+    norm: f64,
+    max_iter: usize,
+    chk_inmsg: &mut [Vec<f64>],
+    var_inmsg: &mut [Vec<f64>],
+    synd: ArrayView1<u8>,
+    record_llr_history: bool,
+) -> (Array1<u8>, bool, usize, Option<Array2<f64>>) {
+    base.init_messages(chk_inmsg);
+    // Estimated error vector at the current iteration.
+    let mut ehat = Array1::<u8>::zeros(base.num_vars);
+    // Posterior LLR values at the current iteration.
+    let mut llr = base.prior_llr.to_vec();
+    // History of posterior LLR values, stored as a flattened vector.
+    let mut llr_hist_flattened = Vec::<f64>::new();
+
+    // Main BP iteration loop.
+    let mut num_iter = 0;
+    let mut converged = false;
+    while num_iter < max_iter {
+        num_iter += 1;
+
+        // Message processing at CNs.
+        for i in 0..base.num_chks {
+            // List of incoming messages.
+            let inmsg = &chk_inmsg[i];
+            // List of sign parities of the incoming messages (0 for positive, 1 for negative).
+            let inmsg_sgnpar: Vec<u8> =
+                inmsg.iter().map(|&x| if x < 0.0 { 1 } else { 0 }).collect();
+            // Total sign parity of the incoming messages (i.e. XOR of the entries in inmsg_sgnpar).
+            let total_sgnpar = inmsg_sgnpar.iter().fold(0, |acc, &x| acc ^ x);
+            // Minimum absolute value of the incoming messages.
+            let mut minabs1 = f64::MAX;
+            // Second minimum absolute value of the incoming messages.
+            let mut minabs2 = f64::MAX;
+            // Index of the incoming message with minimum absolute value.
+            let mut minidx = 0;
+            for (k, &val) in inmsg.iter().enumerate() {
+                let val_abs = val.abs();
+                if val_abs < minabs1 {
+                    minabs2 = minabs1;
+                    minabs1 = val_abs;
+                    minidx = k;
+                } else if val_abs < minabs2 {
+                    minabs2 = val_abs;
+                }
+            }
+            // Calculate the outgoing messages.
+            for (k, &j) in base.chk_nbrs[i].iter().enumerate() {
+                let msg_sgnpar = synd[i] ^ total_sgnpar ^ inmsg_sgnpar[k];
+                let msg_abs = if k == minidx { minabs2 } else { minabs1 };
+                let msg = if msg_sgnpar == 0 { msg_abs } else { -msg_abs };
+                var_inmsg[j][base.chk_nbr_pos[i][k]] = norm * msg;
+            }
+        }
+
+        // Message processing at VNs.
+        for j in 0..base.num_vars {
+            // List of incoming messages.
+            let inmsg = &var_inmsg[j];
+            // Get posterior LLR.
+            llr[j] = (1.0 - gamma[j]) * base.prior_llr[j]
+                + gamma[j] * llr[j]
+                + inmsg.iter().sum::<f64>();
+            // Hard decision.
+            ehat[j] = if llr[j] < 0.0 { 1 } else { 0 };
+            // Calculate the outgoing messages.
+            for (k, &i) in base.var_nbrs[j].iter().enumerate() {
+                chk_inmsg[i][base.var_nbr_pos[j][k]] = llr[j] - inmsg[k];
+            }
+        }
+
+        // Record LLR values.
+        if record_llr_history {
+            llr_hist_flattened.extend_from_slice(&llr);
+        }
+
+        // Check if the syndrome is satisfied. If so, early stop.
+        let mut satisfied = true;
+        for i in 0..base.num_chks {
+            let mut parity = 0_u8;
+            for &j in base.chk_nbrs[i].iter() {
+                parity ^= ehat[j];
+            }
+            if parity != synd[i] {
+                satisfied = false;
+                break;
+            }
+        }
+        if satisfied {
+            converged = true;
+            break;
+        }
+    }
+
+    // Convert the flattened LLR history vector into a 2D array.
+    let llr_hist = if record_llr_history {
+        Some(Array2::from_shape_vec((num_iter, base.num_vars), llr_hist_flattened).unwrap())
+    } else {
+        None
+    };
+
+    (ehat, converged, num_iter, llr_hist)
+}
 
 /// Disordered-memory min-sum BP decoder.
 #[pyclass]
@@ -78,7 +274,15 @@ impl DMemBPDecoderRust {
         syndrome: PyReadonlyArray1<'py, u8>,
     ) -> Bound<'py, PyArray1<u8>> {
         let syndrome = syndrome.as_array();
-        let ehat = self._decode(syndrome);
+        let ehat = decode_single(
+            &self.base,
+            &self.gamma,
+            self.norm,
+            self.max_iter,
+            &mut self.chk_inmsg,
+            &mut self.var_inmsg,
+            syndrome,
+        );
         PyArray1::from_owned_array(py, ehat)
     }
 
@@ -92,7 +296,7 @@ impl DMemBPDecoderRust {
     /// - `ehat`: The decoded error vector.
     /// - `converged`: Whether the decoder converged (i.e. the syndrome was satisfied).
     /// - `num_iter`: The number of BP iterations actually run.
-    /// - `llr_hist`: The history of posterior LLR values if `record_llr_history` is True; 
+    /// - `llr_hist`: The history of posterior LLR values if `record_llr_history` is True;
     /// otherwise, `None`.
     #[pyo3(signature = (syndrome, *, record_llr_history))]
     pub fn decode_detailed<'py>(
@@ -107,8 +311,16 @@ impl DMemBPDecoderRust {
         Option<Bound<'py, PyArray2<f64>>>,
     )> {
         let syndrome = syndrome.as_array();
-        let (ehat, converged, num_iter, llr_hist) =
-            self._decode_detailed(syndrome, record_llr_history);
+        let (ehat, converged, num_iter, llr_hist) = decode_single_detailed(
+            &self.base,
+            &self.gamma,
+            self.norm,
+            self.max_iter,
+            &mut self.chk_inmsg,
+            &mut self.var_inmsg,
+            syndrome,
+            record_llr_history,
+        );
         let llr_hist_py = llr_hist.map(|arr| PyArray2::from_owned_array(py, arr));
         Ok((
             PyArray1::from_owned_array(py, ehat),
@@ -122,20 +334,64 @@ impl DMemBPDecoderRust {
     ///
     /// Parameters:
     /// - `syndrome_batch`: Batch of syndrome vectors.
+    /// - `parallel`: Whether to use multithreaded decoding. Default is false.
     ///
     /// Return: Batch of decoded error vectors.
+    #[pyo3(signature = (syndrome_batch, *, parallel=false))]
     pub fn decode_batch<'py>(
         &mut self,
         py: Python<'py>,
         syndrome_batch: PyReadonlyArray2<'_, u8>,
+        parallel: bool,
     ) -> Bound<'py, PyArray2<u8>> {
         let syndrome_batch = syndrome_batch.as_array();
         let batch_size: usize = syndrome_batch.nrows();
         let mut ehat_batch = Array2::<u8>::zeros((batch_size, self.base.num_vars));
 
-        for i in 0..batch_size {
-            let ehat = self._decode(syndrome_batch.row(i));
-            ehat_batch.row_mut(i).assign(&ehat);
+        if parallel {
+            let syndrome_batch = syndrome_batch.to_owned();
+            let base = &self.base;
+            let gamma = &self.gamma;
+            let norm = self.norm;
+            let max_iter = self.max_iter;
+            let chk_inmsg_template = &self.chk_inmsg;
+            let var_inmsg_template = &self.var_inmsg;
+
+            let results: Vec<Array1<u8>> = py.allow_threads(|| {
+                (0..batch_size)
+                    .into_par_iter()
+                    .map(|i| {
+                        let mut chk_inmsg = chk_inmsg_template.clone();
+                        let mut var_inmsg = var_inmsg_template.clone();
+                        decode_single(
+                            base,
+                            gamma,
+                            norm,
+                            max_iter,
+                            &mut chk_inmsg,
+                            &mut var_inmsg,
+                            syndrome_batch.row(i),
+                        )
+                    })
+                    .collect()
+            });
+
+            for (i, ehat) in results.into_iter().enumerate() {
+                ehat_batch.row_mut(i).assign(&ehat);
+            }
+        } else {
+            for i in 0..batch_size {
+                let ehat = decode_single(
+                    &self.base,
+                    &self.gamma,
+                    self.norm,
+                    self.max_iter,
+                    &mut self.chk_inmsg,
+                    &mut self.var_inmsg,
+                    syndrome_batch.row(i),
+                );
+                ehat_batch.row_mut(i).assign(&ehat);
+            }
         }
 
         PyArray2::from_owned_array(py, ehat_batch)
@@ -145,15 +401,18 @@ impl DMemBPDecoderRust {
     ///
     /// Parameters:
     /// - `syndrome_batch`: Batch of syndrome vectors.
+    /// - `parallel`: Whether to use multithreaded decoding. Default is false.
     ///
     /// Returns:
     /// - `ehat_batch`: Batch of decoded error vectors.
     /// - `converged_mask`: Whether the decoder converged in each shot.
     /// - `decoding_iters`: Number of BP iterations actually run in each shot.
+    #[pyo3(signature = (syndrome_batch, *, parallel=false))]
     pub fn decode_batch_detailed<'py>(
         &mut self,
         py: Python<'py>,
         syndrome_batch: PyReadonlyArray2<'_, u8>,
+        parallel: bool,
     ) -> PyResult<(
         Bound<'py, PyArray2<u8>>,
         Bound<'py, PyArray1<bool>>,
@@ -165,12 +424,57 @@ impl DMemBPDecoderRust {
         let mut converged_mask = Vec::<bool>::with_capacity(batch_size);
         let mut decoding_iters = Vec::<i64>::with_capacity(batch_size);
 
-        for i in 0..batch_size {
-            let (ehat, converged, num_iter, _) =
-                self._decode_detailed(syndrome_batch.row(i), false);
-            ehat_batch.row_mut(i).assign(&ehat);
-            converged_mask.push(converged);
-            decoding_iters.push(num_iter as i64);
+        if parallel {
+            let syndrome_batch = syndrome_batch.to_owned();
+            let base = &self.base;
+            let gamma = &self.gamma;
+            let norm = self.norm;
+            let max_iter = self.max_iter;
+            let chk_inmsg_template = &self.chk_inmsg;
+            let var_inmsg_template = &self.var_inmsg;
+
+            let results: Vec<(Array1<u8>, bool, usize)> = py.allow_threads(|| {
+                (0..batch_size)
+                    .into_par_iter()
+                    .map(|i| {
+                        let mut chk_inmsg = chk_inmsg_template.clone();
+                        let mut var_inmsg = var_inmsg_template.clone();
+                        let (ehat, converged, num_iter, _) = decode_single_detailed(
+                            base,
+                            gamma,
+                            norm,
+                            max_iter,
+                            &mut chk_inmsg,
+                            &mut var_inmsg,
+                            syndrome_batch.row(i),
+                            false,
+                        );
+                        (ehat, converged, num_iter)
+                    })
+                    .collect()
+            });
+
+            for (i, (ehat, converged, num_iter)) in results.into_iter().enumerate() {
+                ehat_batch.row_mut(i).assign(&ehat);
+                converged_mask.push(converged);
+                decoding_iters.push(num_iter as i64);
+            }
+        } else {
+            for i in 0..batch_size {
+                let (ehat, converged, num_iter, _) = decode_single_detailed(
+                    &self.base,
+                    &self.gamma,
+                    self.norm,
+                    self.max_iter,
+                    &mut self.chk_inmsg,
+                    &mut self.var_inmsg,
+                    syndrome_batch.row(i),
+                    false,
+                );
+                ehat_batch.row_mut(i).assign(&ehat);
+                converged_mask.push(converged);
+                decoding_iters.push(num_iter as i64);
+            }
         }
 
         Ok((
@@ -178,217 +482,6 @@ impl DMemBPDecoderRust {
             PyArray1::from_vec(py, converged_mask),
             PyArray1::from_vec(py, decoding_iters),
         ))
-    }
-}
-
-impl DMemBPDecoderRust {
-    /// (Re-)initialize the decoder. More specifically, initialize the VN-to-CN messages.
-    fn init(&mut self) {
-        for j in 0..self.base.num_vars {
-            let msg = self.base.prior_llr[j];
-            for (k, &i) in self.base.var_nbrs[j].iter().enumerate() {
-                self.chk_inmsg[i][self.base.var_nbr_pos[j][k]] = msg;
-            }
-        }
-    }
-
-    /// Decode a syndrome vector.
-    ///
-    /// Parameters:
-    /// - `synd`: Syndrome vector.
-    ///
-    /// Return: The decoded error vector.
-    fn _decode(&mut self, synd: ArrayView1<u8>) -> Array1<u8> {
-        self.init();
-        // Estimated error vector at the current iteration.
-        let mut ehat = Array1::<u8>::zeros(self.base.num_vars);
-        // Posterior LLR values at the current iteration.
-        let mut llr = self.base.prior_llr.to_vec();
-
-        // Main BP iteration loop.
-        for _ in 0..self.max_iter {
-            // Message processing at CNs.
-            for i in 0..self.base.num_chks {
-                // List of incoming messages.
-                let inmsg = &self.chk_inmsg[i];
-                // List of sign parities of the incoming messages (0 for positive, 1 for negative).
-                let inmsg_sgnpar: Vec<u8> =
-                    inmsg.iter().map(|&x| if x < 0.0 { 1 } else { 0 }).collect();
-                // Total sign parity of the incoming messages (i.e. XOR of the entries in inmsg_sgnpar).
-                let total_sgnpar = inmsg_sgnpar.iter().fold(0, |acc, &x| acc ^ x);
-                // Minimum absolute value of the incoming messages.
-                let mut minabs1 = f64::MAX;
-                // Second minimum absolute value of the incoming messages.
-                let mut minabs2 = f64::MAX;
-                // Index of the incoming message with minimum absolute value.
-                let mut minidx = 0;
-                for (k, &val) in inmsg.iter().enumerate() {
-                    let val_abs = val.abs();
-                    if val_abs < minabs1 {
-                        minabs2 = minabs1;
-                        minabs1 = val_abs;
-                        minidx = k;
-                    } else if val_abs < minabs2 {
-                        minabs2 = val_abs;
-                    }
-                }
-                // Calculate the outgoing messages.
-                for (k, &j) in self.base.chk_nbrs[i].iter().enumerate() {
-                    let msg_sgnpar = synd[i] ^ total_sgnpar ^ inmsg_sgnpar[k];
-                    let msg_abs = if k == minidx { minabs2 } else { minabs1 };
-                    let msg = if msg_sgnpar == 0 { msg_abs } else { -msg_abs };
-                    self.var_inmsg[j][self.base.chk_nbr_pos[i][k]] = self.norm * msg;
-                }
-            }
-
-            // Message processing at VNs.
-            for j in 0..self.base.num_vars {
-                // List of incoming messages.
-                let inmsg = &self.var_inmsg[j];
-                // Get posterior LLR.
-                llr[j] = (1.0 - self.gamma[j]) * self.base.prior_llr[j]
-                    + self.gamma[j] * llr[j]
-                    + inmsg.iter().sum::<f64>();
-                // Hard decision.
-                ehat[j] = if llr[j] < 0.0 { 1 } else { 0 };
-                // Calculate the outgoing messages.
-                for (k, &i) in self.base.var_nbrs[j].iter().enumerate() {
-                    self.chk_inmsg[i][self.base.var_nbr_pos[j][k]] = llr[j] - inmsg[k];
-                }
-            }
-
-            // Check if the syndrome is satisfied. If so, early stop.
-            let mut satisfied = true;
-            for i in 0..self.base.num_chks {
-                let mut parity = 0_u8;
-                for &j in self.base.chk_nbrs[i].iter() {
-                    parity ^= ehat[j];
-                }
-                if parity != synd[i] {
-                    satisfied = false;
-                    break;
-                }
-            }
-            if satisfied {
-                break;
-            }
-        }
-        ehat
-    }
-
-    /// Decode a syndrome vector and return detailed information about the decoding process.
-    ///
-    /// Parameters:
-    /// - `synd`: Syndrome vector.
-    /// - `record_llr_history`: Whether to record the history of posterior LLR values.
-    ///
-    /// Return:
-    /// - `ehat`: The decoded error vector.
-    /// - `converged`: Whether the decoder converged (i.e. the syndrome is satisfied).
-    /// - `num_iter`: The number of iterations executed.
-    /// - `llr_hist`: The history of posterior LLR values (if `record_llr_history` is True).
-    fn _decode_detailed(
-        &mut self,
-        synd: ArrayView1<u8>,
-        record_llr_history: bool,
-    ) -> (Array1<u8>, bool, usize, Option<Array2<f64>>) {
-        self.init();
-        // Estimated error vector at the current iteration.
-        let mut ehat = Array1::<u8>::zeros(self.base.num_vars);
-        // Posterior LLR values at the current iteration.
-        let mut llr = self.base.prior_llr.to_vec();
-        // History of posterior LLR values, stored as a flattened vector.
-        let mut llr_hist_flattened = Vec::<f64>::new();
-
-        // Main BP iteration loop.
-        let mut num_iter = 0;
-        let mut converged = false;
-        while num_iter < self.max_iter {
-            num_iter += 1;
-
-            // Message processing at CNs.
-            for i in 0..self.base.num_chks {
-                // List of incoming messages.
-                let inmsg = &self.chk_inmsg[i];
-                // List of sign parities of the incoming messages (0 for positive, 1 for negative).
-                let inmsg_sgnpar: Vec<u8> =
-                    inmsg.iter().map(|&x| if x < 0.0 { 1 } else { 0 }).collect();
-                // Total sign parity of the incoming messages (i.e. XOR of the entries in inmsg_sgnpar).
-                let total_sgnpar = inmsg_sgnpar.iter().fold(0, |acc, &x| acc ^ x);
-                // Minimum absolute value of the incoming messages.
-                let mut minabs1 = f64::MAX;
-                // Second minimum absolute value of the incoming messages.
-                let mut minabs2 = f64::MAX;
-                // Index of the incoming message with minimum absolute value.
-                let mut minidx = 0;
-                for (k, &val) in inmsg.iter().enumerate() {
-                    let val_abs = val.abs();
-                    if val_abs < minabs1 {
-                        minabs2 = minabs1;
-                        minabs1 = val_abs;
-                        minidx = k;
-                    } else if val_abs < minabs2 {
-                        minabs2 = val_abs;
-                    }
-                }
-                // Calculate the outgoing messages.
-                for (k, &j) in self.base.chk_nbrs[i].iter().enumerate() {
-                    let msg_sgnpar = synd[i] ^ total_sgnpar ^ inmsg_sgnpar[k];
-                    let msg_abs = if k == minidx { minabs2 } else { minabs1 };
-                    let msg = if msg_sgnpar == 0 { msg_abs } else { -msg_abs };
-                    self.var_inmsg[j][self.base.chk_nbr_pos[i][k]] = self.norm * msg;
-                }
-            }
-
-            // Message processing at VNs.
-            for j in 0..self.base.num_vars {
-                // List of incoming messages.
-                let inmsg = &self.var_inmsg[j];
-                // Get posterior LLR.
-                llr[j] = (1.0 - self.gamma[j]) * self.base.prior_llr[j]
-                    + self.gamma[j] * llr[j]
-                    + inmsg.iter().sum::<f64>();
-                // Hard decision.
-                ehat[j] = if llr[j] < 0.0 { 1 } else { 0 };
-                // Calculate the outgoing messages.
-                for (k, &i) in self.base.var_nbrs[j].iter().enumerate() {
-                    self.chk_inmsg[i][self.base.var_nbr_pos[j][k]] = llr[j] - inmsg[k];
-                }
-            }
-
-            // Record LLR values.
-            if record_llr_history {
-                llr_hist_flattened.extend_from_slice(&llr);
-            }
-
-            // Check if the syndrome is satisfied. If so, early stop.
-            let mut satisfied = true;
-            for i in 0..self.base.num_chks {
-                let mut parity = 0_u8;
-                for &j in self.base.chk_nbrs[i].iter() {
-                    parity ^= ehat[j];
-                }
-                if parity != synd[i] {
-                    satisfied = false;
-                    break;
-                }
-            }
-            if satisfied {
-                converged = true;
-                break;
-            }
-        }
-
-        // Convert the flattened LLR history vector into a 2D array.
-        let llr_hist = if record_llr_history {
-            Some(
-                Array2::from_shape_vec((num_iter, self.base.num_vars), llr_hist_flattened).unwrap(),
-            )
-        } else {
-            None
-        };
-
-        (ehat, converged, num_iter, llr_hist)
     }
 }
 
