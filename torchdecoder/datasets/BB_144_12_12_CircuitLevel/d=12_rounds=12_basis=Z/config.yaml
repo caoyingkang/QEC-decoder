@@ -4,11 +4,14 @@ qec:
   d: 12
   rounds: 12
   basis: Z
-  p_range: [0.007, 0.008, 0.009, 0.01]
+  p_range: [0.002, 0.003, 0.004, 0.005]
+  load_circuit_from_file: true
 
 data:
   train_size: 100000
   val_size: 10000
   test_size: 10000
-  hard_sample_ratio: 0.5
-  bp_max_iter: 10
+  max_easy_sample_ratio: 0.5
+  # membp_max_iter and membp_gamma are used to classify hard vs easy shots
+  membp_max_iter: 50
+  membp_gamma: 0.2

@@ -69,7 +69,16 @@ def main():
     print(f">>>>>> Data directory: {data_dir}")
     print(f">>>>>> Checkpoint path: {ckpt_path}")
 
-    expmt = create_experiment(qec_cfg, qec_cfg.p)
+    load_circuit_from_file = qec_cfg.code in ["BB_144_12_12"]
+    expmt = create_experiment(
+        qec_cfg.code,
+        qec_cfg.noise_model,
+        qec_cfg.d,
+        qec_cfg.rounds,
+        qec_cfg.basis,
+        qec_cfg.p,
+        load_circuit_from_file,
+    )
     decoder = DecodingModule.load_from_checkpoint(
         str(ckpt_path),
         weights_only=False,

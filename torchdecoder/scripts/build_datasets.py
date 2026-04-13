@@ -14,11 +14,12 @@ from pathlib import Path
 import argparse
 
 import numpy as np
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 from stim import CompiledDemSampler
-from qecdec.decoders import BPDecoder
+from qecdec.decoders import MemBPDecoder
+from qecdec.experiments import Experiment
 from torchdecoder_core.dataset import DecodingDataset
-from utils import create_experiment, get_stim_dir
+from utils import create_experiment, get_circuit_dir
 
 DATASETS_ROOT = Path(__file__).resolve().parent.parent / "datasets"
 
@@ -54,13 +55,14 @@ def classify_hard_easy(
     *,
     chkmat: np.ndarray,
     prior: np.ndarray,
-    bp_max_iter: int,
+    membp_max_iter: int,
+    membp_gamma: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Classify shots as hard (BP does not converge) or easy (BP converges).
+    Classify shots as hard (MemBP does not converge) or easy (MemBP converges).
     Return (hard_syndromes, hard_observables, easy_syndromes, easy_observables).
     """
-    bp = BPDecoder(chkmat, prior, max_iter=bp_max_iter)
+    bp = MemBPDecoder(chkmat, prior, gamma=membp_gamma, max_iter=membp_max_iter)
     ehat = bp.decode_batch(syndromes)
     synd_pred = (ehat @ chkmat.T) % 2
     hard_mask = np.any(synd_pred != syndromes, axis=1)
@@ -72,117 +74,102 @@ def classify_hard_easy(
     )
 
 
-def collect_dataset(
-    *,
-    qec_cfg: DictConfig,
-    p_range: list[float],
-    target_size: int,
-    hard_sample_ratio: float,
-    bp_max_iter: int,
+def shuffle(
+    syndromes: np.ndarray, observables: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Collect a dataset of `target_size`, about `hard_sample_ratio` fraction of which
-    are hard (i.e., BP does not converge within `bp_max_iter` iterations), after
-    filtering out trivial shots (i.e., shots with all-zero syndrome). The returned
-    syndromes and observables are shuffled.
+    Shuffle the syndromes and observables.
     """
-    target_hard = int(target_size * hard_sample_ratio)
-    target_easy = target_size - target_hard
-
-    hard_syndromes_list: list[np.ndarray] = []
-    hard_observables_list: list[np.ndarray] = []
-    hard_shots = 0
-    easy_syndromes_list: list[np.ndarray] = []
-    easy_observables_list: list[np.ndarray] = []
-    easy_shots = 0
-
-    # Collect shots until we have the target number of hard and easy shots
-    while hard_shots < target_hard or easy_shots < target_easy:
-        synd_list: list[np.ndarray] = []
-        obs_list: list[np.ndarray] = []
-        for p in p_range:
-            expmt = create_experiment(qec_cfg, p)
-            sampler = expmt.dem.compile_sampler()
-            s, o, _ = sampler.sample(10000)
-            synd_list.append(s)
-            obs_list.append(o)
-        syn = np.concatenate(synd_list, axis=0, dtype=np.uint8)
-        obs = np.concatenate(obs_list, axis=0, dtype=np.uint8)
-        syn, obs = remove_trivial_shots(syn, obs)
-
-        if syn.shape[0] > 0:
-            h_syn, h_obs, e_syn, e_obs = classify_hard_easy(
-                syn,
-                obs,
-                chkmat=expmt.chkmat,
-                prior=expmt.prior,
-                bp_max_iter=bp_max_iter,
-            )
-            if hard_shots < target_hard and h_syn.shape[0] > 0:
-                hard_syndromes_list.append(h_syn)
-                hard_observables_list.append(h_obs)
-                hard_shots += h_syn.shape[0]
-            if easy_shots < target_easy and e_syn.shape[0] > 0:
-                easy_syndromes_list.append(e_syn)
-                easy_observables_list.append(e_obs)
-                easy_shots += e_syn.shape[0]
-
-    hard_syndromes = np.concatenate(hard_syndromes_list, axis=0)
-    hard_observables = np.concatenate(hard_observables_list, axis=0)
-    easy_syndromes = np.concatenate(easy_syndromes_list, axis=0)
-    easy_observables = np.concatenate(easy_observables_list, axis=0)
-
-    assert hard_shots == hard_syndromes.shape[0] == hard_observables.shape[0]
-    assert easy_shots == easy_syndromes.shape[0] == easy_observables.shape[0]
-
-    # If oversampled, randomly select the target number of shots
     rng = np.random.default_rng()
-    if hard_shots > target_hard:
-        idx = rng.choice(hard_shots, size=target_hard, replace=False)
-        hard_syndromes = hard_syndromes[idx]
-        hard_observables = hard_observables[idx]
-    if easy_shots > target_easy:
-        idx = rng.choice(easy_shots, size=target_easy, replace=False)
-        easy_syndromes = easy_syndromes[idx]
-        easy_observables = easy_observables[idx]
-
-    # Concatenate hard and easy shots
-    syndromes = np.concatenate([hard_syndromes, easy_syndromes], axis=0)
-    observables = np.concatenate([hard_observables, easy_observables], axis=0)
-    assert target_size == syndromes.shape[0] == observables.shape[0]
-
-    # Shuffle the shots
-    idx = rng.permutation(target_size)
+    idx = rng.permutation(syndromes.shape[0])
     syndromes = syndromes[idx]
     observables = observables[idx]
 
     return syndromes, observables
 
 
-def sample_test_dataset(
+def collect_dataset(
     *,
-    qec_cfg: DictConfig,
-    p_range: list[float],
+    expmt: Experiment,
     target_size: int,
+    max_easy_sample_ratio: float,
+    membp_max_iter: int,
+    membp_gamma: float,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Collect a test dataset by randomly sampling from the circuit. No filtering is applied.
-    Sample evenly across `p_range`: each p gets approximately `target_size // len(p_range)` shots.
+    Collect a dataset of `target_size`. The fraction of easy samples (i.e., where
+    MemBP converged within the specified number of iterations) must not exceed
+    `max_easy_sample_ratio`, after filtering out trivial shots (i.e., shots with
+    all-zero syndrome). Any extra easy samples are discarded.
     """
-    shots_per_p = target_size // len(p_range)
-    remainder = target_size % len(p_range)
-    synd_list: list[np.ndarray] = []
-    obs_list: list[np.ndarray] = []
-    for i, p in enumerate(p_range):
-        shots = shots_per_p + (1 if i < remainder else 0)
-        expmt = create_experiment(qec_cfg, p)
-        sampler = expmt.dem.compile_sampler()
-        synd, obs = sample_shots(sampler, shots)
-        synd_list.append(synd)
-        obs_list.append(obs)
-    syndromes = np.concatenate(synd_list, axis=0)
-    observables = np.concatenate(obs_list, axis=0)
+    max_easy_shots = int(target_size * max_easy_sample_ratio)
+
+    syndromes_list: list[np.ndarray] = []
+    observables_list: list[np.ndarray] = []
+    collected_shots = 0
+    easy_shots = 0
+
+    sampler = expmt.dem.compile_sampler()
+    while collected_shots < target_size:
+        print(f"{collected_shots}/{target_size}")
+        syn, obs = sample_shots(sampler, 1_000)
+        syn, obs = remove_trivial_shots(syn, obs)
+
+        if syn.shape[0] == 0:
+            continue
+
+        h_syn, h_obs, e_syn, e_obs = classify_hard_easy(
+            syn,
+            obs,
+            chkmat=expmt.chkmat,
+            prior=expmt.prior,
+            membp_max_iter=membp_max_iter,
+            membp_gamma=membp_gamma,
+        )
+
+        # Add all hard samples to the dataset
+        if h_syn.shape[0] > 0:
+            syndromes_list.append(h_syn)
+            observables_list.append(h_obs)
+            collected_shots += h_syn.shape[0]
+
+        # Add easy samples to the dataset until we reach the max number allowed
+        if e_syn.shape[0] > 0 and easy_shots < max_easy_shots:
+            inc = min(e_syn.shape[0], max_easy_shots - easy_shots)
+            syndromes_list.append(e_syn[:inc])
+            observables_list.append(e_obs[:inc])
+            collected_shots += inc
+            easy_shots += inc
+
+    syndromes = np.concatenate(syndromes_list, axis=0)
+    observables = np.concatenate(observables_list, axis=0)
+    syndromes, observables = shuffle(syndromes, observables)
+
+    assert easy_shots <= max_easy_shots
+    assert collected_shots == syndromes.shape[0] == observables.shape[0]
+    assert collected_shots >= target_size
+
+    print(f"Fraction of easy shots: {easy_shots / collected_shots:.2f}")
+
+    # If oversampled, randomly select the target number of shots
+    if collected_shots > target_size:
+        rng = np.random.default_rng()
+        idx = rng.choice(collected_shots, size=target_size, replace=False)
+        syndromes = syndromes[idx]
+        observables = observables[idx]
+
+    assert target_size == syndromes.shape[0] == observables.shape[0]
     return syndromes, observables
+
+
+def distribute_evenly(total: int, num_parts: int) -> list[int]:
+    """
+    Distribute `total` into `num_parts` as evenly as possible.
+    Example: `distribute_evenly(20, 3)` returns `[7, 7, 6]`.
+    """
+    base = total // num_parts
+    remainder = total % num_parts
+    return [base + 1] * remainder + [base] * (num_parts - remainder)
 
 
 def build_dataset_for_config(config_dir: Path, force: bool) -> None:
@@ -199,65 +186,73 @@ def build_dataset_for_config(config_dir: Path, force: bool) -> None:
     cfg = OmegaConf.load(config_path)
     OmegaConf.resolve(cfg)
     qec_cfg = cfg.qec
+    code: str = qec_cfg.code
+    noise_model: str = qec_cfg.noise_model
+    d: int = qec_cfg.d
+    rounds: int = qec_cfg.rounds
+    basis: str = qec_cfg.basis
     p_range: list[float] = list(qec_cfg.p_range)
-    train_size = cfg.data.train_size
-    val_size = cfg.data.val_size
-    test_size = cfg.data.test_size
-    hard_sample_ratio = cfg.data.hard_sample_ratio
-    bp_max_iter = cfg.data.bp_max_iter
+    train_size: int = cfg.data.train_size
+    val_size: int = cfg.data.val_size
+    test_size: int = cfg.data.test_size
+    max_easy_sample_ratio: float = cfg.data.max_easy_sample_ratio
+    membp_max_iter: int = cfg.data.membp_max_iter
+    membp_gamma: float = cfg.data.membp_gamma
 
-    # For stim-file experiments, validate that all p_range values have a circuit file.
-    if qec_cfg.code != "RotatedSurfaceCode":
-        stim_dir = get_stim_dir(qec_cfg)
+    # If the circuits should be loaded from file, validate that the files exist.
+    if qec_cfg.load_circuit_from_file:
+        circuit_dir = get_circuit_dir(code, noise_model, d, rounds, basis)
         for p in p_range:
-            circuit_file = stim_dir / f"error_rate={p}.stim"
+            circuit_file = circuit_dir / f"error_rate={p}.stim"
             if not circuit_file.exists():
-                raise FileNotFoundError(
-                    f"Missing circuit file for p={p}: {circuit_file}"
-                )
+                raise FileNotFoundError(f"Missing circuit file: {circuit_file}")
 
-    if not force and train_path.exists() and val_path.exists():
-        print(f">>>>>> Skipping train and val datasets inside {config_dir}.")
+    if not force and train_path.exists() and val_path.exists() and test_path.exists():
+        print(f">>>>>> Skipping datasets inside {config_dir}.")
     else:
-        print(f">>>>>> Building train and val datasets inside {config_dir}.")
+        print(f">>>>>> Building datasets inside {config_dir}.")
 
-        # Collect train_size + val_size shots, about hard_sample_ratio fraction of which are hard
-        syndromes, observables = collect_dataset(
-            qec_cfg=qec_cfg,
-            p_range=p_range,
-            target_size=train_size + val_size,
-            hard_sample_ratio=hard_sample_ratio,
-            bp_max_iter=bp_max_iter,
-        )
+        total_size = train_size + val_size + test_size
+        sizes_per_p = distribute_evenly(total_size, len(p_range))
+        syndromes_per_p: list[np.ndarray] = []
+        observables_per_p: list[np.ndarray] = []
+        for p, target_size in zip(p_range, sizes_per_p):
+            expmt = create_experiment(
+                code, noise_model, d, rounds, basis, p, qec_cfg.load_circuit_from_file
+            )
+            syn, obs = collect_dataset(
+                expmt=expmt,
+                target_size=target_size,
+                max_easy_sample_ratio=max_easy_sample_ratio,
+                membp_max_iter=membp_max_iter,
+                membp_gamma=membp_gamma,
+            )
+            syndromes_per_p.append(syn)
+            observables_per_p.append(obs)
 
-        assert train_size + val_size == syndromes.shape[0] == observables.shape[0]
+        syndromes = np.concatenate(syndromes_per_p, axis=0)
+        observables = np.concatenate(observables_per_p, axis=0)
+        syndromes, observables = shuffle(syndromes, observables)
 
-        # Split into train and val
+        assert total_size == syndromes.shape[0] == observables.shape[0]
+
+        # Split into train, val, and test
         train_syndromes = syndromes[:train_size]
         train_observables = observables[:train_size]
-        val_syndromes = syndromes[train_size:]
-        val_observables = observables[train_size:]
+        val_syndromes = syndromes[train_size : train_size + val_size]
+        val_observables = observables[train_size : train_size + val_size]
+        test_syndromes = syndromes[train_size + val_size :]
+        test_observables = observables[train_size + val_size :]
 
-        # Save train and val datasets
+        # Save train, val, and test datasets
         train_dataset = DecodingDataset(train_syndromes, train_observables)
         val_dataset = DecodingDataset(val_syndromes, val_observables)
+        test_dataset = DecodingDataset(test_syndromes, test_observables)
         train_dataset.save_to_file(train_path, overwrite_ok=True)
         val_dataset.save_to_file(val_path, overwrite_ok=True)
+        test_dataset.save_to_file(test_path, overwrite_ok=True)
         print(f"Train dataset size: {len(train_dataset)}, saved to {train_path}.")
         print(f"Val dataset size: {len(val_dataset)}, saved to {val_path}.")
-
-    if not force and test_path.exists():
-        print(f">>>>>> Skipping test dataset inside {config_dir}.")
-    else:
-        print(f">>>>>> Building test dataset inside {config_dir}.")
-
-        test_syndromes, test_observables = sample_test_dataset(
-            qec_cfg=qec_cfg,
-            p_range=p_range,
-            target_size=test_size,
-        )
-        test_dataset = DecodingDataset(test_syndromes, test_observables)
-        test_dataset.save_to_file(test_path, overwrite_ok=True)
         print(f"Test dataset size: {len(test_dataset)}, saved to {test_path}.")
 
 

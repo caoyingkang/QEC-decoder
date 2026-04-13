@@ -160,7 +160,16 @@ def main():
     run_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(cfg, run_dir / "config.yaml")
 
-    expmt = create_experiment(qec_cfg, qec_cfg.p)
+    load_circuit_from_file = qec_cfg.code in ["BB_144_12_12"]
+    expmt = create_experiment(
+        qec_cfg.code,
+        qec_cfg.noise_model,
+        qec_cfg.d,
+        qec_cfg.rounds,
+        qec_cfg.basis,
+        qec_cfg.p,
+        load_circuit_from_file,
+    )
     print(f">>>>>> Number of error mechanisms: {expmt.num_error_mechanisms}")
     print(f">>>>>> Number of detectors: {expmt.num_detectors}")
     print(f">>>>>> Number of observables: {expmt.num_observables}")
