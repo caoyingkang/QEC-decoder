@@ -15,6 +15,7 @@ import argparse
 
 import numpy as np
 from omegaconf import OmegaConf
+from tqdm import tqdm
 from stim import CompiledDemSampler
 from qecdec.decoders import MemBPDecoder
 from qecdec.experiments import Experiment
@@ -63,7 +64,7 @@ def classify_hard_easy(
     Return (hard_syndromes, hard_observables, easy_syndromes, easy_observables).
     """
     bp = MemBPDecoder(chkmat, prior, gamma=membp_gamma, max_iter=membp_max_iter)
-    ehat = bp.decode_batch(syndromes)
+    ehat = bp.decode_batch(syndromes, parallel=True)
     synd_pred = (ehat @ chkmat.T) % 2
     hard_mask = np.any(synd_pred != syndromes, axis=1)
     return (
@@ -110,8 +111,8 @@ def collect_dataset(
     easy_shots = 0
 
     sampler = expmt.dem.compile_sampler()
+    pbar = tqdm(total=target_size, desc="Collecting shots", unit="shots")
     while collected_shots < target_size:
-        print(f"{collected_shots}/{target_size}")
         syn, obs = sample_shots(sampler, 1_000)
         syn, obs = remove_trivial_shots(syn, obs)
 
@@ -131,7 +132,9 @@ def collect_dataset(
         if h_syn.shape[0] > 0:
             syndromes_list.append(h_syn)
             observables_list.append(h_obs)
-            collected_shots += h_syn.shape[0]
+            inc = h_syn.shape[0]
+            collected_shots += inc
+            pbar.update(inc)
 
         # Add easy samples to the dataset until we reach the max number allowed
         if e_syn.shape[0] > 0 and easy_shots < max_easy_shots:
@@ -140,7 +143,9 @@ def collect_dataset(
             observables_list.append(e_obs[:inc])
             collected_shots += inc
             easy_shots += inc
+            pbar.update(inc)
 
+    pbar.close()
     syndromes = np.concatenate(syndromes_list, axis=0)
     observables = np.concatenate(observables_list, axis=0)
     syndromes, observables = shuffle(syndromes, observables)
@@ -217,6 +222,9 @@ def build_dataset_for_config(config_dir: Path, force: bool) -> None:
         syndromes_per_p: list[np.ndarray] = []
         observables_per_p: list[np.ndarray] = []
         for p, target_size in zip(p_range, sizes_per_p):
+            print(
+                f"Building dataset for {code}, {noise_model}, d={d}, rounds={rounds}, basis={basis}, p={p}..."
+            )
             expmt = create_experiment(
                 code, noise_model, d, rounds, basis, p, qec_cfg.load_circuit_from_file
             )

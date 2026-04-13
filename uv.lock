@@ -3457,6 +3457,7 @@ dependencies = [
     { name = "torch" },
     { name = "torch-tb-profiler" },
     { name = "torchdecoder-core" },
+    { name = "tqdm" },
 ]
 
 [package.metadata]
@@ -3474,6 +3475,7 @@ requires-dist = [
     { name = "torch" },
     { name = "torch-tb-profiler" },
     { name = "torchdecoder-core", editable = "packages/torchdecoder-core" },
+    { name = "tqdm" },
 ]
 
 [[package]]

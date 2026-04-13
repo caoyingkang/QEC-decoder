@@ -16,6 +16,7 @@ dependencies = [
     "tabulate",
     "humanize",
     "stim",
+    "tqdm",
     "optuna",
     "optuna-integration[pytorch_lightning]",
 ]
