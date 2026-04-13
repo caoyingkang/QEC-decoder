@@ -4,7 +4,7 @@ qec:
   d: 12
   rounds: 12
   basis: X
-  p_range: [0.002, 0.003, 0.004, 0.005]
+  p_range: [0.003, 0.004, 0.005]
   load_circuit_from_file: true
 
 data:
