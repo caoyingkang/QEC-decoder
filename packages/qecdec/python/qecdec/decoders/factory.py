@@ -4,6 +4,7 @@ import inspect
 
 from .base import Decoder, IterativeDecoder
 from .bp import BPDecoder
+from .membp import MemBPDecoder
 from .dmembp import DMemBPDecoder
 from .dmemoffsetbp import DMemOffsetBPDecoder
 from .bposd import BPOSDDecoder
@@ -14,6 +15,7 @@ from .uf import UnionFindDecoder
 
 DECODER_NAME_TO_CLASS: dict[str, type[Decoder]] = {
     "BP": BPDecoder,
+    "MemBP": MemBPDecoder,
     "DMemBP": DMemBPDecoder,
     "DMemOffsetBP": DMemOffsetBPDecoder,
     "BPOSD": BPOSDDecoder,

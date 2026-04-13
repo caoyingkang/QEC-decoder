@@ -2,6 +2,7 @@
 
 from .base import Decoder, IterativeDecoder
 from .bp import BPDecoder
+from .membp import MemBPDecoder
 from .dmembp import DMemBPDecoder
 from .dmemoffsetbp import DMemOffsetBPDecoder
 from .bposd import BPOSDDecoder
@@ -19,6 +20,7 @@ __all__ = [
     "Decoder",
     "IterativeDecoder",
     "BPDecoder",
+    "MemBPDecoder",
     "DMemBPDecoder",
     "DMemOffsetBPDecoder",
     "BPOSDDecoder",
