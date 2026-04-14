@@ -7,7 +7,7 @@ import matplotlib.figure
 import matplotlib.pyplot as plt
 import sinter
 
-from ..constants import BASELINE_DECODERS
+from ..constants import ALL_BASELINE_DECODERS
 from ..params import QECParams
 
 
@@ -26,7 +26,7 @@ def plot_ler_vs_per(
         decoder = stat.json_metadata["decoder_name"]
         return {
             "label": decoder,
-            "linestyle": "dashed" if decoder in BASELINE_DECODERS else "solid",
+            "linestyle": "dashed" if decoder in ALL_BASELINE_DECODERS else "solid",
         }
 
     fig, ax = plt.subplots(1, 1)

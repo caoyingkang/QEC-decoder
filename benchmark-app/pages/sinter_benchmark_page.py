@@ -16,7 +16,6 @@ from bench.sinter_bench.torchdecoder_runner import run_torchdecoder_benchmark
 from bench.params import BenchTaskParams
 from constants import BASELINES_CSV_DIR, TORCH_RUNS_ROOT
 from plotting import render_plot
-from qecdec.experiments import Experiment, StimFileExperiment
 from shared_ui import (
     render_baselines_selection,
     render_circuit_source_selection,
@@ -36,6 +35,7 @@ from torchdecoder_utils import (
     load_model_config_from_run_dir,
     get_ckpt_path,
 )
+from experiment_factory import create_experiment
 
 
 def _render_sidebar_collector_selection() -> CollectorParams:
@@ -70,14 +70,10 @@ p_list = render_p_list_selection()
 collector_params = _render_sidebar_collector_selection()
 
 circuit_source = render_circuit_source_selection()
-experiments: dict[float, Experiment] | None = None
+load_circuit_from_file = circuit_source == "stim_file"
 
-if circuit_source == "stim_file":
-    qec_params, stim_file_paths = render_stim_file_selection(p_list)
-    experiments = {
-        p: StimFileExperiment.load_from_file(path)
-        for p, path in stim_file_paths.items()
-    }
+if load_circuit_from_file:
+    qec_params, _ = render_stim_file_selection(p_list)
     # Discover matching torch run dirs if any exist
     all_run_dirs = discover_run_dirs(TORCH_RUNS_ROOT)
     run_dirs: list[Path] = []
@@ -92,7 +88,9 @@ if circuit_source == "stim_file":
 else:
     qec_params, run_dirs = render_qec_selection()
 
-selected_baseline_decoders, baseline_decoder_params = render_baselines_selection()
+selected_baseline_decoders, baseline_decoder_params = render_baselines_selection(
+    qec_params
+)
 
 if len(run_dirs) > 0:
     selected_run_dirs, torchdecoder_shared_params = render_torchdecoder_selection(
@@ -127,6 +125,16 @@ if len(pending_run_dirs) > 0 or len(pending_baseline_decoders) > 0:
     )
     if clicked:
         with st.spinner("Running benchmark..."):
+            # Build experiments: either by loading from stim file paths or by creating from QEC parameters
+            experiments = {
+                p: create_experiment(
+                    qec_params,
+                    p,
+                    load_circuit_from_file=load_circuit_from_file,
+                )
+                for p in benchtask_params.p_list
+            }
+
             for baseline_decoder in pending_baseline_decoders:
                 run_baseline_benchmark(
                     BASELINES_CSV_DIR,

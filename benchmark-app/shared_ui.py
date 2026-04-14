@@ -8,12 +8,21 @@ import torch
 import streamlit as st
 from omegaconf import OmegaConf
 
-from bench.constants import BASELINE_DECODERS
+from bench.constants import BASELINE_DECODERS_GRAPHLIKE, BASELINE_DECODERS_HYPERGRAPH
 from bench.params import QECParams
 from constants import (
     CIRCUITS_ROOT,
-    DEFAULT_BASELINE_DECODERS,
     DEFAULT_BP_MAX_ITER,
+    DEFAULT_MEMBP_MAX_ITER,
+    DEFAULT_MEMBP_GAMMA,
+    DEFAULT_RELAYBP_PRE_ITER,
+    DEFAULT_RELAYBP_MAX_ITER_PER_RELAY,
+    DEFAULT_RELAYBP_NUM_RELAYS,
+    DEFAULT_RELAYBP_STOP_NCONV,
+    DEFAULT_RELAYBP_GAMMA0,
+    DEFAULT_RELAYBP_GDI,
+    DEFAULT_BPOSD_MAX_ITER,
+    DEFAULT_BPOSD_OSD_ORDER,
     DEFAULT_PYTORCH_MAX_ITER,
     DEFAULT_P_LIST,
     DEFAULT_SHOTS_CAP,
@@ -33,17 +42,26 @@ from torchdecoder_utils import (
 )
 
 
-def render_baselines_selection() -> tuple[list[str], dict[str, dict]]:
+def render_baselines_selection(
+    qec_params: QECParams,
+) -> tuple[list[str], dict[str, dict]]:
     """Render baseline decoder selection and per-decoder config panels in the main area.
 
     Return ``(selected_decoders, baseline_decoder_params)`` where
     ``baseline_decoder_params`` maps each selected decoder name to its config dict.
     """
     st.subheader("Select baseline decoder(s)")
+    if qec_params.code == "RotatedSurfaceCode":
+        available_decoders = BASELINE_DECODERS_GRAPHLIKE
+    elif qec_params.code.startswith("BB_"):
+        available_decoders = BASELINE_DECODERS_HYPERGRAPH
+    else:
+        raise ValueError(f"Unknown code: {qec_params.code}")
+
     selected_decoders = st.multiselect(
         "Baseline decoder(s) to benchmark against",
-        options=BASELINE_DECODERS,
-        default=DEFAULT_BASELINE_DECODERS,
+        options=available_decoders,
+        default=available_decoders,
     )
 
     baseline_decoder_params: dict[str, dict] = {}
@@ -52,22 +70,42 @@ def render_baselines_selection() -> tuple[list[str], dict[str, dict]]:
             with st.expander("BP configuration", expanded=True):
                 col1, _, _ = st.columns(3)
                 with col1:
-                    bp_max_iter = st.number_input(
+                    max_iter = st.number_input(
                         "max_iter",
                         value=DEFAULT_BP_MAX_ITER,
                         min_value=1,
                         key="bp_max_iter",
                         help="Max number of BP iterations.",
                     )
-            baseline_decoder_params["BP"] = {"max_iter": bp_max_iter}
+            baseline_decoder_params["BP"] = {"max_iter": max_iter}
+        elif name == "MemBP":
+            with st.expander("MemBP configuration", expanded=True):
+                col1, col2, _ = st.columns(3)
+                with col1:
+                    max_iter = st.number_input(
+                        "max_iter",
+                        value=DEFAULT_MEMBP_MAX_ITER,
+                        min_value=1,
+                        key="membp_max_iter",
+                        help="Max number of BP iterations.",
+                    )
+                with col2:
+                    gamma = st.number_input(
+                        "gamma",
+                        value=DEFAULT_MEMBP_GAMMA.get(qec_params, 0.0),
+                        key="membp_gamma",
+                        help="Memory coefficient.",
+                    )
+            baseline_decoder_params["MemBP"] = {"max_iter": max_iter, "gamma": gamma}
         elif name == "RelayBP":
             with st.expander("RelayBP configuration", expanded=True):
+                default_gdi = DEFAULT_RELAYBP_GDI.get(qec_params, (-0.5, 0.5))
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     gamma0 = st.number_input(
                         "gamma0",
-                        value=0.0,
-                        format="%.4f",
+                        value=DEFAULT_RELAYBP_GAMMA0.get(qec_params, 0.0),
+                        format="%f",
                         step=0.0001,
                         key="relaybp_gamma0",
                         help="Memory parameter for the first MemBP instance.",
@@ -75,8 +113,8 @@ def render_baselines_selection() -> tuple[list[str], dict[str, dict]]:
                 with col2:
                     gdi_low = st.number_input(
                         "gamma_dist_interval low",
-                        value=-0.5,
-                        format="%.4f",
+                        value=default_gdi[0],
+                        format="%f",
                         step=0.0001,
                         key="relaybp_gdi_low",
                         help="Lower bound of the uniform distribution for random memory weights used in DMemBP relays.",
@@ -84,8 +122,8 @@ def render_baselines_selection() -> tuple[list[str], dict[str, dict]]:
                 with col3:
                     gdi_high = st.number_input(
                         "gamma_dist_interval high",
-                        value=0.5,
-                        format="%.4f",
+                        value=default_gdi[1],
+                        format="%f",
                         step=0.0001,
                         key="relaybp_gdi_high",
                         help="Upper bound of the uniform distribution for random memory weights used in DMemBP relays.",
@@ -99,7 +137,7 @@ def render_baselines_selection() -> tuple[list[str], dict[str, dict]]:
                 with col4:
                     num_relays = st.number_input(
                         "num_relays",
-                        value=16,
+                        value=DEFAULT_RELAYBP_NUM_RELAYS,
                         min_value=1,
                         key="relaybp_num_relays",
                         help="Number of DMemBP relays (beyond the first MemBP instance).",
@@ -107,7 +145,7 @@ def render_baselines_selection() -> tuple[list[str], dict[str, dict]]:
                 with col5:
                     pre_iter = st.number_input(
                         "pre_iter",
-                        value=50,
+                        value=DEFAULT_RELAYBP_PRE_ITER,
                         min_value=1,
                         key="relaybp_pre_iter",
                         help="Number of iterations for the first MemBP instance.",
@@ -115,10 +153,19 @@ def render_baselines_selection() -> tuple[list[str], dict[str, dict]]:
                 with col6:
                     max_iter_per_relay = st.number_input(
                         "max_iter_per_relay",
-                        value=50,
+                        value=DEFAULT_RELAYBP_MAX_ITER_PER_RELAY,
                         min_value=1,
                         key="relaybp_max_iter_per_relay",
                         help="Max number of iterations per DMemBP relay.",
+                    )
+                col7, _, _ = st.columns(3)
+                with col7:
+                    stop_nconv = st.number_input(
+                        "stop_nconv",
+                        value=DEFAULT_RELAYBP_STOP_NCONV,
+                        min_value=1,
+                        key="relaybp_stop_nconv",
+                        help="How many solutions to find before terminating.",
                     )
             baseline_decoder_params["RelayBP"] = {
                 "gamma0": gamma0,
@@ -126,7 +173,32 @@ def render_baselines_selection() -> tuple[list[str], dict[str, dict]]:
                 "num_relays": num_relays,
                 "pre_iter": pre_iter,
                 "max_iter_per_relay": max_iter_per_relay,
+                "stop_nconv": stop_nconv,
             }
+        elif name == "BPOSD":
+            with st.expander("BPOSD configuration", expanded=True):
+                col1, col2, _ = st.columns(3)
+                with col1:
+                    max_iter = st.number_input(
+                        "max_iter",
+                        value=DEFAULT_BPOSD_MAX_ITER,
+                        min_value=1,
+                        key="bposd_max_iter",
+                        help="Max number of BP iterations.",
+                    )
+                with col2:
+                    osd_order = st.number_input(
+                        "osd_order",
+                        value=DEFAULT_BPOSD_OSD_ORDER,
+                        min_value=0,
+                        key="bposd_osd_order",
+                        help="OSD order.",
+                    )
+                baseline_decoder_params["BPOSD"] = {
+                    "max_bp_iter": max_iter,
+                    "osd_method": "OSD_CS",
+                    "osd_order": osd_order,
+                }
         else:
             baseline_decoder_params[name] = {}
 

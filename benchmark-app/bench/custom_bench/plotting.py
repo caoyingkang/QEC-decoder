@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 
-from ..constants import BASELINE_DECODERS
+from ..constants import ALL_BASELINE_DECODERS
 from ..params import QECParams
 from .stats import BenchmarkStats
 
@@ -95,7 +95,7 @@ def _plot_rate_vs_per(
             err_lo.append(rate - lb)
             err_hi.append(ub - rate)
 
-        linestyle = "dashed" if decoder in BASELINE_DECODERS else "solid"
+        linestyle = "dashed" if decoder in ALL_BASELINE_DECODERS else "solid"
         ax.errorbar(
             ps,
             rates,
@@ -203,7 +203,7 @@ def plot_avg_iters_vs_per(
             ps.append(s.metadata.p)
             avgs.append(avg)
 
-        linestyle = "dashed" if decoder in BASELINE_DECODERS else "solid"
+        linestyle = "dashed" if decoder in ALL_BASELINE_DECODERS else "solid"
         ax.plot(ps, avgs, label=decoder, linestyle=linestyle, marker="o")
 
     ax.set_xscale("log")
