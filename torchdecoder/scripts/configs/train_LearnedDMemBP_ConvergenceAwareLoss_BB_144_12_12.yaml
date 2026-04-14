@@ -4,7 +4,7 @@ qec:
   d: 12
   rounds: 12
   basis: Z
-  p: 0.01
+  p: 0.003
 
 model:
   name: LearnedDMemBP
@@ -14,7 +14,7 @@ model:
 
 loss:
   name: ConvergenceAwareLoss
-  beta: 0.5
+  beta: 0.75
   focal_gamma: 2.0
 
 optim:

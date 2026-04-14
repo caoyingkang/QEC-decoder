@@ -1,10 +1,10 @@
 qec:
-  code: BB_72_12_6
+  code: BB_144_12_12
   noise_model: CircuitLevel
-  d: 6
-  rounds: 6
+  d: 12
+  rounds: 12
   basis: Z
-  p: 0.01
+  p: 0.003
 
 model:
   name: LearnedDMemBP
@@ -13,9 +13,9 @@ model:
   sign_impl_method: hard
 
 loss:
-  name: ConvergenceAwareLoss
+  name: UniformIterationLoss
   beta: 0.5
-  focal_gamma: 2.0
+  skip_iters: 0
 
 optim:
   lr: 0.002
@@ -23,7 +23,7 @@ optim:
     factor: 0.2
     patience: 3
     threshold: 0.001
-    threshold_mode: rel
+    threshold_mode: abs
 
 early_stopping:
   min_delta: 0.0

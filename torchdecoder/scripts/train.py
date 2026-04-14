@@ -12,6 +12,7 @@ Examples: (from the torchdecoder/scripts directory)
     uv run python train.py --config configs/train_LearnedDMemBP_UniformIterationLoss_d=5.yaml
     uv run python train.py --config configs/train_MultiDMemBP_UniformIterationLoss_d=5.yaml loss.beta=0.0 model.mlp.activation=ReLU
     uv run python train.py --config configs/train_MultiDMemBP_ConvergenceAwareLoss_d=5.yaml --profile
+    uv run python train.py --config configs/train_LearnedDMemBP_ConvergenceAwareLoss_BB_144_12_12.yaml
 """
 
 import argparse
@@ -160,7 +161,7 @@ def main():
     run_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(cfg, run_dir / "config.yaml")
 
-    load_circuit_from_file = qec_cfg.code in ["BB_144_12_12"]
+    load_circuit_from_file = qec_cfg.code.startswith("BB_")
     expmt = create_experiment(
         qec_cfg.code,
         qec_cfg.noise_model,
