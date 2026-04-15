@@ -244,25 +244,38 @@ def _run_parallel_collect(
                     raise RuntimeError("One or more workers terminated unexpectedly.")
     finally:
         mp_stop_event.set()
+        # Drain the result queue BEFORE joining processes to avoid a deadlock.
+        # Workers cannot exit until their queued data is flushed to the pipe,
+        # and the pipe buffer is finite. If we join() first, the main process
+        # waits for workers to exit while workers wait for the pipe to be read.
+        worker_stats: list[BenchmarkStats] = []
+        for _ in range(num_workers):
+            try:
+                worker_stats.append(result_queue.get(timeout=60))
+            except Empty:
+                break
         for p in processes:
-            p.join()
+            p.join(timeout=10)
+            if p.is_alive():
+                p.kill()
+                p.join()
 
     # --- Check that workers exited cleanly -------------------------------
     for i, p in enumerate(processes):
         if p.exitcode > 0:
             raise RuntimeError(f"Worker {i} crashed with exit code {p.exitcode}.")
-        if p.exitcode < 0:
+        if p.exitcode < 0 and p.exitcode != -9:
             raise RuntimeError(f"Worker {i} was killed by signal {-p.exitcode}.")
+
+    if len(worker_stats) < num_workers:
+        raise RuntimeError(
+            f"Only received results from {len(worker_stats)}/{num_workers} workers."
+        )
 
     # --- Aggregate final stats -------------------------------------------
     stats = BenchmarkStats(metadata=metadata)
-    for _ in range(num_workers):
-        try:
-            stats.merge(result_queue.get(timeout=30))
-        except Empty:
-            raise RuntimeError(
-                "Didn't receive result from workers within 30 seconds timeout."
-            )
+    for ws in worker_stats:
+        stats.merge(ws)
     return stats
 
 
