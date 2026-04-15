@@ -130,3 +130,46 @@ DEFAULT_RELAYBP_GDI: dict[QECParams, tuple[float, float]] = {
 
 DEFAULT_BPOSD_MAX_ITER = DEFAULT_BP_MAX_ITER
 DEFAULT_BPOSD_OSD_ORDER = 10
+
+CODE_NOISE_PAIR_TO_D_ROUNDS_BASIS_TRIPLES: dict[
+    tuple[str, str], list[tuple[int, int, str]]
+] = {
+    ("RotatedSurfaceCode", "Phenomenological"): [
+        (5, 5, "Z"),
+        (5, 5, "X"),
+        (7, 7, "Z"),
+        (7, 7, "X"),
+        (9, 9, "Z"),
+        (9, 9, "X"),
+        (11, 11, "Z"),
+        (11, 11, "X"),
+    ],
+    ("RotatedSurfaceCode", "CircuitLevel"): [
+        (5, 5, "Z"),
+        (5, 5, "X"),
+        (7, 7, "Z"),
+        (7, 7, "X"),
+        (9, 9, "Z"),
+        (9, 9, "X"),
+        (11, 11, "Z"),
+        (11, 11, "X"),
+    ],
+    ("BB_18_4_3", "CircuitLevel"): [
+        (3, 3, "Z"),
+        (3, 3, "X"),
+    ],
+    ("BB_72_12_6", "CircuitLevel"): [
+        (6, 6, "Z"),
+        (6, 6, "X"),
+    ],
+    ("BB_144_12_12", "CircuitLevel"): [
+        (12, 12, "Z"),
+        (12, 12, "X"),
+    ],
+    ("BB_288_12_18", "CircuitLevel"): [
+        (18, 18, "Z"),
+        (18, 18, "X"),
+    ],
+}
+
+ALL_CODE_NOISE_PAIRS = list(CODE_NOISE_PAIR_TO_D_ROUNDS_BASIS_TRIPLES.keys())

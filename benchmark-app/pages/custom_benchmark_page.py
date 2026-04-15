@@ -27,11 +27,10 @@ from plotting import render_plot, render_plotly
 from qecdec.experiments import Experiment
 from shared_ui import (
     render_baselines_selection,
-    render_circuit_source_selection,
     render_p_list_selection,
     render_sidebar_collector_selection_common,
     render_qec_selection,
-    render_stim_file_selection,
+    validate_stim_files,
     render_torchdecoder_selection,
     stop_if_no_decoders_selected,
     render_missing_data_warning_and_benchmark_button,
@@ -39,8 +38,6 @@ from shared_ui import (
 from torchdecoder_utils import (
     discover_run_dirs,
     extract_pytorch_decoder_name,
-    group_run_dirs_by_code_and_noise,
-    group_run_dirs_by_d_rounds_basis,
     load_model_config_from_run_dir,
     get_ckpt_path,
 )
@@ -205,28 +202,16 @@ def _benchmark_progress_modal(
 p_list = render_p_list_selection()
 collector_params = _render_sidebar_collector_selection()
 
-circuit_source = render_circuit_source_selection()
-load_circuit_from_file = circuit_source == "stim_file"
-
+qec_params = render_qec_selection()
+load_circuit_from_file = qec_params.code.startswith("BB_")
 if load_circuit_from_file:
-    qec_params, _ = render_stim_file_selection(p_list)
-    # Discover matching torch run dirs if any exist
-    all_run_dirs = discover_run_dirs(TORCH_RUNS_ROOT)
-    run_dirs: list[Path] = []
-    if len(all_run_dirs) > 0:
-        grouped = group_run_dirs_by_code_and_noise(all_run_dirs)
-        key = (qec_params.code, qec_params.noise_model)
-        if key in grouped:
-            grouped = group_run_dirs_by_d_rounds_basis(grouped[key])
-            key = (qec_params.d, qec_params.rounds, qec_params.basis)
-            if key in grouped:
-                run_dirs = grouped[key]
-else:
-    qec_params, run_dirs = render_qec_selection()
+    validate_stim_files(qec_params, p_list)
 
 selected_baseline_decoders, baseline_decoder_params = render_baselines_selection(
     qec_params
 )
+
+run_dirs = discover_run_dirs(TORCH_RUNS_ROOT, qec_params)
 
 if len(run_dirs) > 0:
     selected_run_dirs, torchdecoder_shared_params = render_torchdecoder_selection(

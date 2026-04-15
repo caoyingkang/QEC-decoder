@@ -5,19 +5,7 @@ from typing import Any
 from omegaconf import OmegaConf, DictConfig
 
 from utils import is_unique
-
-
-def discover_run_dirs(torch_runs_root: Path) -> list[Path]:
-    """
-    Discover all run directories: These are the subdirectories of `torch_runs_root`
-    that contain a `checkpoints/best_model.ckpt` file.
-    """
-    run_dirs: list[Path] = []
-    for p in torch_runs_root.rglob("checkpoints/best_model.ckpt"):
-        run_dirs.append(p.parent.parent)
-    if not is_unique(run_dirs):
-        raise Exception("Duplicate run_dirs found.")
-    return run_dirs
+from bench.params import QECParams
 
 
 def load_config_from_run_dir(run_dir: Path) -> DictConfig:
@@ -46,7 +34,7 @@ def load_model_config_from_run_dir(run_dir: Path) -> DictConfig:
     return model_cfg
 
 
-def group_run_dirs_by_code_and_noise(
+def _group_run_dirs_by_code_and_noise(
     run_dirs: list[Path],
 ) -> defaultdict[tuple[str, str], list[Path]]:
     """
@@ -59,7 +47,7 @@ def group_run_dirs_by_code_and_noise(
     return grouped
 
 
-def group_run_dirs_by_d_rounds_basis(
+def _group_run_dirs_by_d_rounds_basis(
     run_dirs: list[Path],
 ) -> defaultdict[tuple[int, int, str], list[Path]]:
     """
@@ -70,6 +58,30 @@ def group_run_dirs_by_d_rounds_basis(
         cfg = load_config_from_run_dir(run_dir)
         grouped[(cfg.qec.d, cfg.qec.rounds, cfg.qec.basis)].append(run_dir)
     return grouped
+
+
+def discover_run_dirs(torch_runs_root: Path, qec_params: QECParams) -> list[Path]:
+    """
+    Discover all run directories (i.e., subdirectories of `torch_runs_root`
+    that contain a `checkpoints/best_model.ckpt` file) that match the given
+    QEC parameters.
+    """
+    all_run_dirs = [
+        p.parent.parent for p in torch_runs_root.rglob("checkpoints/best_model.ckpt")
+    ]
+    if not is_unique(all_run_dirs):
+        raise Exception("Duplicate run_dirs found.")
+
+    run_dirs: list[Path] = []
+    if len(all_run_dirs) > 0:
+        grouped = _group_run_dirs_by_code_and_noise(all_run_dirs)
+        key = (qec_params.code, qec_params.noise_model)
+        if key in grouped:
+            grouped = _group_run_dirs_by_d_rounds_basis(grouped[key])
+            key = (qec_params.d, qec_params.rounds, qec_params.basis)
+            if key in grouped:
+                run_dirs = grouped[key]
+    return run_dirs
 
 
 def group_run_dirs_by_decoder_model_name(

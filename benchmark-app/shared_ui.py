@@ -28,12 +28,10 @@ from constants import (
     DEFAULT_P_LIST,
     DEFAULT_SHOTS_CAP,
     DEFAULT_ERRORS_CAP,
-    TORCH_RUNS_ROOT,
+    ALL_CODE_NOISE_PAIRS,
+    CODE_NOISE_PAIR_TO_D_ROUNDS_BASIS_TRIPLES,
 )
 from torchdecoder_utils import (
-    discover_run_dirs,
-    group_run_dirs_by_code_and_noise,
-    group_run_dirs_by_d_rounds_basis,
     group_run_dirs_by_decoder_model_name,
     extract_pytorch_decoder_run_id,
     extract_pytorch_decoder_name,
@@ -266,56 +264,40 @@ def render_sidebar_collector_selection_common() -> tuple[int, int, str]:
     return shots_cap, errors_cap, device
 
 
-def render_qec_selection() -> tuple[QECParams, list[Path]]:
-    """Discover trained torch decoders and render QEC parameter selections.
-
-    Return the selected QEC parameters and the list of run directories matching
-    those parameters. Call `st.stop()` if no trained torch decoders are found
-    or nothing is selected yet.
-    """
-    run_dirs = discover_run_dirs(TORCH_RUNS_ROOT)
-    if len(run_dirs) == 0:
-        st.warning("No trained PyTorch decoders found. Train a model first.")
-        st.stop()
-
+def render_qec_selection() -> QECParams:
+    """Render QEC parameter selection."""
     st.subheader("Select QEC parameters")
+
     col1, col2 = st.columns(2)
     with col1:
-        grouped = group_run_dirs_by_code_and_noise(run_dirs)
-        code_noise_pairs = sorted(grouped.keys())
         selected_code_noise_pair = st.selectbox(
             "code, noise model",
-            options=code_noise_pairs,
+            options=ALL_CODE_NOISE_PAIRS,
             index=None,
             format_func=lambda x: f"{x[0]}, {x[1]}",
         )
     if selected_code_noise_pair is None:
         st.stop()
     code, noise_model = selected_code_noise_pair
-    run_dirs = grouped[selected_code_noise_pair]
 
     with col2:
-        grouped = group_run_dirs_by_d_rounds_basis(run_dirs)
-        d_rounds_basis_triples = sorted(grouped.keys())
         selected_d_rounds_basis_triple = st.selectbox(
             "d, rounds, basis",
-            options=d_rounds_basis_triples,
+            options=CODE_NOISE_PAIR_TO_D_ROUNDS_BASIS_TRIPLES[selected_code_noise_pair],
             index=None,
             format_func=lambda x: f"{x[0]}, {x[1]}, {x[2]}",
         )
     if selected_d_rounds_basis_triple is None:
         st.stop()
     d, rounds, basis = selected_d_rounds_basis_triple
-    run_dirs = grouped[selected_d_rounds_basis_triple]
 
-    qec_params = QECParams(
+    return QECParams(
         code=code,
         noise_model=noise_model,
         d=d,
         rounds=rounds,
         basis=basis,
     )
-    return qec_params, run_dirs
 
 
 def render_torchdecoder_selection(
@@ -431,121 +413,31 @@ def stop_if_no_decoders_selected(
         st.stop()
 
 
-def render_circuit_source_selection() -> str:
-    """Render circuit source toggle in the main area.
-
-    Return ``"generate"`` or ``"stim_file"``.
-    """
-    source = st.radio(
-        "Circuit source",
-        options=["Generate from code parameters", "Load from circuit files"],
-        horizontal=True,
-    )
-    return "generate" if source == "Generate from code parameters" else "stim_file"
-
-
-def _parse_d_rounds_basis_dirname(dirname: str) -> tuple[int, int, str]:
-    """Parse d, rounds, basis from a subdirectory name.
-
-    E.g. ``"d=6_rounds=6_basis=Z"`` -> ``(6, 6, "Z")``.
-    """
-    params = {}
-    for token in dirname.split("_"):
-        key, _, value = token.partition("=")
-        params[key] = value
-    return int(params["d"]), int(params["rounds"]), params["basis"]
-
-
-def render_stim_file_selection(
+def validate_stim_files(
+    qec_params: QECParams,
     p_list: list[float],
-) -> tuple[QECParams, dict[float, Path]]:
-    """Render stim circuit file selection UI.
-
-    Scans the ``circuits/`` directory for code families and d/rounds/basis
-    subfolders. Validates that a ``.stim`` file exists for each error rate
-    in ``p_list``.
-
-    Return ``(qec_params, stim_file_paths)`` where ``stim_file_paths``
-    maps each ``p`` to its ``.stim`` file path.
-    """
-    st.subheader("Select circuit files")
-
+) -> None:
+    """Validate that stim circuit files exist. Call `st.stop()` if not."""
     if not CIRCUITS_ROOT.is_dir():
         st.warning(f"Circuits directory not found: `{CIRCUITS_ROOT}`")
         st.stop()
 
-    code_noise_dirnames = sorted(
-        d.name
-        for d in CIRCUITS_ROOT.iterdir()
-        if d.is_dir() and not d.name.startswith(".")
+    subdir = (
+        CIRCUITS_ROOT
+        / f"{qec_params.code}_{qec_params.noise_model}"
+        / f"d={qec_params.d}_rounds={qec_params.rounds}_basis={qec_params.basis}"
     )
-    if not code_noise_dirnames:
-        st.warning(
-            "No (code, noise model) subdirectories found in the circuits directory."
-        )
-        st.stop()
-
-    col1, col2 = st.columns(2)
-    with col1:
-        selected_code_noise_dirname = st.selectbox(
-            "code, noise model",
-            options=code_noise_dirnames,
-            index=None,
-            format_func=lambda x: ", ".join(x.rsplit("_", 1)),
-        )
-    if selected_code_noise_dirname is None:
-        st.stop()
-
-    code, noise_model = selected_code_noise_dirname.rsplit("_", 1)
-    subdir = CIRCUITS_ROOT / selected_code_noise_dirname
-
-    d_rounds_basis_dirnames = sorted(
-        d.name for d in subdir.iterdir() if d.is_dir() and not d.name.startswith(".")
+    available_rates = sorted(
+        float(f.stem.split("=", 1)[1]) for f in subdir.glob("*.stim")
     )
-    if not d_rounds_basis_dirnames:
-        st.warning("No (d, rounds, basis) subdirectories found.")
-        st.stop()
+    missing_rates = [p for p in p_list if p not in available_rates]
 
-    with col2:
-        selected_d_rounds_basis_dirname = st.selectbox(
-            "d, rounds, basis",
-            options=d_rounds_basis_dirnames,
-            index=None,
-            format_func=lambda x: x.replace("_", ", "),
-        )
-    if selected_d_rounds_basis_dirname is None:
-        st.stop()
-
-    d, rounds, basis = _parse_d_rounds_basis_dirname(selected_d_rounds_basis_dirname)
-    subdir = subdir / selected_d_rounds_basis_dirname
-
-    # Map each p to its .stim file, validating existence
-    stim_file_paths: dict[float, Path] = {}
-    missing: list[float] = []
-    available_files = {f.stem: f for f in subdir.glob("*.stim")}
-    for p in p_list:
-        key = f"error_rate={p}"
-        if key in available_files:
-            stim_file_paths[p] = available_files[key]
-        else:
-            missing.append(p)
-
-    if missing:
-        available_rates = sorted(f.stem.split("=", 1)[1] for f in subdir.glob("*.stim"))
+    if missing_rates:
         st.error(
-            f"No circuit file found for error rate(s): {missing}. "
+            f"No circuit file found for error rate(s): {missing_rates}. "
             f"Available error rates: {available_rates}"
         )
         st.stop()
-
-    qec_params = QECParams(
-        code=code,
-        noise_model=noise_model,
-        d=d,
-        rounds=rounds,
-        basis=basis,
-    )
-    return qec_params, stim_file_paths
 
 
 def render_missing_data_warning_and_benchmark_button(
