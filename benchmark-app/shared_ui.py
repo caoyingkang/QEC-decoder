@@ -19,6 +19,7 @@ from constants import (
     DEFAULT_RELAYBP_MAX_ITER_PER_RELAY,
     DEFAULT_RELAYBP_NUM_RELAYS,
     DEFAULT_RELAYBP_STOP_NCONV,
+    DEFAULT_RELAYBP_NUM_INDEP_DECODERS,
     DEFAULT_RELAYBP_GAMMA0,
     DEFAULT_RELAYBP_GDI,
     DEFAULT_BPOSD_MAX_ITER,
@@ -158,7 +159,7 @@ def render_baselines_selection(
                         key="relaybp_max_iter_per_relay",
                         help="Max number of iterations per DMemBP relay.",
                     )
-                col7, _, _ = st.columns(3)
+                col7, col8, _ = st.columns(3)
                 with col7:
                     stop_nconv = st.number_input(
                         "stop_nconv",
@@ -168,6 +169,14 @@ def render_baselines_selection(
                         key="relaybp_stop_nconv",
                         help="How many solutions to find before terminating.",
                     )
+                with col8:
+                    num_indep_decoders = st.number_input(
+                        "num_indep_decoders",
+                        value=DEFAULT_RELAYBP_NUM_INDEP_DECODERS,
+                        min_value=1,
+                        key="relaybp_num_indep_decoders",
+                        help="Number of independent RelayBP decoders running in parallel.",
+                    )
             baseline_decoder_params["RelayBP"] = {
                 "gamma0": gamma0,
                 "gamma_dist_interval": [gdi_low, gdi_high],
@@ -175,6 +184,7 @@ def render_baselines_selection(
                 "pre_iter": pre_iter,
                 "max_iter_per_relay": max_iter_per_relay,
                 "stop_nconv": stop_nconv,
+                "num_indep_decoders": num_indep_decoders,
             }
         elif name == "BPOSD":
             with st.expander("BPOSD configuration", expanded=True):
