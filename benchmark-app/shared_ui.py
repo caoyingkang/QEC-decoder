@@ -164,6 +164,7 @@ def render_baselines_selection(
                         "stop_nconv",
                         value=DEFAULT_RELAYBP_STOP_NCONV,
                         min_value=1,
+                        max_value=num_relays + 1,
                         key="relaybp_stop_nconv",
                         help="How many solutions to find before terminating.",
                     )

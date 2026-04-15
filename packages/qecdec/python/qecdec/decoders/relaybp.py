@@ -58,9 +58,12 @@ class RelayBPDecoder(IterativeDecoder):
             Max number of iterations per DMemBP relay.
 
         stop_nconv : int
-            How many solutions to find before terminating.
+            How many solutions to find before terminating. Must be less than or equal to num_relays + 1.
         """
         super().__init__(pre_iter + num_relays * max_iter_per_relay, pcm, prior)
+
+        if stop_nconv > num_relays + 1:
+            raise ValueError("stop_nconv must be less than or equal to num_relays + 1")
 
         self.gamma0 = gamma0
         self.gamma_dist_interval: tuple[float, float] = tuple(gamma_dist_interval)
