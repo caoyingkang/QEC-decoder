@@ -17,6 +17,7 @@ scratch.ipynb
 *.ckpt
 *.sh
 *.csv
+*.pdf
 torchdecoder/runs/
 lightning_logs/
 __hidden__*
