@@ -11,6 +11,7 @@ CLAUDE.md
 relay/
 *.so
 target/
+docs/
 scratch.ipynb
 *.pt
 *.log
