@@ -86,6 +86,12 @@ class HexColorCode_Phenom_Memory(MemoryExperiment):
         self.meas_error_rate = meas_error_rate
 
         self.tiles = self._build_tiles()
+        assert 2 * len(self.tiles) == self.num_stabs
+        dq_sites_set = set(v for t in self.tiles for v in t.vertices)
+        assert len(dq_sites_set) == self.num_dq
+        self.dq_sites = sorted(dq_sites_set, key=lambda v: (v.real, v.imag))
+        self.dq_inds = list(range(self.num_dq))
+        self.dq_site2ind = {v: i for i, v in enumerate(self.dq_sites)}
 
     def _build_tiles(self) -> list[_Tile]:
         width = 2 * self.d - 1  # width of the grid holding the data qubits
@@ -119,8 +125,6 @@ class HexColorCode_Phenom_Memory(MemoryExperiment):
                 tiles.append(make_tile(red_anchor + 2 + 1j, 1))
                 tiles.append(make_tile(red_anchor + 2j, 2))
 
-        assert 2 * len(tiles) == self.num_stabs
-        assert len(set(v for t in tiles for v in t.vertices)) == self.num_dq
         return tiles
 
     # ==================================================================================
@@ -133,7 +137,84 @@ class HexColorCode_Phenom_Memory(MemoryExperiment):
 
     @cached_property
     def circuit(self) -> stim.Circuit:
-        pass
+        circuit = stim.Circuit()
+
+        # Specify the coordinates of all data qubits.
+        for i, v in enumerate(self.dq_sites):
+            circuit.append("QUBIT_COORDS", i, (v.real, v.imag))
+
+        # Noiseless logical state preparation.
+        circuit += self._make_circuit_noiseless_logical_meas()
+        circuit += self._make_circuit_stab_meas(noisy=False, record_detectors=False)
+
+        # Repeated rounds of depolarizing noise + faulty stabilizer measurement.
+        circuit.append(
+            stim.CircuitRepeatBlock(
+                self.rounds - 1,
+                self._make_circuit_depolarizing()
+                + self._make_circuit_stab_meas(noisy=True, record_detectors=True),
+            )
+        )
+
+        # Final round of depolarizing noise + noiseless measurement.
+        circuit += self._make_circuit_depolarizing()
+        circuit += self._make_circuit_stab_meas(noisy=False, record_detectors=True)
+        circuit += self._make_circuit_noiseless_logical_meas()
+        return circuit
+
+    def _make_circuit_noiseless_logical_meas(self) -> stim.Circuit:
+        circuit = stim.Circuit()
+        circuit.append("MPP", self._mpp_targets(self.dq_sites, self.basis))
+        circuit.append("OBSERVABLE_INCLUDE", stim.target_rec(-1), 0)
+        circuit.append("TICK")
+        return circuit
+
+    def _make_circuit_depolarizing(self) -> stim.Circuit:
+        circuit = stim.Circuit()
+        circuit.append("DEPOLARIZE1", self.dq_inds, self.data_qubit_error_rate)
+        circuit.append("TICK")
+        return circuit
+
+    def _make_circuit_stab_meas(
+        self, noisy: bool, record_detectors: bool
+    ) -> stim.Circuit:
+        circuit = stim.Circuit()
+        for stab_basis in ("X", "Z"):
+            for tile in self.tiles:
+                circuit.append(
+                    "MPP",
+                    self._mpp_targets(tile.vertices, stab_basis),
+                    self.meas_error_rate if noisy else None,
+                )
+        if record_detectors:
+            offset = 0
+            for stab_basis in ("X", "Z"):
+                for tile in self.tiles:
+                    center = sum(tile.vertices) / len(tile.vertices)
+                    circuit.append(
+                        "DETECTOR",
+                        [
+                            stim.target_rec(-self.num_stabs + offset),
+                            stim.target_rec(-self.num_stabs * 2 + offset),
+                        ],
+                        (center.real, center.imag, 0),
+                    )
+                    offset += 1
+            circuit.append("SHIFT_COORDS", [], (0, 0, 1))
+
+        circuit.append("TICK")
+        return circuit
+
+    def _mpp_targets(
+        self, sites: list[complex], pauli: Literal["X", "Y", "Z"]
+    ) -> list[stim.GateTarget]:
+        indices = [self.dq_site2ind[v] for v in sites]
+        targets: list[stim.GateTarget] = []
+        for i in indices:
+            if len(targets) > 0:
+                targets.append(stim.target_combiner())
+            targets.append(stim.target_pauli(i, pauli))
+        return targets
 
     @cached_property
     def error_coords(self) -> Float2DArray:
