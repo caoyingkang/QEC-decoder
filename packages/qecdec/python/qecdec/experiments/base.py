@@ -48,42 +48,6 @@ class ErrorMechanism:
         return self.dets < other.dets
 
 
-@total_ordering
-@dataclass(frozen=True)
-class LayeredErrorMechanism(ErrorMechanism):
-    """An error mechanism with layer information for memory experiments.
-
-    Attributes
-    ----------
-    dets : tuple[int, ...]
-        Flipped detectors (in increasing order), nonempty.
-    obsers : tuple[int, ...]
-        Flipped observables (in increasing order).
-    p : float
-        Probability of occurrence.
-    start_layer : int
-        The first layer in the decoding graph to find a flipped detector.
-    end_layer : int
-        The last layer plus one in the decoding graph to find a flipped detector.
-    """
-
-    start_layer: int
-    end_layer: int
-
-    def __lt__(self, other) -> bool:
-        """
-        To sort error mechanisms, we first compare `start_layer`, then `end_layer`, and finally `dets`.
-        """
-        if not isinstance(other, LayeredErrorMechanism):
-            raise TypeError(f"Cannot compare {type(self)} with {type(other)}")
-        if self.start_layer != other.start_layer:
-            return self.start_layer < other.start_layer
-        elif self.end_layer != other.end_layer:
-            return self.end_layer < other.end_layer
-        else:
-            return self.dets < other.dets
-
-
 class Experiment(ABC):
     """Abstract base class for QEC experiments.
 
@@ -112,22 +76,20 @@ class Experiment(ABC):
         return self.circuit.num_observables
 
     @cached_property
-    def eid2emech(self) -> dict[int, ErrorMechanism]:
-        """Dictionary mapping error ids to ErrorMechanism objects."""
+    def error_mechanisms(self) -> list[ErrorMechanism]:
+        """(Sorted) list of ErrorMechanism objects."""
         eff2prob = extract_error_mechanisms_from_dem(self.dem)
-
         emechs: list[ErrorMechanism] = []
         for (dets, obsers), p in eff2prob.items():
             assert len(dets) > 0
             emechs.append(ErrorMechanism(dets, obsers, p))
         emechs.sort()
-
-        return {i: e for i, e in enumerate(emechs)}
+        return emechs
 
     @cached_property
     def num_error_mechanisms(self) -> int:
         """Number of error mechanisms."""
-        return len(self.eid2emech)
+        return len(self.error_mechanisms)
 
     @cached_property
     def chkmat(self) -> Bit2DArray:
@@ -138,7 +100,7 @@ class Experiment(ABC):
         chkmat = np.zeros(
             (self.num_detectors, self.num_error_mechanisms), dtype=np.uint8
         )
-        for j, e in self.eid2emech.items():
+        for j, e in enumerate(self.error_mechanisms):
             chkmat[e.dets, j] = 1
         return chkmat
 
@@ -151,7 +113,7 @@ class Experiment(ABC):
         obsmat = np.zeros(
             (self.num_observables, self.num_error_mechanisms), dtype=np.uint8
         )
-        for j, e in self.eid2emech.items():
+        for j, e in enumerate(self.error_mechanisms):
             obsmat[e.obsers, j] = 1
         return obsmat
 
@@ -160,10 +122,7 @@ class Experiment(ABC):
         """
         Prior probabilities for each error mechanism, shape=(#error_mechanisms,), dtype=float64.
         """
-        prior = np.zeros(self.num_error_mechanisms)
-        for j, e in self.eid2emech.items():
-            prior[j] = e.p
-        return prior
+        return np.array([e.p for e in self.error_mechanisms])
 
     @cached_property
     def detector_coords(self) -> Float2DArray:
@@ -172,55 +131,3 @@ class Experiment(ABC):
         This can be used to visualize the decoding graph.
         """
         return extract_detector_coords_from_dem(self.dem)
-
-
-class MemoryExperiment(Experiment, ABC):
-    """Abstract base class for memory experiments."""
-
-    def __init__(
-        self,
-        rounds: int,
-        num_detectors_per_layer: int,
-        num_observables: int,
-    ):
-        """
-        Parameters
-        ----------
-        rounds : int
-            Number of rounds of stabilizer measurement.
-        num_detectors_per_layer : int
-            Number of layers of detectors in the decoding graph.
-        num_observables : int
-            Number of logical observables.
-        """
-        self.rounds = rounds
-        self.layers = rounds + 1
-        self.num_detectors_per_layer = num_detectors_per_layer
-        self.num_detectors = self.layers * num_detectors_per_layer
-        self.num_observables = num_observables
-
-    @cached_property
-    def eid2emech(self) -> dict[int, LayeredErrorMechanism]:
-        """Dictionary mapping error ids to LayeredErrorMechanism objects."""
-        eff2prob = extract_error_mechanisms_from_dem(self.dem)
-
-        emechs: list[LayeredErrorMechanism] = []
-        for (dets, obsers), p in eff2prob.items():
-            assert len(dets) > 0
-            start_layer = dets[0] // self.num_detectors_per_layer
-            end_layer = dets[-1] // self.num_detectors_per_layer + 1
-            emechs.append(
-                LayeredErrorMechanism(dets, obsers, p, start_layer, end_layer)
-            )
-        emechs.sort()
-
-        return {i: e for i, e in enumerate(emechs)}
-
-    @property
-    @abstractmethod
-    def error_coords(self) -> Float2DArray:
-        """
-        Array of error coordinates, shape=(#error_mechanisms, #coordinates), dtype=float64.
-        This can be used to visualize the decoding graph.
-        """
-        ...

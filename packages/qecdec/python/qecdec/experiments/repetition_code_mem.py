@@ -1,27 +1,25 @@
+from typing import Optional
 from functools import cached_property
 
 import numpy as np
 import stim
 
-from .base import MemoryExperiment
-from ..types import (
-    Bit2DArray,
-    Float2DArray,
-)
+from .base import Experiment
+from ..types import Bit2DArray
 
 
-class RepetitionCode_Memory(MemoryExperiment):
+class RepetitionCode_Memory(Experiment):
     """Memory experiment for the repetition code."""
 
     def __init__(
         self,
+        *,
         d: int,
         rounds: int,
-        *,
-        data_qubit_error_rate: float | None = None,
-        prep_error_rate: float | None = None,
-        meas_error_rate: float | None = None,
-        cnot_error_rate: float | None = None,
+        data_qubit_error_rate: Optional[float] = None,
+        prep_error_rate: Optional[float] = None,
+        meas_error_rate: Optional[float] = None,
+        cnot_error_rate: Optional[float] = None,
     ):
         """
         Parameters
@@ -45,22 +43,17 @@ class RepetitionCode_Memory(MemoryExperiment):
             cnot_error_rate : float or None
                 Error rate of CNOT gates. If None, no CNOT gate error is included.
         """
+        super().__init__()
         self.d = d
-        self.num_dq = d  # number of data qubits
-        self.num_mq = d - 1  # number of (Z-type) measure qubits
-        self.num_qubits = self.num_dq + self.num_mq  # total number of physical qubits
-        self.k = 1  # number of logical qubits
-
-        super().__init__(
-            rounds=rounds,
-            num_detectors_per_layer=self.num_mq,
-            num_observables=self.k,
-        )
-
+        self.rounds = rounds
         self.data_qubit_error_rate = data_qubit_error_rate
         self.prep_error_rate = prep_error_rate
         self.meas_error_rate = meas_error_rate
         self.cnot_error_rate = cnot_error_rate
+
+        self.num_dq = d  # number of data qubits
+        self.num_mq = d - 1  # number of (Z-type) measure qubits
+        self.num_qubits = self.num_dq + self.num_mq  # total number of physical qubits
 
         # Indices of data qubits and measure qubits.
         self.dq_inds = list(range(0, 2 * d, 2))  # 0, 2, 4, ..., 2d-2
@@ -201,7 +194,3 @@ class RepetitionCode_Memory(MemoryExperiment):
         assert circuit.num_detectors == self.num_detectors
         assert circuit.num_observables == self.num_observables
         return circuit
-
-    @cached_property
-    def error_coords(self) -> Float2DArray:
-        raise NotImplementedError

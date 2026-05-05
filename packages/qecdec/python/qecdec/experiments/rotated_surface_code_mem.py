@@ -1,27 +1,25 @@
-from typing import Literal
+from typing import Literal, Optional
 from functools import cached_property
 
-import numpy as np
 import stim
 
-from .base import MemoryExperiment
-from ..types import Float2DArray
+from .base import Experiment
 
 
-class RotatedSurfaceCode_Memory(MemoryExperiment):
+class RotatedSurfaceCode_Memory(Experiment):
     """Memory experiment for the rotated surface code."""
 
     def __init__(
         self,
+        *,
         d: int,
         rounds: int,
-        *,
         basis: Literal["X", "Z"],
-        data_qubit_error_rate: float | None = None,
-        prep_error_rate: float | None = None,
-        meas_error_rate: float | None = None,
-        gate1_error_rate: float | None = None,
-        gate2_error_rate: float | None = None,
+        data_qubit_error_rate: Optional[float] = None,
+        prep_error_rate: Optional[float] = None,
+        meas_error_rate: Optional[float] = None,
+        gate1_error_rate: Optional[float] = None,
+        gate2_error_rate: Optional[float] = None,
     ):
         """
         Parameters
@@ -59,27 +57,22 @@ class RotatedSurfaceCode_Memory(MemoryExperiment):
         if basis not in ["X", "Z"]:
             raise ValueError("Basis must be 'X' or 'Z'")
 
+        super().__init__()
         self.d = d
+        self.rounds = rounds
+        self.basis = basis
+        self.data_qubit_error_rate = data_qubit_error_rate
+        self.prep_error_rate = prep_error_rate
+        self.meas_error_rate = meas_error_rate
+        self.gate1_error_rate = gate1_error_rate
+        self.gate2_error_rate = gate2_error_rate
+
         self.w = 2 * d + 1  # width of the grid holding the qubits
         self.num_dq = d * d  # number of data qubits
         self.num_xmq = (d * d - 1) // 2  # number of X-type measure qubits
         self.num_zmq = (d * d - 1) // 2  # number of Z-type measure qubits
         self.num_mq = self.num_xmq + self.num_zmq  # total number of measure qubits
         self.num_qubits = self.num_dq + self.num_mq  # total number of physical qubits
-        self.k = 1  # number of logical qubits
-        self.basis = basis
-
-        super().__init__(
-            rounds=rounds,
-            num_detectors_per_layer=self.num_xmq if basis == "X" else self.num_zmq,
-            num_observables=self.k,
-        )
-
-        self.data_qubit_error_rate = data_qubit_error_rate
-        self.prep_error_rate = prep_error_rate
-        self.meas_error_rate = meas_error_rate
-        self.gate1_error_rate = gate1_error_rate
-        self.gate2_error_rate = gate2_error_rate
 
         # Lattice site coordinates of data qubits and measure qubits.
         self.dq_coos = frozenset(
@@ -327,32 +320,6 @@ class RotatedSurfaceCode_Memory(MemoryExperiment):
         assert circuit.num_detectors == self.num_detectors
         assert circuit.num_observables == self.num_observables
         return circuit
-
-    @cached_property
-    def error_coords(self) -> Float2DArray:
-        error_coords = np.zeros(
-            (self.num_error_mechanisms, self.detector_coords.shape[1])
-        )
-        for i, e in self.eid2emech.items():
-            dets = e.dets
-            assert len(dets) > 0
-            if len(dets) == 1:
-                coo = self.detector_coords[dets[0]].tolist()
-                assert len(coo) == 3
-                x, y, t = coo
-                if self.basis == "Z":
-                    if y < 2.001:
-                        error_coords[i] = np.array([x, y - 1, t])
-                    else:
-                        error_coords[i] = np.array([x, y + 1, t])
-                else:
-                    if x < 2.001:
-                        error_coords[i] = np.array([x - 1, y, t])
-                    else:
-                        error_coords[i] = np.array([x + 1, y, t])
-            else:
-                error_coords[i] = np.mean(self.detector_coords[dets, :], axis=0)
-        return error_coords
 
     def _is_data_qubit_coord(self, x: int, y: int) -> bool:
         """Check if (x, y) is the coordinate of a data qubit."""

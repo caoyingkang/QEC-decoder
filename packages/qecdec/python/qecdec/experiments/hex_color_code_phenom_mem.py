@@ -8,8 +8,7 @@ from dataclasses import dataclass
 
 import stim
 
-from .base import MemoryExperiment
-from ..types import Float2DArray
+from .base import Experiment
 
 
 _HEX_OFFSETS: tuple[complex, ...] = (0, 1 + 1j, 2 + 1j, 3, 2 - 1j, 1 - 1j)
@@ -33,7 +32,7 @@ class _Tile:
     color: int
 
 
-class HexColorCode_Phenom_Memory(MemoryExperiment):
+class HexColorCode_Phenom_Memory(Experiment):
     """
     Memory experiment for the hexagonal (6.6.6 tiling) color code under
     phenomenological noise model.
@@ -45,7 +44,7 @@ class HexColorCode_Phenom_Memory(MemoryExperiment):
         d: int,
         rounds: int,
         basis: Literal["X", "Y", "Z"],
-        data_qubit_error_rate: float,
+        depolarizing_error_rate: float,
         meas_error_rate: float,
     ):
         """
@@ -54,10 +53,12 @@ class HexColorCode_Phenom_Memory(MemoryExperiment):
         d : int
             Code distance. Must be odd and at least 3.
         rounds : int
-            Number of rounds of stabilizer measurement. Must be at least 1.
+            Number of rounds of stabilizer measurement. Must be at least 1. Every
+            round is preceded by depolarizing noise on data qubits. All rounds except
+            the last one suffer from measurement errors.
         basis : Literal["X", "Y", "Z"]
             Basis of logical state preparation and measurement.
-        data_qubit_error_rate : float
+        depolarizing_error_rate : float
             Error rate of data qubits before each round of stabilizer measurement.
         meas_error_rate : float
             Error rate of measurement.
@@ -71,26 +72,21 @@ class HexColorCode_Phenom_Memory(MemoryExperiment):
         if basis not in ("X", "Y", "Z"):
             raise ValueError("basis must be 'X', 'Y', or 'Z'")
 
+        super().__init__()
         self.d = d
+        self.rounds = rounds
         self.basis = basis
+        self.depolarizing_error_rate = depolarizing_error_rate
+        self.meas_error_rate = meas_error_rate
+
         self.num_dq = 3 * (d - 1) * (d + 1) // 4 + 1  # number of data qubits
         self.num_stabs = self.num_dq - 1  # number of stabilizer generators
-
-        super().__init__(
-            rounds=rounds,
-            num_detectors_per_layer=self.num_stabs,
-            num_observables=1,
-        )
-
-        self.data_qubit_error_rate = data_qubit_error_rate
-        self.meas_error_rate = meas_error_rate
 
         self.tiles = self._build_tiles()
         assert 2 * len(self.tiles) == self.num_stabs
         dq_sites_set = set(v for t in self.tiles for v in t.vertices)
         assert len(dq_sites_set) == self.num_dq
         self.dq_sites = sorted(dq_sites_set, key=lambda v: (v.real, v.imag))
-        self.dq_inds = list(range(self.num_dq))
         self.dq_site2ind = {v: i for i, v in enumerate(self.dq_sites)}
 
     def _build_tiles(self) -> list[_Tile]:
@@ -126,14 +122,6 @@ class HexColorCode_Phenom_Memory(MemoryExperiment):
                 tiles.append(make_tile(red_anchor + 2j, 2))
 
         return tiles
-
-    # ==================================================================================
-    # Public properties
-    # ==================================================================================
-
-    # ==================================================================================
-    # Circuit builder
-    # ==================================================================================
 
     @cached_property
     def circuit(self) -> stim.Circuit:
@@ -171,7 +159,7 @@ class HexColorCode_Phenom_Memory(MemoryExperiment):
 
     def _make_circuit_depolarizing(self) -> stim.Circuit:
         circuit = stim.Circuit()
-        circuit.append("DEPOLARIZE1", self.dq_inds, self.data_qubit_error_rate)
+        circuit.append("DEPOLARIZE1", range(self.num_dq), self.depolarizing_error_rate)
         circuit.append("TICK")
         return circuit
 
@@ -208,14 +196,10 @@ class HexColorCode_Phenom_Memory(MemoryExperiment):
     def _mpp_targets(
         self, sites: list[complex], pauli: Literal["X", "Y", "Z"]
     ) -> list[stim.GateTarget]:
-        indices = [self.dq_site2ind[v] for v in sites]
+        indices = sorted(self.dq_site2ind[v] for v in sites)
         targets: list[stim.GateTarget] = []
         for i in indices:
             if len(targets) > 0:
                 targets.append(stim.target_combiner())
             targets.append(stim.target_pauli(i, pauli))
         return targets
-
-    @cached_property
-    def error_coords(self) -> Float2DArray:
-        pass
