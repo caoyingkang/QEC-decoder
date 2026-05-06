@@ -17,7 +17,7 @@ _HEX_OFFSETS: tuple[complex, ...] = (0, 1 + 1j, 2 + 1j, 3, 2 - 1j, 1 - 1j)
 @dataclass(frozen=True)
 class _Tile:
     """
-    Data class for a tile of the color code layout.
+    Data class for a tile of the color code patch.
 
     A site is represented by a complex number, where the real part is the horizontal
     coordinate (left to right) and the imaginary part is the vertical coordinate
@@ -82,17 +82,19 @@ class HexColorCode_Phenom_Memory(Experiment):
         self.depolarizing_error_rate = depolarizing_error_rate
         self.meas_error_rate = meas_error_rate
 
-        self.num_dq = 3 * (d - 1) * (d + 1) // 4 + 1  # number of data qubits
-        self.num_stabs = self.num_dq - 1  # number of stabilizer generators
+    @cached_property
+    def num_qubits(self) -> int:
+        """Number of (data) qubits."""
+        return 3 * (self.d - 1) * (self.d + 1) // 4 + 1
 
-        self.tiles = self._build_tiles()
-        assert 2 * len(self.tiles) == self.num_stabs
-        dq_sites_set = set(q for t in self.tiles for q in t.sites)
-        assert len(dq_sites_set) == self.num_dq
-        self.dq_sites = sorted(dq_sites_set, key=lambda q: (q.real, q.imag))
-        self.dq_site2ind = {q: i for i, q in enumerate(self.dq_sites)}
+    @cached_property
+    def num_stabs(self) -> int:
+        """Number of stabilizer generators."""
+        return 3 * (self.d - 1) * (self.d + 1) // 4
 
-    def _build_tiles(self) -> list[_Tile]:
+    @cached_property
+    def tiles(self) -> list[_Tile]:
+        """List of tiles of the color code patch."""
         width = 2 * self.d - 1  # width of the grid holding the data qubits
 
         def in_bounds(site: complex) -> bool:
@@ -124,51 +126,65 @@ class HexColorCode_Phenom_Memory(Experiment):
                 tiles.append(make_tile(red_anchor + 2 + 1j, 1))
                 tiles.append(make_tile(red_anchor + 2j, 2))
 
+        assert 2 * len(tiles) == self.num_stabs
         return tiles
+
+    @cached_property
+    def sites(self) -> set[complex]:
+        """Set of sites of (data) qubits in the color code patch."""
+        sites = set(q for t in self.tiles for q in t.sites)
+        assert len(sites) == self.num_qubits
+        return sites
+
+    @cached_property
+    def site2ind(self) -> dict[complex, int]:
+        """Dictionary mapping sites of qubits to their indices."""
+        sites_sorted = sorted(self.sites, key=lambda q: (q.real, q.imag))
+        return {q: i for i, q in enumerate(sites_sorted)}
 
     @cached_property
     def circuit(self) -> stim.Circuit:
         circuit = stim.Circuit()
 
         # Specify the coordinates of all data qubits.
-        for i, q in enumerate(self.dq_sites):
-            circuit.append("QUBIT_COORDS", i, (q.real, q.imag))
+        for q in self.sites:
+            circuit.append("QUBIT_COORDS", self.site2ind[q], (q.real, q.imag))
 
         # Noiseless logical state preparation.
-        circuit += self._make_circuit_noiseless_logical_meas()
-        circuit += self._make_circuit_stab_meas(noisy=False, record_detectors=False)
+        circuit += self._noiseless_logical_meas()
+        circuit += self._stab_meas_circuit(noisy=False, record_detectors=False)
 
         # Repeated rounds of depolarizing noise + faulty stabilizer measurement.
         circuit.append(
             stim.CircuitRepeatBlock(
                 self.rounds - 1,
-                self._make_circuit_depolarizing()
-                + self._make_circuit_stab_meas(noisy=True, record_detectors=True),
+                self._depolarizing_noise()
+                + self._stab_meas_circuit(noisy=True, record_detectors=True),
             )
         )
 
         # Final round of depolarizing noise + noiseless measurement.
-        circuit += self._make_circuit_depolarizing()
-        circuit += self._make_circuit_stab_meas(noisy=False, record_detectors=True)
-        circuit += self._make_circuit_noiseless_logical_meas()
+        circuit += self._depolarizing_noise()
+        circuit += self._stab_meas_circuit(noisy=False, record_detectors=True)
+        circuit += self._noiseless_logical_meas()
         return circuit
 
-    def _make_circuit_noiseless_logical_meas(self) -> stim.Circuit:
+    def _noiseless_logical_meas(self) -> stim.Circuit:
         circuit = stim.Circuit()
-        circuit.append("MPP", self._mpp_targets(self.dq_sites, self.basis))
+        circuit.append("MPP", self._mpp_targets(self.sites, self.basis))
         circuit.append("OBSERVABLE_INCLUDE", stim.target_rec(-1), 0)
         circuit.append("TICK")
         return circuit
 
-    def _make_circuit_depolarizing(self) -> stim.Circuit:
+    def _depolarizing_noise(self) -> stim.Circuit:
         circuit = stim.Circuit()
-        circuit.append("DEPOLARIZE1", range(self.num_dq), self.depolarizing_error_rate)
+        circuit.append(
+            "DEPOLARIZE1", range(self.num_qubits), self.depolarizing_error_rate
+        )
         circuit.append("TICK")
         return circuit
 
-    def _make_circuit_stab_meas(
-        self, noisy: bool, record_detectors: bool
-    ) -> stim.Circuit:
+    def _stab_meas_circuit(self, noisy: bool, record_detectors: bool) -> stim.Circuit:
         circuit = stim.Circuit()
         for stab_basis in ("X", "Z"):
             for tile in self.tiles:
@@ -199,7 +215,7 @@ class HexColorCode_Phenom_Memory(Experiment):
     def _mpp_targets(
         self, sites: Iterable[complex], pauli: Literal["X", "Y", "Z"]
     ) -> list[stim.GateTarget]:
-        indices = sorted(self.dq_site2ind[q] for q in sites)
+        indices = sorted(self.site2ind[q] for q in sites)
         targets: list[stim.GateTarget] = []
         for i in indices:
             if len(targets) > 0:

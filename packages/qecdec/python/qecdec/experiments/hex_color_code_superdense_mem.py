@@ -17,7 +17,7 @@ _HEX_OFFSETS: tuple[complex, ...] = (0, 1 + 1j, 2 + 1j, 3, 2 - 1j, 1 - 1j)
 @dataclass(frozen=True)
 class _Tile:
     """
-    Data class for a tile of the color code layout.
+    Data class for a tile of the color code patch.
 
     A site is represented by a complex number, where the real part is the horizontal
     coordinate (left to right) and the imaginary part is the vertical coordinate
@@ -93,27 +93,24 @@ class HexColorCode_Superdense_Memory(Experiment):
         self.gate1_error_rate = gate1_error_rate
         self.gate2_error_rate = gate2_error_rate
 
-        self.num_dq = 3 * (d - 1) * (d + 1) // 4 + 1  # number of data qubits
-        self.num_xstabs = 3 * (d - 1) * (d + 1) // 8  # number of X-type stabilizers
-        self.num_zstabs = 3 * (d - 1) * (d + 1) // 8  # number of Z-type stabilizers
-        self.num_stabs = self.num_xstabs + self.num_zstabs  # number of stabilizers
+    @cached_property
+    def num_data_qubits(self) -> int:
+        """Number of (data) qubits."""
+        return 3 * (self.d - 1) * (self.d + 1) // 4 + 1
 
-        self.tiles = self._build_tiles()
-        assert len(self.tiles) == self.num_xstabs == self.num_zstabs
-        self.dq_sites_set = set(q for t in self.tiles for q in t.dq_sites)
-        self.xmq_sites_set = set(t.xmq_site for t in self.tiles)
-        self.zmq_sites_set = set(t.zmq_site for t in self.tiles)
-        self.all_sites_set = self.dq_sites_set | self.xmq_sites_set | self.zmq_sites_set
-        assert len(self.dq_sites_set) == self.num_dq
-        assert len(self.xmq_sites_set) == self.num_xstabs
-        assert len(self.zmq_sites_set) == self.num_zstabs
-        self.dq_sites = sorted(self.dq_sites_set, key=lambda q: (q.real, q.imag))
-        self.xmq_sites = sorted(self.xmq_sites_set, key=lambda q: (q.real, q.imag))
-        self.zmq_sites = sorted(self.zmq_sites_set, key=lambda q: (q.real, q.imag))
-        self.all_sites = sorted(self.all_sites_set, key=lambda q: (q.real, q.imag))
-        self.site2ind = {q: i for i, q in enumerate(self.all_sites)}
+    @cached_property
+    def num_xstabs(self) -> int:
+        """Number of X-type stabilizer generators."""
+        return 3 * (self.d - 1) * (self.d + 1) // 8
 
-    def _build_tiles(self) -> list[_Tile]:
+    @cached_property
+    def num_zstabs(self) -> int:
+        """Number of Z-type stabilizer generators."""
+        return 3 * (self.d - 1) * (self.d + 1) // 8
+
+    @cached_property
+    def tiles(self) -> list[_Tile]:
+        """List of tiles of the color code patch."""
         width = 2 * self.d - 1  # width of the grid holding the data qubits
 
         def in_bounds(site: complex) -> bool:
@@ -147,37 +144,80 @@ class HexColorCode_Superdense_Memory(Experiment):
                 tiles.append(make_tile(red_anchor + 2 + 1j, 1))
                 tiles.append(make_tile(red_anchor + 2j, 2))
 
+        assert len(tiles) == self.num_xstabs == self.num_zstabs
         return tiles
+
+    @cached_property
+    def dq_sites(self) -> set[complex]:
+        """Set of sites of data qubits in the color code patch."""
+        dq_sites = set(q for t in self.tiles for q in t.dq_sites)
+        assert len(dq_sites) == self.num_data_qubits
+        return dq_sites
+
+    @cached_property
+    def xmq_sites(self) -> set[complex]:
+        """Set of sites of X-type measurement qubits in the color code patch."""
+        xmq_sites = set(t.xmq_site for t in self.tiles)
+        assert len(xmq_sites) == self.num_xstabs
+        return xmq_sites
+
+    @cached_property
+    def zmq_sites(self) -> set[complex]:
+        """Set of sites of Z-type measurement qubits in the color code patch."""
+        zmq_sites = set(t.zmq_site for t in self.tiles)
+        assert len(zmq_sites) == self.num_zstabs
+        return zmq_sites
+
+    @cached_property
+    def all_sites(self) -> set[complex]:
+        """Set of sites of all qubits in the color code patch."""
+        return self.dq_sites | self.xmq_sites | self.zmq_sites
+
+    @cached_property
+    def site2ind(self) -> dict[complex, int]:
+        """Dictionary mapping sites of qubits to their indices."""
+        sites_sorted = sorted(self.all_sites, key=lambda q: (q.real, q.imag))
+        return {q: i for i, q in enumerate(sites_sorted)}
+
+    @cached_property
+    def dq_inds(self) -> list[int]:
+        """(Sorted) list of indices of data qubits."""
+        return sorted(self.site2ind[q] for q in self.dq_sites)
+
+    @cached_property
+    def xmq_inds(self) -> list[int]:
+        """(Sorted) list of indices of X-type measurement qubits."""
+        return sorted(self.site2ind[q] for q in self.xmq_sites)
+
+    @cached_property
+    def zmq_inds(self) -> list[int]:
+        """(Sorted) list of indices of Z-type measurement qubits."""
+        return sorted(self.site2ind[q] for q in self.zmq_sites)
 
     @cached_property
     def circuit(self) -> stim.Circuit:
         circuit = stim.Circuit()
 
         # Specify the coordinates of all qubits.
-        for i, q in enumerate(self.all_sites):
-            circuit.append("QUBIT_COORDS", i, (q.real, q.imag))
+        for q in self.all_sites:
+            circuit.append("QUBIT_COORDS", self.site2ind[q], (q.real, q.imag))
 
         # Prepare the logical state.
-        circuit += self._make_circuit_state_prep()
+        circuit.append(f"R{self.basis}", self.dq_inds)
+        circuit += self._stab_meas_circuit()
 
         return circuit
 
-    def _make_circuit_state_prep(self) -> stim.Circuit:
+    def _stab_meas_circuit(self) -> stim.Circuit:
         circuit = stim.Circuit()
-        circuit.append(f"R{self.basis}", [self.site2ind[q] for q in self.dq_sites])
-        circuit += self._make_circuit_stab_meas()
-        return circuit
-
-    def _make_circuit_stab_meas(self) -> stim.Circuit:
-        circuit = stim.Circuit()
-        circuit.append("RX", [self.site2ind[q] for q in self.xmq_sites])
-        circuit.append("RZ", [self.site2ind[q] for q in self.zmq_sites])
+        circuit.append("RX", self.xmq_inds)
+        circuit.append("RZ", self.zmq_inds)
         circuit.append("TICK")
-        circuit += self._make_circuit_cnots(self.xmq_sites, 0, 1)
+        circuit += self._cnots(self.xmq_sites, 0, 1)
         circuit.append("TICK")
         return circuit
 
-    def _make_circuit_cnots(
+    def _cnots(
         self,
         offsets: Iterable[complex],
         ctrl: complex,
@@ -187,7 +227,7 @@ class HexColorCode_Superdense_Memory(Experiment):
         filtered_pairs = [
             pair
             for pair in candidate_pairs
-            if pair[0] in self.all_sites_set and pair[1] in self.all_sites_set
+            if pair[0] in self.all_sites and pair[1] in self.all_sites
         ]
         cnot_indices = [self.site2ind[q] for pair in filtered_pairs for q in pair]
         circuit = stim.Circuit()
