@@ -2,7 +2,7 @@
 phenomenological noise model.
 """
 
-from typing import Literal
+from typing import Literal, Iterable
 from functools import cached_property
 from dataclasses import dataclass
 
@@ -19,16 +19,19 @@ class _Tile:
     """
     Data class for a tile of the color code layout.
 
+    A site is represented by a complex number, where the real part is the horizontal
+    coordinate (left to right) and the imaginary part is the vertical coordinate
+    (top to bottom).
+
     Attributes
     ----------
-    vertices : tuple[complex, ...]
-        Real part: horizontal coordinate, left to right.
-        Imaginary part: vertical coordinate, top to down.
+    sites : tuple[complex, ...]
+        Sites of data qubits (vertices of the tile).
     color : int
         Color of the tile. 0: red, 1: green, 2: blue.
     """
 
-    vertices: tuple[complex, ...]
+    sites: tuple[complex, ...]
     color: int
 
 
@@ -53,7 +56,7 @@ class HexColorCode_Phenom_Memory(Experiment):
         d : int
             Code distance. Must be odd and at least 3.
         rounds : int
-            Number of rounds of stabilizer measurement. Must be at least 1. Every
+            Number of rounds of stabilizer measurement. Must be at least 2. Every
             round is preceded by depolarizing noise on data qubits. All rounds except
             the last one suffer from measurement errors.
         basis : Literal["X", "Y", "Z"]
@@ -67,8 +70,8 @@ class HexColorCode_Phenom_Memory(Experiment):
             raise ValueError("Distance d must be an odd number")
         if d < 3:
             raise ValueError("Distance d must be at least 3")
-        if rounds < 1:
-            raise ValueError("rounds must be at least 1")
+        if rounds < 2:
+            raise ValueError("rounds must be at least 2")
         if basis not in ("X", "Y", "Z"):
             raise ValueError("basis must be 'X', 'Y', or 'Z'")
 
@@ -84,29 +87,29 @@ class HexColorCode_Phenom_Memory(Experiment):
 
         self.tiles = self._build_tiles()
         assert 2 * len(self.tiles) == self.num_stabs
-        dq_sites_set = set(v for t in self.tiles for v in t.vertices)
+        dq_sites_set = set(q for t in self.tiles for q in t.sites)
         assert len(dq_sites_set) == self.num_dq
-        self.dq_sites = sorted(dq_sites_set, key=lambda v: (v.real, v.imag))
-        self.dq_site2ind = {v: i for i, v in enumerate(self.dq_sites)}
+        self.dq_sites = sorted(dq_sites_set, key=lambda q: (q.real, q.imag))
+        self.dq_site2ind = {q: i for i, q in enumerate(self.dq_sites)}
 
     def _build_tiles(self) -> list[_Tile]:
         width = 2 * self.d - 1  # width of the grid holding the data qubits
 
-        def in_bounds(vertex: complex) -> bool:
-            """Whether `vertex` is inside the triangular patch."""
-            if vertex.imag < 0:
+        def in_bounds(site: complex) -> bool:
+            """Whether `site` is inside the triangular patch."""
+            if site.imag < 0:
                 return False
-            if 2 * vertex.imag > 3 * vertex.real:
+            if 2 * site.imag > 3 * site.real:
                 return False
-            if 2 * vertex.imag > 3 * (width - vertex.real) - 2:
+            if 2 * site.imag > 3 * (width - site.real) - 2:
                 return False
             return True
 
         def make_tile(anchor: complex, color: int) -> _Tile:
             """Make a hexagon tile with leftmost vertex placed at `anchor`."""
-            vertices = tuple(anchor + o for o in _HEX_OFFSETS if in_bounds(anchor + o))
+            sites = tuple(anchor + o for o in _HEX_OFFSETS if in_bounds(anchor + o))
             return _Tile(
-                vertices=vertices,
+                sites=sites,
                 color=color,
             )
 
@@ -128,8 +131,8 @@ class HexColorCode_Phenom_Memory(Experiment):
         circuit = stim.Circuit()
 
         # Specify the coordinates of all data qubits.
-        for i, v in enumerate(self.dq_sites):
-            circuit.append("QUBIT_COORDS", i, (v.real, v.imag))
+        for i, q in enumerate(self.dq_sites):
+            circuit.append("QUBIT_COORDS", i, (q.real, q.imag))
 
         # Noiseless logical state preparation.
         circuit += self._make_circuit_noiseless_logical_meas()
@@ -171,14 +174,14 @@ class HexColorCode_Phenom_Memory(Experiment):
             for tile in self.tiles:
                 circuit.append(
                     "MPP",
-                    self._mpp_targets(tile.vertices, stab_basis),
+                    self._mpp_targets(tile.sites, stab_basis),
                     self.meas_error_rate if noisy else None,
                 )
         if record_detectors:
             offset = 0
             for stab_basis in ("X", "Z"):
                 for tile in self.tiles:
-                    center = sum(tile.vertices) / len(tile.vertices)
+                    center = sum(tile.sites) / len(tile.sites)
                     circuit.append(
                         "DETECTOR",
                         [
@@ -194,9 +197,9 @@ class HexColorCode_Phenom_Memory(Experiment):
         return circuit
 
     def _mpp_targets(
-        self, sites: list[complex], pauli: Literal["X", "Y", "Z"]
+        self, sites: Iterable[complex], pauli: Literal["X", "Y", "Z"]
     ) -> list[stim.GateTarget]:
-        indices = sorted(self.dq_site2ind[v] for v in sites)
+        indices = sorted(self.dq_site2ind[q] for q in sites)
         targets: list[stim.GateTarget] = []
         for i in indices:
             if len(targets) > 0:
