@@ -155,11 +155,21 @@ class HexColorCode_Superdense_Memory(Experiment):
         return dq_sites
 
     @cached_property
+    def dq_sites_sorted(self) -> list[complex]:
+        """Sorted list of sites of data qubits in the color code patch."""
+        return sorted(self.dq_sites, key=lambda q: (q.real, q.imag))
+
+    @cached_property
     def xmq_sites(self) -> set[complex]:
         """Set of sites of X-type measurement qubits in the color code patch."""
         xmq_sites = set(t.xmq_site for t in self.tiles)
         assert len(xmq_sites) == self.num_xstabs
         return xmq_sites
+
+    @cached_property
+    def xmq_sites_sorted(self) -> list[complex]:
+        """Sorted list of sites of X-type measurement qubits in the color code patch."""
+        return sorted(self.xmq_sites, key=lambda q: (q.real, q.imag))
 
     @cached_property
     def zmq_sites(self) -> set[complex]:
@@ -169,15 +179,30 @@ class HexColorCode_Superdense_Memory(Experiment):
         return zmq_sites
 
     @cached_property
+    def zmq_sites_sorted(self) -> list[complex]:
+        """Sorted list of sites of Z-type measurement qubits in the color code patch."""
+        return sorted(self.zmq_sites, key=lambda q: (q.real, q.imag))
+
+    @cached_property
     def all_sites(self) -> set[complex]:
         """Set of sites of all qubits in the color code patch."""
         return self.dq_sites | self.xmq_sites | self.zmq_sites
 
     @cached_property
+    def all_sites_sorted(self) -> list[complex]:
+        """Sorted list of sites of all qubits in the color code patch."""
+        return sorted(self.all_sites, key=lambda q: (q.real, q.imag))
+
+    @property
+    def ind2site(self) -> list[complex]:
+        """Alternative name for `all_sites_sorted`. A list functioning as a mapping from
+        qubit indices to their sites."""
+        return self.all_sites_sorted
+
+    @cached_property
     def site2ind(self) -> dict[complex, int]:
         """Dictionary mapping sites of qubits to their indices."""
-        sites_sorted = sorted(self.all_sites, key=lambda q: (q.real, q.imag))
-        return {q: i for i, q in enumerate(sites_sorted)}
+        return {q: i for i, q in enumerate(self.ind2site)}
 
     @cached_property
     def dq_inds(self) -> list[int]:
@@ -195,41 +220,97 @@ class HexColorCode_Superdense_Memory(Experiment):
         return sorted(self.site2ind[q] for q in self.zmq_sites)
 
     @cached_property
+    def mq_ind2tile(self) -> dict[int, _Tile]:
+        """Dictionary mapping indices of measurement qubits to their tiles."""
+        return {
+            self.site2ind[q]: t for t in self.tiles for q in [t.xmq_site, t.zmq_site]
+        }
+
+    @cached_property
     def circuit(self) -> stim.Circuit:
         circuit = stim.Circuit()
 
         # Specify the coordinates of all qubits.
-        for q in self.all_sites:
-            circuit.append("QUBIT_COORDS", self.site2ind[q], (q.real, q.imag))
+        for i, q in enumerate(self.ind2site):
+            circuit.append("QUBIT_COORDS", i, (q.real, q.imag))
 
         # Prepare the logical state.
         circuit.append(f"R{self.basis}", self.dq_inds)
-        circuit += self._stab_meas_circuit()
+        circuit += self._stab_meas_circuit(which_round="first")
 
         return circuit
 
-    def _stab_meas_circuit(self) -> stim.Circuit:
+    def _stab_meas_circuit(
+        self, *, which_round: Literal["first", "middle", "last"]
+    ) -> stim.Circuit:
         circuit = stim.Circuit()
         circuit.append("RX", self.xmq_inds)
         circuit.append("RZ", self.zmq_inds)
         circuit.append("TICK")
-        circuit += self._cnots(self.xmq_sites, 0, 1)
+        self._add_cnots(circuit, self.xmq_sites_sorted, 0, 1)
+        circuit.append("TICK")
+        self._add_cnots(circuit, self.xmq_sites_sorted, 1j, 0)
+        self._add_cnots(circuit, self.zmq_sites_sorted, 1j, 0)
+        circuit.append("TICK")
+        self._add_cnots(circuit, self.xmq_sites_sorted, -1, 0)
+        self._add_cnots(circuit, self.zmq_sites_sorted, 1, 0)
+        circuit.append("TICK")
+        self._add_cnots(circuit, self.xmq_sites_sorted, -1j, 0)
+        self._add_cnots(circuit, self.zmq_sites_sorted, -1j, 0)
+        circuit.append("TICK")
+        self._add_cnots(circuit, self.xmq_sites_sorted, 0, 1j)
+        self._add_cnots(circuit, self.zmq_sites_sorted, 0, 1j)
+        circuit.append("TICK")
+        self._add_cnots(circuit, self.xmq_sites_sorted, 0, -1)
+        self._add_cnots(circuit, self.zmq_sites_sorted, 0, 1)
+        circuit.append("TICK")
+        self._add_cnots(circuit, self.xmq_sites_sorted, 0, -1j)
+        self._add_cnots(circuit, self.zmq_sites_sorted, 0, -1j)
+        circuit.append("TICK")
+        self._add_cnots(circuit, self.xmq_sites_sorted, 0, 1)
+        circuit.append("TICK")
+        circuit.append("MX", self.xmq_inds)
+        circuit.append("MZ", self.zmq_inds)
+        self._add_detectors(circuit, which_round=which_round)
         circuit.append("TICK")
         return circuit
 
-    def _cnots(
+    def _add_cnots(
         self,
+        circuit: stim.Circuit,
         offsets: Iterable[complex],
         ctrl: complex,
         tgt: complex,
-    ) -> stim.Circuit:
+    ) -> None:
         candidate_pairs = [(o + ctrl, o + tgt) for o in offsets]
         filtered_pairs = [
             pair
             for pair in candidate_pairs
             if pair[0] in self.all_sites and pair[1] in self.all_sites
         ]
-        cnot_indices = [self.site2ind[q] for pair in filtered_pairs for q in pair]
-        circuit = stim.Circuit()
-        circuit.append("CNOT", cnot_indices)
-        return circuit
+        circuit.append(
+            "CNOT", [self.site2ind[q] for pair in filtered_pairs for q in pair]
+        )
+
+    def _add_detectors(
+        self, circuit: stim.Circuit, *, which_round: Literal["first", "middle", "last"]
+    ) -> None:
+        if which_round == "first":
+            if self.basis == "X":
+                for k, i in enumerate(self.xmq_inds):
+                    mq_site = self.ind2site[i]
+                    circuit.append(
+                        "DETECTOR",
+                        [stim.target_rec(-self.num_xstabs - self.num_zstabs + k)],
+                        (mq_site.real, mq_site.imag, 0),
+                    )
+            else:  # self.basis == "Z"
+                for k, i in enumerate(self.zmq_inds):
+                    mq_site = self.ind2site[i]
+                    circuit.append(
+                        "DETECTOR",
+                        [stim.target_rec(-self.num_zstabs + k)],
+                        (mq_site.real, mq_site.imag, 0),
+                    )
+
+        circuit.append("SHIFT_COORDS", [], (0, 0, 1))

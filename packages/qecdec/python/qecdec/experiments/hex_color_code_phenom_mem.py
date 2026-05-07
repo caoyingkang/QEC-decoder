@@ -184,7 +184,9 @@ class HexColorCode_Phenom_Memory(Experiment):
         circuit.append("TICK")
         return circuit
 
-    def _stab_meas_circuit(self, noisy: bool, record_detectors: bool) -> stim.Circuit:
+    def _stab_meas_circuit(
+        self, *, noisy: bool, record_detectors: bool
+    ) -> stim.Circuit:
         circuit = stim.Circuit()
         for stab_basis in ("X", "Z"):
             for tile in self.tiles:
