@@ -8,6 +8,7 @@ from .membp import MemBPDecoder
 from .dmembp import DMemBPDecoder
 from .dmemoffsetbp import DMemOffsetBPDecoder
 from .serialbp import SerialBPDecoder
+from .ens_serial_bp import EnsSerialBPDecoder
 from .bposd import BPOSDDecoder
 from .relaybp import RelayBPDecoder
 from .mwpm import MWPMDecoder
@@ -20,6 +21,7 @@ DECODER_NAME_TO_CLASS: dict[str, type[Decoder]] = {
     "DMemBP": DMemBPDecoder,
     "DMemOffsetBP": DMemOffsetBPDecoder,
     "SerialBP": SerialBPDecoder,
+    "EnsSerialBP": EnsSerialBPDecoder,
     "BPOSD": BPOSDDecoder,
     "RelayBP": RelayBPDecoder,
     "MWPM": MWPMDecoder,

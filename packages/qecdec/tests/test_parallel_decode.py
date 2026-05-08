@@ -4,7 +4,13 @@ import unittest
 
 import numpy as np
 from qecdec.experiments import RotatedSurfaceCode_Memory
-from qecdec.decoders import BPDecoder, MemBPDecoder, DMemBPDecoder, DMemOffsetBPDecoder
+from qecdec.decoders import (
+    BPDecoder,
+    MemBPDecoder,
+    DMemBPDecoder,
+    DMemOffsetBPDecoder,
+    SerialBPDecoder,
+)
 
 
 class TestParallelDecode(unittest.TestCase):
@@ -119,6 +125,50 @@ class TestParallelDecode(unittest.TestCase):
         np.testing.assert_array_equal(ehat_seq, ehat_par)
         np.testing.assert_array_equal(conv_seq, conv_par)
         np.testing.assert_array_equal(iters_seq, iters_par)
+
+    def test_serialbp_decode_batch(self):
+        dec = SerialBPDecoder(self.pcm, self.prior, max_iter=50)
+        result_seq = dec.decode_batch(self.syndromes, parallel=False)
+        result_par = dec.decode_batch(self.syndromes, parallel=True)
+        np.testing.assert_array_equal(result_seq, result_par)
+
+    def test_serialbp_decode_batch_detailed(self):
+        dec = SerialBPDecoder(self.pcm, self.prior, max_iter=20)
+        ehat_seq, conv_seq, iters_seq = dec.decode_batch_detailed(
+            self.syndromes, parallel=False
+        )
+        ehat_par, conv_par, iters_par = dec.decode_batch_detailed(
+            self.syndromes, parallel=True
+        )
+        np.testing.assert_array_equal(ehat_seq, ehat_par)
+        np.testing.assert_array_equal(conv_seq, conv_par)
+        np.testing.assert_array_equal(iters_seq, iters_par)
+
+    def test_serialbp_custom_vn_order(self):
+        rng = np.random.default_rng(0)
+        order = rng.permutation(self.expmt.num_error_mechanisms).astype(np.int64)
+        dec_default = SerialBPDecoder(self.pcm, self.prior, max_iter=50)
+        dec_perm = SerialBPDecoder(
+            self.pcm, self.prior, max_iter=50, vn_order=order
+        )
+        # Both decoders run without error and produce valid-shaped outputs.
+        ehat_default = dec_default.decode_batch(self.syndromes, parallel=False)
+        ehat_perm = dec_perm.decode_batch(self.syndromes, parallel=False)
+        assert ehat_default.shape == ehat_perm.shape == self.syndromes.shape[:1] + (
+            self.expmt.num_error_mechanisms,
+        )
+
+    def test_serialbp_factory(self):
+        from qecdec.decoders import create_decoder, ALL_DECODERS
+
+        assert "SerialBP" in ALL_DECODERS
+        dec = create_decoder(
+            "SerialBP", pcm=self.pcm, prior=self.prior, max_iter=20
+        )
+        ehat = dec.decode_batch(self.syndromes, parallel=False)
+        assert ehat.shape == self.syndromes.shape[:1] + (
+            self.expmt.num_error_mechanisms,
+        )
 
 
 if __name__ == "__main__":
