@@ -289,7 +289,7 @@ impl SerialBPDecoderRust {
         Bound<'py, PyArray1<i64>>,
     )> {
         let syndrome_batch = syndrome_batch.as_array();
-        let batch_size: usize = syndrome_batch.nrows();
+        let batch_size = syndrome_batch.nrows();
 
         let mut ehat_batch = Array2::<u8>::zeros((batch_size, self.base.num_vars));
         let mut converged_mask = Vec::<bool>::with_capacity(batch_size);
