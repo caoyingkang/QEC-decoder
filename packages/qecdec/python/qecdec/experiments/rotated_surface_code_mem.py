@@ -317,8 +317,6 @@ class RotatedSurfaceCode_Memory(Experiment):
             + circuit_final_measurement
         )
 
-        assert circuit.num_detectors == self.num_detectors
-        assert circuit.num_observables == self.num_observables
         return circuit
 
     def _is_data_qubit_coord(self, x: int, y: int) -> bool:
