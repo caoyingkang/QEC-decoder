@@ -41,6 +41,10 @@ def extract_error_mechanisms_from_dem(
                     pass
                 else:
                     raise RuntimeError("Not supposed to be here")
+            if len(dets) == 0 and len(obsers) != 0:
+                raise RuntimeError(
+                    f"Found an error mechanism that flips logical observables but no detectors. Instruction: {instruction}"
+                )
             eff = (tuple(sorted(dets)), tuple(sorted(obsers)))
             if (
                 eff in eff2prob
