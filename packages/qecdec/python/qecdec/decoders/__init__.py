@@ -5,6 +5,7 @@ from .bp import BPDecoder
 from .membp import MemBPDecoder
 from .dmembp import DMemBPDecoder
 from .dmemoffsetbp import DMemOffsetBPDecoder
+from .serialbp import SerialBPDecoder
 from .bposd import BPOSDDecoder
 from .mwpm import MWPMDecoder
 from .relaybp import RelayBPDecoder
@@ -23,6 +24,7 @@ __all__ = [
     "MemBPDecoder",
     "DMemBPDecoder",
     "DMemOffsetBPDecoder",
+    "SerialBPDecoder",
     "BPOSDDecoder",
     "MWPMDecoder",
     "RelayBPDecoder",

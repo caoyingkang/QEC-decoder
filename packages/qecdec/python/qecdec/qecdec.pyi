@@ -104,7 +104,9 @@ class BPDecoderRust:
         """
         ...
 
-    def decode_batch(self, syndrome_batch: Bit2DArray, *, parallel: bool = False) -> Bit2DArray:
+    def decode_batch(
+        self, syndrome_batch: Bit2DArray, *, parallel: bool = False
+    ) -> Bit2DArray:
         """Decode a batch of syndrome vectors.
 
         Parameters
@@ -231,7 +233,9 @@ class DMemBPDecoderRust:
         """
         ...
 
-    def decode_batch(self, syndrome_batch: Bit2DArray, *, parallel: bool = False) -> Bit2DArray:
+    def decode_batch(
+        self, syndrome_batch: Bit2DArray, *, parallel: bool = False
+    ) -> Bit2DArray:
         """Decode a batch of syndrome vectors.
 
         Parameters
@@ -364,7 +368,9 @@ class DMemOffsetBPDecoderRust:
         """
         ...
 
-    def decode_batch(self, syndrome_batch: Bit2DArray, *, parallel: bool = False) -> Bit2DArray:
+    def decode_batch(
+        self, syndrome_batch: Bit2DArray, *, parallel: bool = False
+    ) -> Bit2DArray:
         """Decode a batch of syndrome vectors.
 
         Parameters
@@ -405,6 +411,133 @@ class DMemOffsetBPDecoderRust:
 
         decoding_iters : ndarray
             Number of BP iterations actually run in each shot, shape=(batch_size,), dtype=int64.
+        """
+        ...
+
+class SerialBPDecoderRust:
+    """Serial-schedule min-sum belief propagation decoder (Rust implementation)."""
+
+    def __init__(
+        self,
+        pcm: Bit2DArray,
+        prior: Float1DArray,
+        *,
+        vn_order: Int1DArray,
+        max_iter: int,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        pcm : ndarray
+            Parity-check matrix, shape=(num_chks, num_vars), dtype=uint8.
+            Each row (check) must have at least two nonzero entries; each column
+            (variable) must have at least one nonzero entry.
+
+        prior : ndarray
+            Prior error probabilities, shape=(num_vars,), dtype=float64.
+
+        vn_order : ndarray
+            Permutation of variable nodes, shape=(num_vars,), dtype=int64.
+
+        max_iter : int
+            Maximum number of iterations (one iteration = one full pass over
+            `vn_order`).
+        """
+        ...
+
+    def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
+        """Decode a syndrome vector.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector, shape=(num_chks,), dtype=uint8.
+
+        Returns
+        -------
+        ndarray
+            Estimated error vector, shape=(num_vars,), dtype=uint8.
+        """
+        ...
+
+    def decode_detailed(
+        self,
+        syndrome: Bit1DArray,
+        *,
+        record_llr_history: bool,
+    ) -> DecodeDetailedResult:
+        """Decode a syndrome vector with detailed diagnostics.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector, shape=(num_chks,), dtype=uint8.
+
+        record_llr_history : bool
+            Whether to return the history of posterior LLR values
+            (one snapshot per iteration, taken at the end of each iteration).
+
+        Returns
+        -------
+        ehat : ndarray
+            Estimated error vector, shape=(num_vars,), dtype=uint8.
+
+        converged : bool
+            Whether the decoder converged (i.e. the syndrome was satisfied).
+
+        num_iter : int
+            The number of iterations actually run.
+
+        llr_hist : ndarray or None
+            If `record_llr_history` is True: posterior LLR values at the end of
+            each iteration, shape=(num_iter, num_vars), dtype=float64;
+            otherwise, `None`.
+        """
+        ...
+
+    def decode_batch(
+        self, syndrome_batch: Bit2DArray, *, parallel: bool = False
+    ) -> Bit2DArray:
+        """Decode a batch of syndrome vectors.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        parallel : bool
+            Whether to use multithreaded decoding. Default is False.
+
+        Returns
+        -------
+        ndarray
+            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
+        """
+        ...
+
+    def decode_batch_detailed(
+        self, syndrome_batch: Bit2DArray, *, parallel: bool = False
+    ) -> DecodeBatchDetailedResult:
+        """Decode a batch of syndrome vectors with detailed diagnostics.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        parallel : bool
+            Whether to use multithreaded decoding. Default is False.
+
+        Returns
+        -------
+        ehat_batch : ndarray
+            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
+
+        converged_mask : ndarray
+            Whether the decoder converged in each shot, shape=(batch_size,), dtype=bool.
+
+        decoding_iters : ndarray
+            Number of iterations actually run in each shot, shape=(batch_size,), dtype=int64.
         """
         ...
 
@@ -456,5 +589,6 @@ __all__ = [
     "BPDecoderRust",
     "DMemBPDecoderRust",
     "DMemOffsetBPDecoderRust",
+    "SerialBPDecoderRust",
     "UnionFindDecoderRust",
 ]
