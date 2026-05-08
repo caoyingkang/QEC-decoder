@@ -11,7 +11,6 @@ from ..types import (
     Int1DArray,
     Int2DArray,
     Float1DArray,
-    Float2DArray,
 )
 
 
