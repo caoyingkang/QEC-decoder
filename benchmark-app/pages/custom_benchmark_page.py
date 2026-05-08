@@ -203,7 +203,9 @@ p_list = render_p_list_selection()
 collector_params = _render_sidebar_collector_selection()
 
 qec_params = render_qec_selection()
-load_circuit_from_file = qec_params.code.startswith("BB_")
+load_circuit_from_file = (
+    qec_params.code.startswith("BB_") or qec_params.code == "HexColorCode"
+)
 if load_circuit_from_file:
     validate_stim_files(qec_params, p_list)
 

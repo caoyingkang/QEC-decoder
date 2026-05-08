@@ -26,9 +26,14 @@ def create_experiment(
     """Create a QEC experiment from the given parameters."""
     if load_circuit_from_file:
         circuit_file = _get_circuit_dir(qec_params) / f"error_rate={p}.stim"
-        return StimFileExperiment.load_from_file(
-            circuit_file, detector_basis=qec_params.basis
-        )
+        if qec_params.code.startswith("BB_"):
+            return StimFileExperiment.load_from_file(
+                circuit_file, detector_basis=qec_params.basis
+            )
+        elif qec_params.code == "HexColorCode":
+            StimFileExperiment.load_from_file(circuit_file)
+        else:
+            raise NotImplementedError(f"code={qec_params.code} not supported")
     else:
         code = qec_params.code
         noise_model = qec_params.noise_model

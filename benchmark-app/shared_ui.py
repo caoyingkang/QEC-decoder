@@ -24,6 +24,10 @@ from constants import (
     DEFAULT_RELAYBP_GDI,
     DEFAULT_BPOSD_MAX_ITER,
     DEFAULT_BPOSD_OSD_ORDER,
+    DEFAULT_ENS_SERIAL_BP_MAX_ITER,
+    DEFAULT_ENS_SERIAL_BP_ENSEMBLE_SIZE,
+    DEFAULT_ENS_SERIAL_BP_TOPK,
+    DEFAULT_ENS_SERIAL_BP_SEED,
     DEFAULT_PYTORCH_MAX_ITER,
     DEFAULT_P_LIST,
     DEFAULT_SHOTS_CAP,
@@ -52,7 +56,7 @@ def render_baselines_selection(
     st.subheader("Select baseline decoder(s)")
     if qec_params.code == "RotatedSurfaceCode":
         available_decoders = BASELINE_DECODERS_GRAPHLIKE
-    elif qec_params.code.startswith("BB_"):
+    elif qec_params.code.startswith("BB_") or qec_params.code == "HexColorCode":
         available_decoders = BASELINE_DECODERS_HYPERGRAPH
     else:
         raise ValueError(f"Unknown code: {qec_params.code}")
@@ -183,6 +187,48 @@ def render_baselines_selection(
                 "max_iter_per_relay": max_iter_per_relay,
                 "stop_nconv": stop_nconv,
                 "num_indep_decoders": num_indep_decoders,
+            }
+        elif name == "EnsSerialBP":
+            with st.expander("EnsSerialBP configuration", expanded=True):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    max_iter = st.number_input(
+                        "max_iter",
+                        value=DEFAULT_ENS_SERIAL_BP_MAX_ITER,
+                        min_value=1,
+                        key="ens_serial_bp_max_iter",
+                        help="Max number of iterations (one iteration = one full pass of all VNs).",
+                    )
+                with col2:
+                    ensemble_size = st.number_input(
+                        "ensemble_size",
+                        value=DEFAULT_ENS_SERIAL_BP_ENSEMBLE_SIZE,
+                        min_value=1,
+                        key="ens_serial_bp_ensemble_size",
+                        help="Number of serial-schedule BP members run in parallel.",
+                    )
+                with col3:
+                    topk = st.number_input(
+                        "topk",
+                        value=min(DEFAULT_ENS_SERIAL_BP_TOPK, ensemble_size),
+                        min_value=1,
+                        max_value=ensemble_size,
+                        key="ens_serial_bp_topk",
+                        help="Stop once this many members converge.",
+                    )
+                col4, _, _ = st.columns(3)
+                with col4:
+                    seed = st.number_input(
+                        "random seed",
+                        value=DEFAULT_ENS_SERIAL_BP_SEED,
+                        key="ens_serial_bp_seed",
+                        help="Random seed for generating permutations of VNs.",
+                    )
+            baseline_decoder_params["EnsSerialBP"] = {
+                "max_iter": max_iter,
+                "ensemble_size": ensemble_size,
+                "topk": topk,
+                "seed": seed,
             }
         elif name == "BPOSD":
             with st.expander("BPOSD configuration", expanded=True):

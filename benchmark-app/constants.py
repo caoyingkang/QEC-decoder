@@ -8,7 +8,7 @@ BASELINES_CSV_DIR = BENCHMARK_APP_ROOT / "baselines-results"
 TORCH_RUNS_ROOT = REPO_ROOT / "torchdecoder" / "runs"
 CIRCUITS_ROOT = REPO_ROOT / "circuits"
 
-DEFAULT_P_LIST = [0.002, 0.003, 0.004, 0.005]  # [0.004, 0.006, 0.008, 0.01]
+DEFAULT_P_LIST = [0.001, 0.002, 0.003, 0.004, 0.005]  # [0.004, 0.006, 0.008, 0.01]
 
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_SHOTS_CAP = 100_000_000
@@ -26,6 +26,20 @@ DEFAULT_MEMBP_GAMMA: dict[QECParams, float] = {
         rounds=9,
         basis="Z",
     ): 0.1,
+    QECParams(
+        code="RotatedSurfaceCode",
+        noise_model="Phenomenological",
+        d=11,
+        rounds=11,
+        basis="Z",
+    ): 0.55,
+    QECParams(
+        code="RotatedSurfaceCode",
+        noise_model="Phenomenological",
+        d=11,
+        rounds=11,
+        basis="X",
+    ): 0.55,
     QECParams(
         code="RotatedSurfaceCode",
         noise_model="CircuitLevel",
@@ -86,6 +100,20 @@ DEFAULT_RELAYBP_GDI: dict[QECParams, tuple[float, float]] = {
     ): (-0.12862588829501195, 0.6717325722483108),
     QECParams(
         code="RotatedSurfaceCode",
+        noise_model="Phenomenological",
+        d=11,
+        rounds=11,
+        basis="Z",
+    ): (-0.2249502476717961, 0.7537800632074495),
+    QECParams(
+        code="RotatedSurfaceCode",
+        noise_model="Phenomenological",
+        d=11,
+        rounds=11,
+        basis="X",
+    ): (-0.2249502476717961, 0.7537800632074495),
+    QECParams(
+        code="RotatedSurfaceCode",
         noise_model="CircuitLevel",
         d=11,
         rounds=11,
@@ -131,6 +159,11 @@ DEFAULT_RELAYBP_GDI: dict[QECParams, tuple[float, float]] = {
 DEFAULT_BPOSD_MAX_ITER = DEFAULT_BP_MAX_ITER
 DEFAULT_BPOSD_OSD_ORDER = 10
 
+DEFAULT_ENS_SERIAL_BP_MAX_ITER = 20
+DEFAULT_ENS_SERIAL_BP_ENSEMBLE_SIZE = 32
+DEFAULT_ENS_SERIAL_BP_TOPK = 5
+DEFAULT_ENS_SERIAL_BP_SEED = 42
+
 CODE_NOISE_PAIR_TO_D_ROUNDS_BASIS_TRIPLES: dict[
     tuple[str, str], list[tuple[int, int, str]]
 ] = {
@@ -169,6 +202,10 @@ CODE_NOISE_PAIR_TO_D_ROUNDS_BASIS_TRIPLES: dict[
     ("BB_288_12_18", "CircuitLevel"): [
         (18, 18, "Z"),
         (18, 18, "X"),
+    ],
+    ("HexColorCode", "Superdense"): [
+        (11, 11, "Z"),
+        (11, 11, "X"),
     ],
 }
 
