@@ -1,4 +1,5 @@
 use crate::bp_base::BPBase;
+use crate::serial_bp_kernel::run_serial_bp_iteration;
 use numpy::ndarray::{Array1, Array2, ArrayView1};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
@@ -18,63 +19,21 @@ fn decode_single(
 ) -> Array1<u8> {
     base.init_messages(chk_inmsg);
     // Estimated error vector
-    let mut ehat = Array1::<u8>::zeros(base.num_vars);
+    let mut ehat = vec![0_u8; base.num_vars];
     // Posterior LLR values
     let mut llr = base.prior_llr.to_vec();
 
     // Main BP iteration loop.
     for _ in 0..max_iter {
-        for &v in vn_order.iter() {
-            // Update c->v message for all neighbor c of v.
-            for (k, &c) in base.var_nbrs[v].iter().enumerate() {
-                let v_pos = base.var_nbr_pos[v][k];
-                let inmsg = &chk_inmsg[c];
-                let mut sgnpar = synd[c];
-                let mut minabs = f64::MAX;
-                for (kk, &val) in inmsg.iter().enumerate() {
-                    if kk == v_pos {
-                        continue;
-                    }
-                    let s: u8 = if val < 0.0 { 1 } else { 0 };
-                    sgnpar ^= s;
-                    let val_abs = val.abs();
-                    if val_abs < minabs {
-                        minabs = val_abs;
-                    }
-                }
-                let msg = if sgnpar == 0 { minabs } else { -minabs };
-                var_inmsg[v][k] = msg;
-            }
-
-            // Update posterior LLR and hard decision at VN v.
-            llr[v] = base.prior_llr[v] + var_inmsg[v].iter().sum::<f64>();
-            ehat[v] = if llr[v] < 0.0 { 1 } else { 0 };
-
-            // Update v->c message for all neighbor c of v.
-            for (k, &c) in base.var_nbrs[v].iter().enumerate() {
-                let v_pos = base.var_nbr_pos[v][k];
-                chk_inmsg[c][v_pos] = llr[v] - var_inmsg[v][k];
-            }
-        }
-
-        // Check if the syndrome is satisfied. If so, early stop.
-        let mut satisfied = true;
-        for c in 0..base.num_chks {
-            let mut parity = 0_u8;
-            for &v in base.chk_nbrs[c].iter() {
-                parity ^= ehat[v];
-            }
-            if parity != synd[c] {
-                satisfied = false;
-                break;
-            }
-        }
-        if satisfied {
+        let converged = run_serial_bp_iteration(
+            base, vn_order, chk_inmsg, var_inmsg, &mut llr, &mut ehat, synd,
+        );
+        if converged {
             break;
         }
     }
 
-    ehat
+    Array1::from_vec(ehat)
 }
 
 /// Decode a single syndrome vector with detailed diagnostics.
@@ -89,7 +48,7 @@ fn decode_single_detailed(
 ) -> (Array1<u8>, bool, usize, Option<Array2<f64>>) {
     base.init_messages(chk_inmsg);
     // Estimated error vector.
-    let mut ehat = Array1::<u8>::zeros(base.num_vars);
+    let mut ehat = vec![0_u8; base.num_vars];
     // Posterior LLR values.
     let mut llr = base.prior_llr.to_vec();
     // History of posterior LLR values, stored as a flattened vector.
@@ -100,59 +59,13 @@ fn decode_single_detailed(
     let mut converged = false;
     while num_iter < max_iter {
         num_iter += 1;
-
-        for &v in vn_order.iter() {
-            // Update c->v message for all neighbor c of v.
-            for (k, &c) in base.var_nbrs[v].iter().enumerate() {
-                let v_pos = base.var_nbr_pos[v][k];
-                let inmsg = &chk_inmsg[c];
-                let mut sgnpar = synd[c];
-                let mut minabs = f64::MAX;
-                for (kk, &val) in inmsg.iter().enumerate() {
-                    if kk == v_pos {
-                        continue;
-                    }
-                    let s: u8 = if val < 0.0 { 1 } else { 0 };
-                    sgnpar ^= s;
-                    let val_abs = val.abs();
-                    if val_abs < minabs {
-                        minabs = val_abs;
-                    }
-                }
-                let msg = if sgnpar == 0 { minabs } else { -minabs };
-                var_inmsg[v][k] = msg;
-            }
-
-            // Update posterior LLR and hard decision at VN v.
-            llr[v] = base.prior_llr[v] + var_inmsg[v].iter().sum::<f64>();
-            ehat[v] = if llr[v] < 0.0 { 1 } else { 0 };
-
-            // Update v->c message for all neighbor c of v.
-            for (k, &c) in base.var_nbrs[v].iter().enumerate() {
-                let v_pos = base.var_nbr_pos[v][k];
-                chk_inmsg[c][v_pos] = llr[v] - var_inmsg[v][k];
-            }
-        }
-
-        // Record LLR values.
+        converged = run_serial_bp_iteration(
+            base, vn_order, chk_inmsg, var_inmsg, &mut llr, &mut ehat, synd,
+        );
         if record_llr_history {
             llr_hist_flattened.extend_from_slice(&llr);
         }
-
-        // Check if the syndrome is satisfied. If so, early stop.
-        let mut satisfied = true;
-        for c in 0..base.num_chks {
-            let mut parity = 0_u8;
-            for &v in base.chk_nbrs[c].iter() {
-                parity ^= ehat[v];
-            }
-            if parity != synd[c] {
-                satisfied = false;
-                break;
-            }
-        }
-        if satisfied {
-            converged = true;
+        if converged {
             break;
         }
     }
@@ -164,7 +77,7 @@ fn decode_single_detailed(
         None
     };
 
-    (ehat, converged, num_iter, llr_hist)
+    (Array1::from_vec(ehat), converged, num_iter, llr_hist)
 }
 
 /// Belief Propagation decoder with serial message passing schedule and min-sum CN update rule.
