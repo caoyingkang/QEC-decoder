@@ -82,6 +82,13 @@ DEFAULT_MEMBP_GAMMA: dict[QECParams, float] = {
         rounds=18,
         basis="X",
     ): 0.25,
+    QECParams(
+        code="HexColorCode",
+        noise_model="Phenomenological",
+        d=11,
+        rounds=11,
+        basis="Z",
+    ): 0.55,
 }
 
 DEFAULT_RELAYBP_PRE_ITER = DEFAULT_BP_MAX_ITER
@@ -154,6 +161,13 @@ DEFAULT_RELAYBP_GDI: dict[QECParams, tuple[float, float]] = {
         rounds=18,
         basis="X",
     ): (-0.15590331822127088, 0.753307573477873),
+    QECParams(
+        code="HexColorCode",
+        noise_model="Phenomenological",
+        d=11,
+        rounds=11,
+        basis="Z",
+    ): (-0.21295457674166532, 0.697918233656232),
 }
 
 DEFAULT_BPOSD_MAX_ITER = DEFAULT_BP_MAX_ITER
@@ -202,6 +216,9 @@ CODE_NOISE_PAIR_TO_D_ROUNDS_BASIS_TRIPLES: dict[
     ("BB_288_12_18", "CircuitLevel"): [
         (18, 18, "Z"),
         (18, 18, "X"),
+    ],
+    ("HexColorCode", "Phenomenological"): [
+        (11, 11, "Z"),
     ],
     ("HexColorCode", "Superdense"): [
         (5, 5, "Z"),

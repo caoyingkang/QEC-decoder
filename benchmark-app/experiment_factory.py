@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from qecdec.experiments import RotatedSurfaceCode_Memory, StimFileExperiment
+from qecdec.experiments import (
+    RotatedSurfaceCode_Memory,
+    HexColorCode_Phenom_Memory,
+    StimFileExperiment,
+)
 from qecdec.experiments.base import Experiment
 
 from bench.params import QECParams
@@ -55,6 +59,14 @@ def create_experiment(
                 meas_error_rate=p,
                 gate1_error_rate=p,
                 gate2_error_rate=p,
+            )
+        elif code == "HexColorCode" and noise_model == "Phenomenological":
+            return HexColorCode_Phenom_Memory(
+                d=qec_params.d,
+                rounds=qec_params.rounds,
+                basis=qec_params.basis,
+                depolarizing_error_rate=p,
+                meas_error_rate=p,
             )
         else:
             raise NotImplementedError(
