@@ -204,6 +204,12 @@ CODE_NOISE_PAIR_TO_D_ROUNDS_BASIS_TRIPLES: dict[
         (18, 18, "X"),
     ],
     ("HexColorCode", "Superdense"): [
+        (5, 5, "Z"),
+        (5, 5, "X"),
+        (7, 7, "Z"),
+        (7, 7, "X"),
+        (9, 9, "Z"),
+        (9, 9, "X"),
         (11, 11, "Z"),
         (11, 11, "X"),
     ],

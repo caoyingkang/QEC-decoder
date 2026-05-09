@@ -31,7 +31,7 @@ def create_experiment(
                 circuit_file, detector_basis=qec_params.basis
             )
         elif qec_params.code == "HexColorCode":
-            StimFileExperiment.load_from_file(circuit_file)
+            return StimFileExperiment.load_from_file(circuit_file)
         else:
             raise NotImplementedError(f"code={qec_params.code} not supported")
     else:
