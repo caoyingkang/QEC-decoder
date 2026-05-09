@@ -275,7 +275,7 @@ class HexColorCode_Superdense_Memory(Experiment):
             circuit += (self.rounds - 2) * self._stab_meas_circuit(which_round="middle")
 
         # Last round + logical measurement.
-        circuit += first_round.inverse()
+        # TODO
 
         return circuit
 
@@ -392,7 +392,7 @@ class HexColorCode_Superdense_Memory(Experiment):
                 )
 
         elif which_round == "last":
-            pass
+            pass  # TODO
 
         else:
             raise ValueError(f"Invalid argument: {which_round=}")
