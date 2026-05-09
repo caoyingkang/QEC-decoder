@@ -137,18 +137,22 @@ class HexColorCode_Phenom_Memory(Experiment):
         return sites
 
     @cached_property
+    def sites_sorted(self) -> list[complex]:
+        """Sorted list of sites of (data) qubits in the color code patch."""
+        return sorted(self.sites, key=lambda q: (q.real, q.imag))
+
+    @cached_property
     def site2ind(self) -> dict[complex, int]:
         """Dictionary mapping sites of qubits to their indices."""
-        sites_sorted = sorted(self.sites, key=lambda q: (q.real, q.imag))
-        return {q: i for i, q in enumerate(sites_sorted)}
+        return {q: i for i, q in enumerate(self.sites_sorted)}
 
     @cached_property
     def circuit(self) -> stim.Circuit:
         circuit = stim.Circuit()
 
         # Specify the coordinates of all data qubits.
-        for q in self.sites:
-            circuit.append("QUBIT_COORDS", self.site2ind[q], (q.real, q.imag))
+        for i, q in enumerate(self.sites_sorted):
+            circuit.append("QUBIT_COORDS", i, (q.real, q.imag))
 
         # Noiseless logical state preparation.
         circuit += self._noiseless_logical_meas()
