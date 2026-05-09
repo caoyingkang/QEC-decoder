@@ -109,6 +109,11 @@ class HexColorCode_Superdense_Memory(Experiment):
         return 3 * (self.d - 1) * (self.d + 1) // 8
 
     @cached_property
+    def num_stabs(self) -> int:
+        """Number of stabilizer generators."""
+        return self.num_xstabs + self.num_zstabs
+
+    @cached_property
     def tiles(self) -> list[_Tile]:
         """List of tiles of the color code patch."""
         width = 2 * self.d - 1  # width of the grid holding the data qubits
@@ -160,6 +165,12 @@ class HexColorCode_Superdense_Memory(Experiment):
         return sorted(self.dq_sites, key=lambda q: (q.real, q.imag))
 
     @cached_property
+    def dq_site2relind(self) -> dict[complex, int]:
+        """Dictionary mapping sites of data qubits to their relative indices
+        in the list `dq_sites_sorted`."""
+        return {q: i for i, q in enumerate(self.dq_sites_sorted)}
+
+    @cached_property
     def xmq_sites(self) -> set[complex]:
         """Set of sites of X-type measurement qubits in the color code patch."""
         xmq_sites = set(t.xmq_site for t in self.tiles)
@@ -172,6 +183,12 @@ class HexColorCode_Superdense_Memory(Experiment):
         return sorted(self.xmq_sites, key=lambda q: (q.real, q.imag))
 
     @cached_property
+    def xmq_site2relind(self) -> dict[complex, int]:
+        """Dictionary mapping sites of X-type measurement qubits to their relative indices
+        in the list `xmq_sites_sorted`."""
+        return {q: i for i, q in enumerate(self.xmq_sites_sorted)}
+
+    @cached_property
     def zmq_sites(self) -> set[complex]:
         """Set of sites of Z-type measurement qubits in the color code patch."""
         zmq_sites = set(t.zmq_site for t in self.tiles)
@@ -182,6 +199,12 @@ class HexColorCode_Superdense_Memory(Experiment):
     def zmq_sites_sorted(self) -> list[complex]:
         """Sorted list of sites of Z-type measurement qubits in the color code patch."""
         return sorted(self.zmq_sites, key=lambda q: (q.real, q.imag))
+
+    @cached_property
+    def zmq_site2relind(self) -> dict[complex, int]:
+        """Dictionary mapping sites of Z-type measurement qubits to their relative indices
+        in the list `zmq_sites_sorted`."""
+        return {q: i for i, q in enumerate(self.zmq_sites_sorted)}
 
     @cached_property
     def all_sites(self) -> set[complex]:
@@ -207,17 +230,23 @@ class HexColorCode_Superdense_Memory(Experiment):
     @cached_property
     def dq_inds(self) -> list[int]:
         """(Sorted) list of indices of data qubits."""
-        return sorted(self.site2ind[q] for q in self.dq_sites)
+        dq_inds = [self.site2ind[q] for q in self.dq_sites_sorted]
+        assert dq_inds == sorted(dq_inds)
+        return dq_inds
 
     @cached_property
     def xmq_inds(self) -> list[int]:
         """(Sorted) list of indices of X-type measurement qubits."""
-        return sorted(self.site2ind[q] for q in self.xmq_sites)
+        xmq_inds = [self.site2ind[q] for q in self.xmq_sites_sorted]
+        assert xmq_inds == sorted(xmq_inds)
+        return xmq_inds
 
     @cached_property
     def zmq_inds(self) -> list[int]:
         """(Sorted) list of indices of Z-type measurement qubits."""
-        return sorted(self.site2ind[q] for q in self.zmq_sites)
+        zmq_inds = [self.site2ind[q] for q in self.zmq_sites_sorted]
+        assert zmq_inds == sorted(zmq_inds)
+        return zmq_inds
 
     @cached_property
     def mq_ind2tile(self) -> dict[int, _Tile]:
@@ -235,8 +264,18 @@ class HexColorCode_Superdense_Memory(Experiment):
             circuit.append("QUBIT_COORDS", i, (q.real, q.imag))
 
         # Prepare the logical state.
-        circuit.append(f"R{self.basis}", self.dq_inds)
-        circuit += self._stab_meas_circuit(which_round="first")
+        first_round = stim.Circuit()
+        first_round.append(f"R{self.basis}", self.dq_inds)
+        first_round += self._stab_meas_circuit(which_round="first")
+
+        circuit += first_round
+
+        # Middle syndrome extraction rounds.
+        if self.rounds > 2:
+            circuit += (self.rounds - 2) * self._stab_meas_circuit(which_round="middle")
+
+        # Last round + logical measurement.
+        circuit += first_round.inverse()
 
         return circuit
 
@@ -296,21 +335,66 @@ class HexColorCode_Superdense_Memory(Experiment):
         self, circuit: stim.Circuit, *, which_round: Literal["first", "middle", "last"]
     ) -> None:
         if which_round == "first":
-            if self.basis == "X":
+            if self.basis == "X":  # X-basis memory experiment
+                # Record X-type detectors only
                 for k, i in enumerate(self.xmq_inds):
-                    mq_site = self.ind2site[i]
+                    site = self.ind2site[i]
                     circuit.append(
                         "DETECTOR",
-                        [stim.target_rec(-self.num_xstabs - self.num_zstabs + k)],
-                        (mq_site.real, mq_site.imag, 0),
+                        [stim.target_rec(-self.num_stabs + k)],
+                        (site.real, site.imag, 0),
                     )
-            else:  # self.basis == "Z"
+            else:  # Z-basis memory experiment
+                # Record Z-type detectors only
                 for k, i in enumerate(self.zmq_inds):
-                    mq_site = self.ind2site[i]
+                    site = self.ind2site[i]
                     circuit.append(
                         "DETECTOR",
                         [stim.target_rec(-self.num_zstabs + k)],
-                        (mq_site.real, mq_site.imag, 0),
+                        (site.real, site.imag, 0),
                     )
+
+        elif which_round == "middle":
+            for k, i in enumerate(self.xmq_inds):  # X-type detectors
+                site = self.ind2site[i]
+                circuit.append(
+                    "DETECTOR",
+                    [
+                        stim.target_rec(-2 * self.num_stabs + k),
+                        stim.target_rec(-self.num_stabs + k),
+                    ],
+                    (site.real, site.imag, 0),
+                )
+            for k, i in enumerate(self.zmq_inds):  # Z-type detectors
+                site = self.ind2site[i]
+                lookback_indices: list[int] = []
+                if (site - 2j) in self.zmq_sites:
+                    lookback_indices.append(
+                        -self.num_stabs
+                        - self.num_zstabs
+                        + self.zmq_site2relind[site - 2j]
+                    )
+                if site.imag == 0:
+                    lookback_indices.append(
+                        -self.num_stabs - self.num_zstabs + self.zmq_site2relind[site]
+                    )
+                if (site + 2j) in self.zmq_sites:
+                    lookback_indices.append(
+                        -self.num_stabs
+                        - self.num_zstabs
+                        + self.zmq_site2relind[site + 2j]
+                    )
+                lookback_indices.append(-self.num_zstabs + k)
+                circuit.append(
+                    "DETECTOR",
+                    [stim.target_rec(lb) for lb in lookback_indices],
+                    (site.real, site.imag, 0),
+                )
+
+        elif which_round == "last":
+            pass
+
+        else:
+            raise ValueError(f"Invalid argument: {which_round=}")
 
         circuit.append("SHIFT_COORDS", [], (0, 0, 1))
