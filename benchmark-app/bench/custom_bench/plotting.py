@@ -37,7 +37,9 @@ def _wilson_ci(p_hat: float, n: int, *, z: float = 1.96) -> tuple[float, float]:
     denom = 1 + z2 / n
     centre = (p_hat + z2 / (2 * n)) / denom
     half_width = z * np.sqrt(p_hat * (1 - p_hat) / n + z2 / (4 * n**2)) / denom
-    return (max(centre - half_width, 0.0), min(centre + half_width, 1.0))
+    lb = max(min(centre - half_width, p_hat), 0.0)
+    ub = min(max(centre + half_width, p_hat), 1.0)
+    return (lb, ub)
 
 
 def _qec_title(qec_params: QECParams) -> str:
