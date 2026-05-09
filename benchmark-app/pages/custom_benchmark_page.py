@@ -15,12 +15,8 @@ from bench.custom_bench.plotting import (
     plot_avg_iters_vs_per,
     plot_iters_distribution,
 )
-from bench.custom_bench.stats_io import (
-    get_torchdecoder_csv_path,
-    load_and_merge_stats,
-)
-from bench.custom_bench.baselines_runner import run_baseline_benchmark
-from bench.custom_bench.torchdecoder_runner import run_torchdecoder_benchmark
+from bench.custom_bench.run import run_custom_benchmark
+from bench.custom_bench.stats_io import load_and_merge_stats
 from bench.params import BenchTaskParams, QECParams
 from constants import DEFAULT_BATCH_SIZE, BASELINES_CSV_DIR, TORCH_RUNS_ROOT
 from plotting import render_plot, render_plotly
@@ -35,12 +31,7 @@ from shared_ui import (
     stop_if_no_decoders_selected,
     render_missing_data_warning_and_benchmark_button,
 )
-from torchdecoder_utils import (
-    discover_run_dirs,
-    extract_pytorch_decoder_name,
-    load_model_config_from_run_dir,
-    get_ckpt_path,
-)
+from torchdecoder_utils import discover_run_dirs
 from experiment_factory import create_experiment
 
 
@@ -102,32 +93,16 @@ def _run_all_benchmarks(
     """Run all pending benchmark tasks. Exit early if `stop_event` is set.
     Put any exception that occurs into `exc_queue`."""
     try:
-        for baseline_decoder in pending_baseline_decoders:
-            if stop_event.is_set():
-                return
-            run_baseline_benchmark(
-                BASELINES_CSV_DIR,
-                baseline_decoder,
-                qec_params=qec_params,
-                benchtask_params=benchtask_params,
-                collector_params=collector_params,
-                stop_event=stop_event,
-                experiments=experiments,
-            )
-        for run_dir in pending_run_dirs:
-            if stop_event.is_set():
-                return
-            run_torchdecoder_benchmark(
-                csv_path=get_torchdecoder_csv_path(run_dir),
-                decoder_name=extract_pytorch_decoder_name(run_dir),
-                model_cfg=load_model_config_from_run_dir(run_dir),
-                ckpt_path=get_ckpt_path(run_dir),
-                qec_params=qec_params,
-                benchtask_params=benchtask_params,
-                collector_params=collector_params,
-                stop_event=stop_event,
-                experiments=experiments,
-            )
+        run_custom_benchmark(
+            qec_params=qec_params,
+            benchtask_params=benchtask_params,
+            collector_params=collector_params,
+            baseline_csv_dir=BASELINES_CSV_DIR,
+            baseline_decoders=pending_baseline_decoders,
+            torchdecoder_run_dirs=pending_run_dirs,
+            experiments=experiments,
+            stop_event=stop_event,
+        )
     except Exception as e:
         exc_queue.put(e)
 
@@ -203,8 +178,8 @@ p_list = render_p_list_selection()
 collector_params = _render_sidebar_collector_selection()
 
 qec_params = render_qec_selection()
-load_circuit_from_file = (
-    qec_params.code.startswith("BB_") or qec_params.code == "HexColorCode"
+load_circuit_from_file = qec_params.code.startswith("BB_") or (
+    qec_params.code == "HexColorCode" and qec_params.noise_model == "Superdense"
 )
 if load_circuit_from_file:
     validate_stim_files(qec_params, p_list)
