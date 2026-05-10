@@ -419,6 +419,10 @@ def render_torchdecoder_selection(
                 st.code(cfg_yaml, language="yaml")
 
     with st.expander("PyTorch decoder configuration", expanded=True):
+        st.caption(
+            "When device is CPU and the selected model is LearnedDMemBP, "
+            "inference runs via the equivalent Rust DMemBPDecoder for speed."
+        )
         col1, col2, _ = st.columns(3)
         with col1:
             which_prior = st.selectbox(

@@ -2,6 +2,8 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Any
 
+import numpy as np
+import torch
 from omegaconf import OmegaConf, DictConfig
 
 from utils import is_unique
@@ -155,3 +157,47 @@ def get_ckpt_path(run_dir: Path) -> Path:
     Get the path to the checkpoint file from the run_dir.
     """
     return run_dir / "checkpoints" / "best_model.ckpt"
+
+
+def load_gamma_from_checkpoint(ckpt_path: Path) -> np.ndarray:
+    """Extract the trained ``gamma`` parameter from a LearnedDMemBP Lightning checkpoint.
+
+    The Lightning state_dict stores it under ``"model.gamma"`` (DecodingModule
+    wraps the model under attribute ``model``). Returns a 1D float64 array of
+    shape ``(num_vars,)`` ready to pass as the ``gamma`` argument to
+    ``qecdec.decoders.DMemBPDecoder``.
+    """
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    state_dict = ckpt["state_dict"]
+    if "model.gamma" not in state_dict:
+        raise KeyError(
+            f"'model.gamma' not found in checkpoint state_dict at {ckpt_path}. "
+            f"Available keys: {sorted(state_dict.keys())}"
+        )
+    gamma = state_dict["model.gamma"].detach().cpu().to(torch.float64).numpy()
+    if gamma.ndim != 1:
+        raise ValueError(
+            f"Expected 1D gamma vector, got shape {gamma.shape} from {ckpt_path}"
+        )
+    return gamma
+
+
+def load_prior_from_checkpoint(ckpt_path: Path) -> np.ndarray:
+    """Extract the prior probability vector from a LearnedDMemBP Lightning checkpoint.
+
+    The checkpoint stores ``prior_llr`` (LLRs); convert back to probabilities
+    via ``p = 1 / (1 + exp(prior_llr))`` so it can be passed to ``DMemBPDecoder``.
+    """
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    state_dict = ckpt["state_dict"]
+    if "model.prior_llr" not in state_dict:
+        raise KeyError(
+            f"'model.prior_llr' not found in checkpoint state_dict at {ckpt_path}. "
+            f"Available keys: {sorted(state_dict.keys())}"
+        )
+    prior_llr = state_dict["model.prior_llr"].detach().cpu().to(torch.float64).numpy()
+    if prior_llr.ndim != 1:
+        raise ValueError(
+            f"Expected 1D prior_llr vector, got shape {prior_llr.shape} from {ckpt_path}"
+        )
+    return 1.0 / (1.0 + np.exp(prior_llr))
