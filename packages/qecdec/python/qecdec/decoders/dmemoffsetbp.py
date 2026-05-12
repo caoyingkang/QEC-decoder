@@ -1,5 +1,3 @@
-from typing import Optional
-
 import numpy as np
 
 from .base import IterativeDecoder
@@ -10,7 +8,6 @@ from ..types import (
     Bit2DArray,
     Int1DArray,
     Float1DArray,
-    Float2DArray,
 )
 
 
@@ -34,22 +31,17 @@ class DMemOffsetBPDecoder(IterativeDecoder):
             Parity-check matrix, shape=(num_chks, num_vars), uint8 ∈ {0,1}.
             Each row (check) must have at least two nonzero entries; each column
             (variable) must have at least one nonzero entry.
-
         prior : ndarray
             Prior error probabilities, shape=(num_vars,), float64 ∈ (0,0.5).
-
         gamma : ndarray
             Memory strength for each variable node, shape=(num_vars,), float64.
             Use 0.0 for no memory at a node.
-
         max_iter : int
             Max number of BP iterations.
-
         norm : list[list[float]] or float
             `norm[i][k]` is the normalization factor for the edge from check node `i` to its
             `k`-th neighboring variable node. If a float is provided, the same value is used
             for all normalization factors. Default is 1.0, meaning no normalization.
-
         offset : list[list[float]] or float
             `offset[i][k]` is the offset parameter for the edge from check node `i` to its
             `k`-th neighboring variable node. If a float is provided, the same value is used
@@ -106,19 +98,18 @@ class DMemOffsetBPDecoder(IterativeDecoder):
         self._decoder = self._build_decoder()
 
     def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
-        return self._decoder.decode(syndrome)
+        ehat, _, _ = self._decoder.decode_detailed(syndrome)
+        return ehat
 
     def decode_batch(
         self, syndrome_batch: Bit2DArray, *, parallel: bool = False
     ) -> Bit2DArray:
-        return self._decoder.decode_batch(syndrome_batch, parallel=parallel)
+        ehat_batch, _, _ = self._decoder.decode_batch_detailed(
+            syndrome_batch, parallel=parallel
+        )
+        return ehat_batch
 
-    def decode_detailed(
-        self,
-        syndrome: Bit1DArray,
-        *,
-        record_llr_history: bool = False,
-    ) -> tuple[Bit1DArray, bool, int, Optional[Float2DArray]]:
+    def decode_detailed(self, syndrome: Bit1DArray) -> tuple[Bit1DArray, bool, int]:
         """Decode a syndrome vector with detailed diagnostics.
 
         Parameters
@@ -126,27 +117,16 @@ class DMemOffsetBPDecoder(IterativeDecoder):
         syndrome : ndarray
             Syndrome vector, shape=(num_chks,), dtype=uint8.
 
-        record_llr_history : bool
-            Whether to return the history of posterior LLR values.
-
         Returns
         -------
         ehat : ndarray
             Estimated error vector, shape=(num_vars,), dtype=uint8.
-
         converged : bool
             Whether the decoder converged (i.e. the syndrome was satisfied).
-
         num_iter : int
             The number of BP iterations actually run.
-
-        llr_hist : ndarray or None
-            If `record_llr_history` is True: posterior LLR values at each BP iteration,
-            shape=(num_iter, num_vars), dtype=float64; otherwise, `None`.
         """
-        return self._decoder.decode_detailed(
-            syndrome, record_llr_history=record_llr_history
-        )
+        return self._decoder.decode_detailed(syndrome)
 
     def decode_batch_detailed(
         self, syndrome_batch: Bit2DArray, *, parallel: bool = False
@@ -157,7 +137,6 @@ class DMemOffsetBPDecoder(IterativeDecoder):
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
-
         parallel : bool
             Whether to use multithreaded decoding.
 
@@ -165,10 +144,8 @@ class DMemOffsetBPDecoder(IterativeDecoder):
         -------
         ehat_batch : ndarray
             Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
-
         converged_mask : ndarray
             Whether the decoder converged in each shot, shape=(batch_size,), dtype=bool.
-
         decoding_iters : ndarray
             Number of BP iterations actually run in each shot, shape=(batch_size,), dtype=int64.
         """
