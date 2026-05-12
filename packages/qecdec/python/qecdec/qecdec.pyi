@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, TypeAlias
+from typing import Optional
 
 from .types import (
     Bit1DArray,
@@ -13,19 +13,6 @@ from .types import (
     Int1DArray,
     Int2DArray,
 )
-
-DecodeDetailedResult: TypeAlias = tuple[
-    Bit1DArray,  # ehat
-    bool,  # converged
-    int,  # num_iter
-    Optional[Float2DArray],  # llr_hist
-]
-
-DecodeBatchDetailedResult: TypeAlias = tuple[
-    Bit2DArray,  # ehat_batch
-    Bool1DArray,  # converged_mask
-    Int1DArray,  # decoding_iters
-]
 
 class BPDecoderRust:
     """Min-sum belief propagation decoder (Rust implementation)."""
@@ -116,116 +103,57 @@ class DMemBPDecoderRust:
         Parameters
         ----------
         pcm : ndarray
-            Parity-check matrix, shape=(num_chks, num_vars), dtype=uint8.
-            Each row (check) must have at least two nonzero entries; each column
-            (variable) must have at least one nonzero entry.
-
+            Parity-check matrix. Each row has ≥2 nonzeros; each column has ≥1 nonzero.
         prior : ndarray
-            Prior error probabilities, shape=(num_vars,), dtype=float64.
-
+            Prior error probabilities.
         gamma : ndarray
-            Memory strength for each variable node, shape=(num_vars,), dtype=float64.
-            Use 0.0 for no memory at a node.
-
+            Per-VN memory strength.
         norm : float or None
-            Message normalization factor; `None` means no normalization.
-
+            Normalization factor. Default is 1.0, meaning no normalization.
         max_iter : int
-            Max number of BP iterations.
+            Maximum number of BP iterations.
         """
         ...
 
-    def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
+    def decode_detailed(self, syndrome: Bit1DArray) -> tuple[Bit1DArray, bool, int]:
         """Decode a syndrome vector.
 
         Parameters
         ----------
         syndrome : ndarray
-            Syndrome vector, shape=(num_chks,), dtype=uint8.
-
-        Returns
-        -------
-        ndarray
-            Estimated error vector, shape=(num_vars,), dtype=uint8.
-        """
-        ...
-
-    def decode_detailed(
-        self,
-        syndrome: Bit1DArray,
-        *,
-        record_llr_history: bool,
-    ) -> DecodeDetailedResult:
-        """Decode a syndrome vector with detailed diagnostics.
-
-        Parameters
-        ----------
-        syndrome : ndarray
-            Syndrome vector, shape=(num_chks,), dtype=uint8.
-
-        record_llr_history : bool
-            Whether to return the history of posterior LLR values.
+            Syndrome vector.
 
         Returns
         -------
         ehat : ndarray
-            Estimated error vector, shape=(num_vars,), dtype=uint8.
-
+            Estimated error vector.
         converged : bool
             Whether the decoder converged (i.e. the syndrome was satisfied).
-
         num_iter : int
             The number of BP iterations actually run.
-
-        llr_hist : ndarray or None
-            If `record_llr_history` is True: posterior LLR values at each BP iteration,
-            shape=(num_iter, num_vars), dtype=float64; otherwise, `None`.
         """
         ...
 
-    def decode_batch(
-        self, syndrome_batch: Bit2DArray, *, parallel: bool = False
-    ) -> Bit2DArray:
+    def decode_batch_detailed(
+        self, syndrome_batch: Bit2DArray, *, parallel: bool
+    ) -> tuple[Bit2DArray, Bool1DArray, Int1DArray]:
         """Decode a batch of syndrome vectors.
 
         Parameters
         ----------
         syndrome_batch : ndarray
-            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
-
+            Batch of syndrome vectors.
         parallel : bool
-            Whether to use multithreaded decoding. Default is False.
-
-        Returns
-        -------
-        ndarray
-            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
-        """
-        ...
-
-    def decode_batch_detailed(
-        self, syndrome_batch: Bit2DArray, *, parallel: bool = False
-    ) -> DecodeBatchDetailedResult:
-        """Decode a batch of syndrome vectors with detailed diagnostics.
-
-        Parameters
-        ----------
-        syndrome_batch : ndarray
-            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
-
-        parallel : bool
-            Whether to use multithreaded decoding. Default is False.
+            Whether to use multithreaded decoding.
 
         Returns
         -------
         ehat_batch : ndarray
-            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
-
+            Batch of estimated error vectors.
         converged_mask : ndarray
-            Whether the decoder converged in each shot, shape=(batch_size,), dtype=bool.
-
+            Whether the decoder converged in each shot.
         decoding_iters : ndarray
-            Number of BP iterations actually run in each shot, shape=(batch_size,), dtype=int64.
+            Number of BP iterations actually run in each shot.
         """
         ...
 
