@@ -1,18 +1,5 @@
+use crate::utils::prob_to_llr;
 use numpy::ndarray::{Array1, ArrayView1, ArrayView2};
-
-/// Given a probability `p`, return the log-likelihood ratio `ln((1-p)/p)`.
-fn prob_to_llr(p: f64) -> f64 {
-    // Clamp the probability to [EPS, 1-EPS] to avoid numerical instability.
-    const EPS: f64 = 1e-10;
-    let pp = if p < EPS {
-        EPS
-    } else if p > 1.0 - EPS {
-        1.0 - EPS
-    } else {
-        p
-    };
-    ((1.0 - pp) / pp).ln()
-}
 
 /// Base struct for BP-based decoders.
 pub(crate) struct BPBase {
@@ -70,14 +57,27 @@ impl BPBase {
             var_nbr_pos: var_nbr_pos,
         }
     }
+}
 
-    /// Initialize VN-to-CN messages from prior LLRs.
-    pub(crate) fn init_messages(&self, chk_inmsg: &mut [Vec<f64>]) {
-        for j in 0..self.num_vars {
-            let msg = self.prior_llr[j];
-            for (k, &i) in self.var_nbrs[j].iter().enumerate() {
-                chk_inmsg[i][self.var_nbr_pos[j][k]] = msg;
-            }
+/// Allocate fresh per-node message buffers sized to the Tanner graph degrees.
+/// Return `(chk_inmsg, var_inmsg)`.
+pub(crate) fn alloc_msg_buffers(base: &BPBase) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
+    let mut chk_inmsg = Vec::with_capacity(base.num_chks);
+    for i in 0..base.num_chks {
+        chk_inmsg.push(vec![0.0; base.chk_nbrs[i].len()]);
+    }
+    let mut var_inmsg = Vec::with_capacity(base.num_vars);
+    for j in 0..base.num_vars {
+        var_inmsg.push(vec![0.0; base.var_nbrs[j].len()]);
+    }
+    (chk_inmsg, var_inmsg)
+}
+
+/// Initialize VN-to-CN messages from prior LLRs.
+pub(crate) fn init_v2c_msg(base: &BPBase, chk_inmsg: &mut [Vec<f64>]) {
+    for (j, &value) in base.prior_llr.iter().enumerate() {
+        for (k, &i) in base.var_nbrs[j].iter().enumerate() {
+            chk_inmsg[i][base.var_nbr_pos[j][k]] = value;
         }
     }
 }

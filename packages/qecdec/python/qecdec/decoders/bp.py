@@ -30,13 +30,10 @@ class BPDecoder(IterativeDecoder):
             Parity-check matrix, shape=(num_chks, num_vars), uint8 ∈ {0,1}.
             Each row (check) must have at least two nonzero entries; each column
             (variable) must have at least one nonzero entry.
-
         prior : ndarray
             Prior error probabilities, shape=(num_vars,), float64 ∈ (0,0.5).
-
         max_iter : int
             Max number of BP iterations.
-
         norm : float or None
             Message normalization factor; `None` means no normalization.
         """
@@ -63,12 +60,16 @@ class BPDecoder(IterativeDecoder):
         self._decoder = self._build_decoder()
 
     def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
-        return self._decoder.decode(syndrome)
+        ehat, _, _, _ = self._decoder.decode_detailed(syndrome)
+        return ehat
 
     def decode_batch(
         self, syndrome_batch: Bit2DArray, *, parallel: bool = False
     ) -> Bit2DArray:
-        return self._decoder.decode_batch(syndrome_batch, parallel=parallel)
+        ehat_batch, _, _ = self._decoder.decode_batch_detailed(
+            syndrome_batch, parallel=parallel
+        )
+        return ehat_batch
 
     def decode_detailed(
         self,
@@ -82,7 +83,6 @@ class BPDecoder(IterativeDecoder):
         ----------
         syndrome : ndarray
             Syndrome vector, shape=(num_chks,), dtype=uint8.
-
         record_llr_history : bool
             Whether to return the history of posterior LLR values.
 
@@ -90,13 +90,10 @@ class BPDecoder(IterativeDecoder):
         -------
         ehat : ndarray
             Estimated error vector, shape=(num_vars,), dtype=uint8.
-
         converged : bool
             Whether the decoder converged (i.e. the syndrome was satisfied).
-
         num_iter : int
             The number of BP iterations actually run.
-
         llr_hist : ndarray or None
             If `record_llr_history` is True: posterior LLR values at each BP iteration,
             shape=(num_iter, num_vars), dtype=float64; otherwise, `None`.
@@ -114,7 +111,6 @@ class BPDecoder(IterativeDecoder):
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
-
         parallel : bool
             Whether to use multithreaded decoding.
 
@@ -122,10 +118,8 @@ class BPDecoder(IterativeDecoder):
         -------
         ehat_batch : ndarray
             Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
-
         converged_mask : ndarray
             Whether the decoder converged in each shot, shape=(batch_size,), dtype=bool.
-
         decoding_iters : ndarray
             Number of BP iterations actually run in each shot, shape=(batch_size,), dtype=int64.
         """

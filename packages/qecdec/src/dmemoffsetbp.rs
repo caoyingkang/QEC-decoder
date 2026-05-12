@@ -1,4 +1,4 @@
-use crate::bp_base::BPBase;
+use crate::bp_base::{alloc_msg_buffers, init_v2c_msg, BPBase};
 use numpy::ndarray::{Array1, Array2, ArrayView1};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
@@ -15,7 +15,7 @@ fn decode_single(
     var_inmsg: &mut [Vec<f64>],
     synd: ArrayView1<u8>,
 ) -> Array1<u8> {
-    base.init_messages(chk_inmsg);
+    init_v2c_msg(base, chk_inmsg);
     // Estimated error vector at the current iteration.
     let mut ehat = Array1::<u8>::zeros(base.num_vars);
     // Posterior LLR values at the current iteration.
@@ -109,7 +109,7 @@ fn decode_single_detailed(
     synd: ArrayView1<u8>,
     record_llr_history: bool,
 ) -> (Array1<u8>, bool, usize, Option<Array2<f64>>) {
-    base.init_messages(chk_inmsg);
+    init_v2c_msg(base, chk_inmsg);
     // Estimated error vector at the current iteration.
     let mut ehat = Array1::<u8>::zeros(base.num_vars);
     // Posterior LLR values at the current iteration.
@@ -256,16 +256,7 @@ impl DMemOffsetBPDecoderRust {
         let prior = prior.as_array();
         let gamma = gamma.as_array();
         let base = BPBase::new(pcm, prior);
-
-        let mut var_inmsg = Vec::new();
-        for j in 0..base.num_vars {
-            var_inmsg.push(vec![0.0; base.var_nbrs[j].len()]);
-        }
-
-        let mut chk_inmsg = Vec::new();
-        for i in 0..base.num_chks {
-            chk_inmsg.push(vec![0.0; base.chk_nbrs[i].len()]);
-        }
+        let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
 
         Self {
             base: base,

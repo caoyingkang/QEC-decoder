@@ -6,7 +6,7 @@
 //! still-active members are stopped, and the most-likely candidate among the
 //! converged members (lowest prior-LLR weight) is returned.
 
-use crate::bp_base::BPBase;
+use crate::bp_base::{alloc_msg_buffers, init_v2c_msg, BPBase};
 use crate::serial_bp_kernel::run_serial_bp_iteration;
 use numpy::ndarray::{Array1, Array2, ArrayView1};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
@@ -58,7 +58,7 @@ impl EnsSerialBPDecoderRust {
         let mut members: Vec<MemberState> = (0..self.ensemble_size)
             .map(|_| {
                 let mut chk_inmsg = self.chk_inmsg_template.clone();
-                base.init_messages(&mut chk_inmsg);
+                init_v2c_msg(base, &mut chk_inmsg);
                 let var_inmsg = self.var_inmsg_template.clone();
                 MemberState {
                     chk_inmsg: chk_inmsg,
@@ -177,14 +177,7 @@ impl EnsSerialBPDecoderRust {
             })
             .collect();
 
-        let mut var_inmsg_template = Vec::with_capacity(base.num_vars);
-        for j in 0..base.num_vars {
-            var_inmsg_template.push(vec![0.0; base.var_nbrs[j].len()]);
-        }
-        let mut chk_inmsg_template = Vec::with_capacity(base.num_chks);
-        for i in 0..base.num_chks {
-            chk_inmsg_template.push(vec![0.0; base.chk_nbrs[i].len()]);
-        }
+        let (chk_inmsg_template, var_inmsg_template) = alloc_msg_buffers(&base);
 
         Self {
             base: base,

@@ -6,6 +6,7 @@ mod ens_serial_bp;
 mod serial_bp;
 mod serial_bp_kernel;
 mod uf;
+mod utils;
 use pyo3::prelude::*;
 
 #[pymodule]
