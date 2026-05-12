@@ -7,8 +7,8 @@ use rayon::prelude::*;
 
 /// Run DMemOffsetBP decoding algorithm. Return `(ehat, converged, num_iter)`.
 ///
-/// `chk_inmsg` and `var_inmsg` only need to be sized correctly; their
-/// initial values will be overwritten.
+/// Update `chk_inmsg` and `var_inmsg` in place. `chk_inmsg` and `var_inmsg`
+/// only need to be sized correctly; their initial values will be overwritten.
 fn run_dmemoffsetbp(
     base: &BPBase,
     gamma: &Array1<f64>,

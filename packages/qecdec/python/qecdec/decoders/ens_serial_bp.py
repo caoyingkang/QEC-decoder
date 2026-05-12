@@ -42,20 +42,15 @@ class EnsSerialBPDecoder(IterativeDecoder):
         ----------
         pcm : ndarray
             Parity-check matrix, shape=(num_chks, num_vars), uint8 ∈ {0,1}.
-
         prior : ndarray
             Prior error probabilities, shape=(num_vars,), float64 ∈ (0, 0.5).
-
         max_iter : int
             Maximum number of global iterations.
-
         ensemble_size : int
             Number of SerialBP members in the ensemble.
-
         topk : int
             Number of converged members required before terminating remaining
             still-active members. Must satisfy 1 <= topk <= ensemble_size.
-
         seed : int or None
             Seed for the numpy RNG used to generate the per-member `vn_order`
             permutations. None means non-reproducible (fresh entropy each run).
@@ -101,10 +96,24 @@ class EnsSerialBPDecoder(IterativeDecoder):
         self._decoder = self._build_decoder()
 
     def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
-        return self._decoder.decode(syndrome)
+        ehat, _, _ = self._decoder.decode_detailed(syndrome)
+        return ehat
 
     def decode_batch(self, syndrome_batch: Bit2DArray) -> Bit2DArray:
-        return self._decoder.decode_batch(syndrome_batch)
+        """Decode a batch of syndrome vectors.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        Returns
+        -------
+        ehat_batch : ndarray
+            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
+        """
+        ehat_batch, _, _ = self._decoder.decode_batch_detailed(syndrome_batch)
+        return ehat_batch
 
     def decode_detailed(self, syndrome: Bit1DArray) -> tuple[Bit1DArray, bool, int]:
         """Decode a syndrome vector with detailed diagnostics.
@@ -118,10 +127,8 @@ class EnsSerialBPDecoder(IterativeDecoder):
         -------
         ehat : ndarray
             Estimated error vector, shape=(num_vars,), dtype=uint8.
-
         converged : bool
             Whether at least one ensemble member converged.
-
         num_iter : int
             Number of global iterations actually run.
         """
@@ -132,15 +139,18 @@ class EnsSerialBPDecoder(IterativeDecoder):
     ) -> tuple[Bit2DArray, Bool1DArray, Int1DArray]:
         """Decode a batch of syndrome vectors with detailed diagnostics.
 
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
         Returns
         -------
         ehat_batch : ndarray
             Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
-
         converged_mask : ndarray
             Whether the ensemble produced a converged candidate for each shot,
             shape=(batch_size,), dtype=bool.
-
         decoding_iters : ndarray
             Number of global iterations actually run in each shot,
             shape=(batch_size,), dtype=int64.

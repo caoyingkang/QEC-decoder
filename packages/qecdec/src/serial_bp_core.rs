@@ -1,4 +1,4 @@
-//! One-iteration kernel for the serial-schedule min-sum BP decoder.
+//! One iteration of the serial-schedule min-sum BP decoder.
 
 use crate::bp_base::BPBase;
 use numpy::ndarray::ArrayView1;
@@ -7,12 +7,12 @@ use numpy::ndarray::ArrayView1;
 /// whether the current `ehat` satisfies the syndrome.
 ///
 /// Updates `chk_inmsg`, `var_inmsg`, `llr`, and `ehat` in place. The caller is
-/// responsible for initializing `chk_inmsg` via `BPBase::init_messages` before
-/// the first call. `llr` and `ehat` only need to be sized correctly; their
-/// initial values are overwritten as each VN in `vn_order` is visited.
+/// responsible for initializing `chk_inmsg` before the first call. `var_inmsg`,
+/// `llr`, and `ehat` only need to be sized correctly; their initial values will
+/// be overwritten.
 ///
-/// Returns `true` iff the parity of `ehat` matches `synd` after this iteration.
-pub(crate) fn run_serial_bp_iteration(
+/// Return `true` iff the syndrome is satisfied after this iteration.
+pub(crate) fn run_serial_bp_one_iteration(
     base: &BPBase,
     vn_order: &[usize],
     chk_inmsg: &mut [Vec<f64>],
@@ -32,8 +32,7 @@ pub(crate) fn run_serial_bp_iteration(
                 if kk == v_pos {
                     continue;
                 }
-                let s: u8 = if val < 0.0 { 1 } else { 0 };
-                sgnpar ^= s;
+                sgnpar ^= if val < 0.0 { 1 } else { 0 };
                 let val_abs = val.abs();
                 if val_abs < minabs {
                     minabs = val_abs;

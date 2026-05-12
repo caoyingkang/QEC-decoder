@@ -18,3 +18,15 @@ pub(crate) fn prob_to_llr(p: f64) -> f64 {
 pub(crate) fn is_all_zeros(arr: ArrayView1<u8>) -> bool {
     arr.iter().all(|&x| x == 0)
 }
+
+/// LLR-weight of an error pattern: Σ_j llr\[j\] * ehat\[j\].
+/// Smaller weight ↔ more likely error pattern.
+pub(crate) fn llr_weight(llr: ArrayView1<f64>, ehat: &[u8]) -> f64 {
+    let mut w = 0.0;
+    for (j, &e) in ehat.iter().enumerate() {
+        if e != 0 {
+            w += llr[j];
+        }
+    }
+    w
+}

@@ -10,7 +10,6 @@ from ..types import (
     Bit2DArray,
     Int1DArray,
     Float1DArray,
-    Float2DArray,
 )
 
 
@@ -34,14 +33,11 @@ class SerialBPDecoder(IterativeDecoder):
             Parity-check matrix, shape=(num_chks, num_vars), uint8 ∈ {0,1}.
             Each row (check) must have at least two nonzero entries; each column
             (variable) must have at least one nonzero entry.
-
         prior : ndarray
             Prior error probabilities, shape=(num_vars,), float64 ∈ (0,0.5).
-
         max_iter : int
             Maximum number of iterations (one iteration = one full pass over
             `vn_order`).
-
         vn_order : ndarray or None
             Permutation of variable nodes, shape=(num_vars,).
             If None, the natural order ``np.arange(num_vars)`` is used.
@@ -79,19 +75,18 @@ class SerialBPDecoder(IterativeDecoder):
         self._decoder = self._build_decoder()
 
     def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
-        return self._decoder.decode(syndrome)
+        ehat, _, _ = self._decoder.decode_detailed(syndrome)
+        return ehat
 
     def decode_batch(
         self, syndrome_batch: Bit2DArray, *, parallel: bool = False
     ) -> Bit2DArray:
-        return self._decoder.decode_batch(syndrome_batch, parallel=parallel)
+        ehat_batch, _, _ = self._decoder.decode_batch_detailed(
+            syndrome_batch, parallel=parallel
+        )
+        return ehat_batch
 
-    def decode_detailed(
-        self,
-        syndrome: Bit1DArray,
-        *,
-        record_llr_history: bool = False,
-    ) -> tuple[Bit1DArray, bool, int, Optional[Float2DArray]]:
+    def decode_detailed(self, syndrome: Bit1DArray) -> tuple[Bit1DArray, bool, int]:
         """Decode a syndrome vector with detailed diagnostics.
 
         Parameters
@@ -99,29 +94,16 @@ class SerialBPDecoder(IterativeDecoder):
         syndrome : ndarray
             Syndrome vector, shape=(num_chks,), dtype=uint8.
 
-        record_llr_history : bool
-            Whether to return the history of posterior LLR values
-            (one snapshot per iteration, taken at the end of each iteration).
-
         Returns
         -------
         ehat : ndarray
             Estimated error vector, shape=(num_vars,), dtype=uint8.
-
         converged : bool
             Whether the decoder converged (i.e. the syndrome was satisfied).
-
         num_iter : int
             The number of iterations actually run.
-
-        llr_hist : ndarray or None
-            If `record_llr_history` is True: posterior LLR values at the end of
-            each iteration, shape=(num_iter, num_vars), dtype=float64;
-            otherwise, `None`.
         """
-        return self._decoder.decode_detailed(
-            syndrome, record_llr_history=record_llr_history
-        )
+        return self._decoder.decode_detailed(syndrome)
 
     def decode_batch_detailed(
         self, syndrome_batch: Bit2DArray, *, parallel: bool = False
@@ -132,7 +114,6 @@ class SerialBPDecoder(IterativeDecoder):
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
-
         parallel : bool
             Whether to use multithreaded decoding.
 
@@ -140,10 +121,8 @@ class SerialBPDecoder(IterativeDecoder):
         -------
         ehat_batch : ndarray
             Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
-
         converged_mask : ndarray
             Whether the decoder converged in each shot, shape=(batch_size,), dtype=bool.
-
         decoding_iters : ndarray
             Number of iterations actually run in each shot, shape=(batch_size,), dtype=int64.
         """

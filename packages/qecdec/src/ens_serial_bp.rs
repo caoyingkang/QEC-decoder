@@ -7,11 +7,13 @@
 //! converged members (lowest prior-LLR weight) is returned.
 
 use crate::bp_base::{alloc_msg_buffers, init_v2c_msg, BPBase};
-use crate::serial_bp_kernel::run_serial_bp_iteration;
-use numpy::ndarray::{Array1, Array2, ArrayView1};
+use crate::serial_bp_core::run_serial_bp_one_iteration;
+use crate::utils::{is_all_zeros, llr_weight};
+use numpy::ndarray::{Array1, Array2, ArrayView1, Axis};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 use rayon::prelude::*;
+use std::mem;
 
 struct MemberState {
     /// `chk_inmsg[i]` stores the incoming messages at CN `i` from its neighboring VNs.
@@ -22,8 +24,8 @@ struct MemberState {
     llr: Vec<f64>,
     /// Estimated error vector.
     ehat: Vec<u8>,
-    /// Set to `Some(iter)` as soon as this member converges.
-    converged_at_iter: Option<usize>,
+    /// Set to `Some(num_iter)` as soon as this member converges.
+    num_iter_on_conv: Option<usize>,
 }
 
 /// Ensemble of serial-schedule BP decoders with per-member `vn_order` permutations.
@@ -39,16 +41,21 @@ pub struct EnsSerialBPDecoderRust {
     vn_orders: Vec<Vec<usize>>,
     /// Maximum number of iterations (one iteration = one full pass over `vn_order`).
     max_iter: usize,
-    /// All-zeros template (with correct sizes); cloned per member.
+    /// All-zeros template (with correct sizes); to be cloned per member.
     chk_inmsg_template: Vec<Vec<f64>>,
-    /// All-zeros template (with correct sizes); cloned per member.
+    /// All-zeros template (with correct sizes); to be cloned per member.
     var_inmsg_template: Vec<Vec<f64>>,
 }
 
 impl EnsSerialBPDecoderRust {
-    /// Run the ensemble on a single syndrome.
-    /// Returns (ehat, converged, iters_completed).
-    fn decode_one(&self, synd: ArrayView1<u8>) -> (Array1<u8>, bool, usize) {
+    /// Run the ensemble on a single syndrome vector.
+    /// Return `(ehat, converged, num_iter)`.
+    fn _run(&self, synd: ArrayView1<u8>) -> (Array1<u8>, bool, usize) {
+        // Return immediately if syndrome is all zeros.
+        if is_all_zeros(synd) {
+            return (Array1::zeros(self.base.num_vars), true, 0);
+        }
+
         let base = &self.base;
         let vn_orders = &self.vn_orders;
         let num_vars = base.num_vars;
@@ -63,21 +70,24 @@ impl EnsSerialBPDecoderRust {
                 MemberState {
                     chk_inmsg: chk_inmsg,
                     var_inmsg: var_inmsg,
-                    llr: base.prior_llr.to_vec(),
+                    llr: vec![0.0; num_vars],
                     ehat: vec![0_u8; num_vars],
-                    converged_at_iter: None,
+                    num_iter_on_conv: None,
                 }
             })
             .collect();
 
-        // Iteration-synchronous step lock.
-        let mut iters_completed = 0_usize;
-        for iter in 0..self.max_iter {
+        // Main BP iteration loop.
+        let mut num_iter = 0;
+        let mut at_least_one_converged = false;
+        while num_iter < self.max_iter {
+            num_iter += 1;
+
             members.par_iter_mut().enumerate().for_each(|(i, m)| {
-                if m.converged_at_iter.is_some() {
+                if m.num_iter_on_conv.is_some() {
                     return;
                 }
-                let conv = run_serial_bp_iteration(
+                let conv = run_serial_bp_one_iteration(
                     base,
                     &vn_orders[i],
                     &mut m.chk_inmsg,
@@ -87,46 +97,44 @@ impl EnsSerialBPDecoderRust {
                     synd,
                 );
                 if conv {
-                    m.converged_at_iter = Some(iter);
+                    m.num_iter_on_conv = Some(num_iter);
                 }
             });
-            iters_completed = iter + 1;
 
             let count = members
                 .iter()
-                .filter(|m| m.converged_at_iter.is_some())
+                .filter(|m| m.num_iter_on_conv.is_some())
                 .count();
+            if count > 0 {
+                at_least_one_converged = true;
+            }
             if count >= topk {
                 break;
             }
         }
 
-        // Score: sum_i e_i * prior_llr_i. Smaller = more likely.
-        let prior_llr = base.prior_llr.as_slice().unwrap();
-        let score = |e: &[u8]| -> f64 {
-            e.iter()
-                .zip(prior_llr.iter())
-                .map(|(&b, &l)| (b as f64) * l)
-                .sum()
-        };
-
-        // Pick the most-likely candidate among all converged members
-        // (could be > topk if multiple members converged in the same iteration).
-        let best_idx = members
-            .iter()
-            .enumerate()
-            .filter(|(_, m)| m.converged_at_iter.is_some())
-            .min_by(|(_, a), (_, b)| score(&a.ehat).partial_cmp(&score(&b.ehat)).unwrap())
-            .map(|(i, _)| i);
-
-        match best_idx {
-            Some(i) => (Array1::from(members[i].ehat.clone()), true, iters_completed),
-            None => (
-                Array1::from(members[0].ehat.clone()),
+        if !at_least_one_converged {
+            return (
+                Array1::from_vec(mem::take(&mut members[0].ehat)),
                 false,
-                iters_completed,
-            ),
+                num_iter,
+            );
         }
+
+        // Pick the most-likely candidate among all converged members.
+        let candidates: Vec<Vec<u8>> = members
+            .into_iter()
+            .filter(|m| m.num_iter_on_conv.is_some())
+            .map(|m| m.ehat)
+            .collect();
+        assert!(candidates.len() > 0);
+        let cost_fn = |e: &[u8]| -> f64 { llr_weight(base.prior_llr.view(), e) };
+        let best_ehat = candidates
+            .into_iter()
+            .min_by(|e1, e2| cost_fn(e1).partial_cmp(&cost_fn(e2)).unwrap())
+            .unwrap();
+
+        (Array1::from_vec(best_ehat), true, num_iter)
     }
 }
 
@@ -135,11 +143,9 @@ impl EnsSerialBPDecoderRust {
     /// Create an ensembled serial-schedule BP decoder.
     ///
     /// Parameters:
-    /// - `pcm`: Parity-check matrix. Every row (check) must have at least 2 nonzero entries.
-    /// Every column (variable) must have at least 1 nonzero entry.
-    /// - `prior`: Prior error probabilities (dtype=np.float64).
-    /// - `vn_orders`: Ensemble of variable node permutations, shape
-    /// `(ensemble_size, num_vars)`, (dtype=np.int64).
+    /// - `pcm`: Parity-check matrix. Each row has ≥2 nonzeros; each column has ≥1 nonzero.
+    /// - `prior`: Prior error probabilities.
+    /// - `vn_orders`: Ensemble of variable node permutations, shape `(ensemble_size, num_vars)`.
     /// - `max_iter`: Maximum number of iterations (one iteration = one full pass over `vn_order`).
     /// - `topk`: Number of converged members required before terminating the remaining members.
     /// Must satisfy `1 <= topk <= ensemble_size`.
@@ -155,10 +161,10 @@ impl EnsSerialBPDecoderRust {
         let pcm = pcm.as_array();
         let prior = prior.as_array();
         let base = BPBase::new(pcm, prior);
-        let vn_orders_arr = vn_orders.as_array();
-        let ensemble_size = vn_orders_arr.nrows();
+        let vn_orders = vn_orders.as_array();
+        let ensemble_size = vn_orders.nrows();
         assert!(
-            vn_orders_arr.ncols() == base.num_vars,
+            vn_orders.ncols() == base.num_vars,
             "vn_orders must have {} columns",
             base.num_vars
         );
@@ -166,17 +172,10 @@ impl EnsSerialBPDecoderRust {
             topk >= 1 && topk <= ensemble_size,
             "Require 1 <= topk <= ensemble_size"
         );
-
-        let vn_orders_vecs: Vec<Vec<usize>> = (0..ensemble_size)
-            .map(|i| {
-                vn_orders_arr
-                    .row(i)
-                    .iter()
-                    .map(|&x| x as usize)
-                    .collect::<Vec<usize>>()
-            })
+        let vn_orders_vecs = vn_orders
+            .axis_iter(Axis(0))
+            .map(|row| row.iter().map(|&x| x as usize).collect())
             .collect();
-
         let (chk_inmsg_template, var_inmsg_template) = alloc_msg_buffers(&base);
 
         Self {
@@ -195,25 +194,9 @@ impl EnsSerialBPDecoderRust {
     /// Parameters:
     /// - `syndrome`: Syndrome vector.
     ///
-    /// Return: The decoded error vector.
-    pub fn decode<'py>(
-        &self,
-        py: Python<'py>,
-        syndrome: PyReadonlyArray1<'py, u8>,
-    ) -> Bound<'py, PyArray1<u8>> {
-        let syndrome = syndrome.as_array();
-        let (ehat, _, _) = py.allow_threads(|| self.decode_one(syndrome));
-        PyArray1::from_owned_array(py, ehat)
-    }
-
-    /// Decode a syndrome vector with detailed diagnostics.
-    ///
-    /// Parameters:
-    /// - `syndrome`: Syndrome vector.
-    ///
     /// Returns:
-    /// - `ehat`: The decoded error vector.
-    /// - `converged`: Whether the decoder converged (i.e. the syndrome was satisfied).
+    /// - `ehat`: Estimated error vector.
+    /// - `converged`: Whether at least one ensemble member converged.
     /// - `num_iter`: The number of iterations actually run.
     pub fn decode_detailed<'py>(
         &self,
@@ -221,7 +204,7 @@ impl EnsSerialBPDecoderRust {
         syndrome: PyReadonlyArray1<'py, u8>,
     ) -> (Bound<'py, PyArray1<u8>>, bool, usize) {
         let syndrome = syndrome.as_array();
-        let (ehat, converged, num_iter) = py.allow_threads(|| self.decode_one(syndrome));
+        let (ehat, converged, num_iter) = py.allow_threads(|| self._run(syndrome));
         (PyArray1::from_owned_array(py, ehat), converged, num_iter)
     }
 
@@ -230,34 +213,8 @@ impl EnsSerialBPDecoderRust {
     /// Parameters:
     /// - `syndrome_batch`: Batch of syndrome vectors.
     ///
-    /// Return: Batch of decoded error vectors.
-    pub fn decode_batch<'py>(
-        &self,
-        py: Python<'py>,
-        syndrome_batch: PyReadonlyArray2<'_, u8>,
-    ) -> Bound<'py, PyArray2<u8>> {
-        let syndrome_batch = syndrome_batch.as_array();
-        let batch_size = syndrome_batch.nrows();
-
-        let ehat_batch: Array2<u8> = py.allow_threads(|| {
-            let mut out = Array2::<u8>::zeros((batch_size, self.base.num_vars));
-            for i in 0..batch_size {
-                let (ehat, _, _) = self.decode_one(syndrome_batch.row(i));
-                out.row_mut(i).assign(&ehat);
-            }
-            out
-        });
-
-        PyArray2::from_owned_array(py, ehat_batch)
-    }
-
-    /// Decode a batch of syndrome vectors with detailed diagnostics.
-    ///
-    /// Parameters:
-    /// - `syndrome_batch`: Batch of syndrome vectors.
-    ///
     /// Returns:
-    /// - `ehat_batch`: Batch of decoded error vectors.
+    /// - `ehat_batch`: Batch of estimated error vectors.
     /// - `converged_mask`: Whether the decoder converged in each shot.
     /// - `decoding_iters`: Number of iterations actually run in each shot.
     pub fn decode_batch_detailed<'py>(
@@ -272,24 +229,23 @@ impl EnsSerialBPDecoderRust {
         let syndrome_batch = syndrome_batch.as_array();
         let batch_size = syndrome_batch.nrows();
 
-        let (ehat_batch, converged_mask, decoding_iters): (Array2<u8>, Vec<bool>, Vec<i64>) = py
-            .allow_threads(|| {
-                let mut out = Array2::<u8>::zeros((batch_size, self.base.num_vars));
-                let mut conv_mask = Vec::<bool>::with_capacity(batch_size);
-                let mut iters = Vec::<i64>::with_capacity(batch_size);
-                for i in 0..batch_size {
-                    let (ehat, converged, num_iter) = self.decode_one(syndrome_batch.row(i));
-                    out.row_mut(i).assign(&ehat);
-                    conv_mask.push(converged);
-                    iters.push(num_iter as i64);
-                }
-                (out, conv_mask, iters)
-            });
+        let (ehat_batch, converged_mask, decoding_iters) = py.allow_threads(|| {
+            let mut ehat_batch = Array2::zeros((batch_size, self.base.num_vars));
+            let mut converged_mask = Array1::default(batch_size);
+            let mut decoding_iters = Array1::zeros(batch_size);
+            for i in 0..batch_size {
+                let (ehat, converged, num_iter) = self._run(syndrome_batch.row(i));
+                ehat_batch.row_mut(i).assign(&ehat);
+                converged_mask[i] = converged;
+                decoding_iters[i] = num_iter as i64;
+            }
+            (ehat_batch, converged_mask, decoding_iters)
+        });
 
         (
             PyArray2::from_owned_array(py, ehat_batch),
-            PyArray1::from_vec(py, converged_mask),
-            PyArray1::from_vec(py, decoding_iters),
+            PyArray1::from_owned_array(py, converged_mask),
+            PyArray1::from_owned_array(py, decoding_iters),
         )
     }
 }

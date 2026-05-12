@@ -9,8 +9,8 @@ use rayon::prelude::*;
 /// `record_llr_history` is true) or `(ehat, converged, num_iter, llr_hist)`
 /// (if `record_llr_history` is false).
 ///
-/// `chk_inmsg` and `var_inmsg` only need to be sized correctly; their
-/// initial values will be overwritten.
+/// Update `chk_inmsg` and `var_inmsg` in place. `chk_inmsg` and `var_inmsg`
+/// only need to be sized correctly; their initial values will be overwritten.
 fn run_bp(
     base: &BPBase,
     norm: f64,
