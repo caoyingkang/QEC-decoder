@@ -1,4 +1,8 @@
-use numpy::ndarray::ArrayView1;
+use numpy::ndarray::{ArrayView1, ArrayViewMut1};
+use rand::distr::{Distribution, Uniform};
+use rand::Rng;
+use rand::SeedableRng;
+use rand_pcg::Pcg64;
 
 /// Given a probability `p`, return the log-likelihood ratio `ln((1-p)/p)`.
 pub(crate) fn prob_to_llr(p: f64) -> f64 {
@@ -29,4 +33,35 @@ pub(crate) fn llr_weight(llr: ArrayView1<f64>, ehat: &[u8]) -> f64 {
         }
     }
     w
+}
+
+/// Pick the most likely error vector (i.e., the one with the smallest LLR-weight)
+/// among the nonempty `candidates` list. Ties broken by encounter order.
+///
+/// Panic if `candidates` is empty.
+pub(crate) fn pick_most_likely(candidates: Vec<Vec<u8>>, prior_llr: ArrayView1<f64>) -> Vec<u8> {
+    let cost_fn = |e: &[u8]| -> f64 { llr_weight(prior_llr, e) };
+    candidates
+        .into_iter()
+        .min_by(|e1, e2| cost_fn(e1).partial_cmp(&cost_fn(e2)).unwrap())
+        .expect("candidates must be non-empty")
+}
+
+/// Build a Pcg64 RNG from a u64 `seed`. If `seed` is `None`, use OS entropy.
+pub(crate) fn make_pcg64_rng(seed: Option<u64>) -> Pcg64 {
+    match seed {
+        Some(s) => Pcg64::seed_from_u64(s),
+        None => rand::make_rng(),
+    }
+}
+
+/// Sample vector components i.i.d. uniformly from `dist` into `out`.
+pub(crate) fn sample_vec_uniform(
+    mut out: ArrayViewMut1<f64>,
+    dist: &Uniform<f64>,
+    rng: &mut impl Rng,
+) {
+    for el in out.iter_mut() {
+        *el = dist.sample(rng);
+    }
 }

@@ -8,7 +8,7 @@
 
 use crate::bp_base::{alloc_msg_buffers, init_v2c_msg, BPBase};
 use crate::serial_bp_core::run_serial_bp_one_iteration;
-use crate::utils::{is_all_zeros, llr_weight};
+use crate::utils::{is_all_zeros, pick_most_likely};
 use numpy::ndarray::{Array1, Array2, ArrayView1, Axis};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
@@ -127,12 +127,7 @@ impl EnsSerialBPDecoderRust {
             .filter(|m| m.num_iter_on_conv.is_some())
             .map(|m| m.ehat)
             .collect();
-        assert!(candidates.len() > 0);
-        let cost_fn = |e: &[u8]| -> f64 { llr_weight(base.prior_llr.view(), e) };
-        let best_ehat = candidates
-            .into_iter()
-            .min_by(|e1, e2| cost_fn(e1).partial_cmp(&cost_fn(e2)).unwrap())
-            .unwrap();
+        let best_ehat = pick_most_likely(candidates, base.prior_llr.view());
 
         (Array1::from_vec(best_ehat), true, num_iter)
     }

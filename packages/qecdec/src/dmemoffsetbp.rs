@@ -26,7 +26,7 @@ fn run_dmemoffsetbp(
 
     init_v2c_msg(base, chk_inmsg);
     let mut ehat = Array1::zeros(base.num_vars);
-    let mut llr = vec![0.0; base.num_vars];
+    let mut llr = base.prior_llr.to_vec();
 
     // Main BP iteration loop.
     let mut num_iter = 0;
@@ -215,7 +215,7 @@ impl DMemOffsetBPDecoderRust {
         Bound<'py, PyArray1<i64>>,
     )> {
         let syndrome_batch = syndrome_batch.as_array();
-        let batch_size: usize = syndrome_batch.nrows();
+        let batch_size = syndrome_batch.nrows();
         let mut ehat_batch = Array2::zeros((batch_size, self.base.num_vars));
         let mut converged_mask = Array1::default(batch_size);
         let mut decoding_iters = Array1::zeros(batch_size);
