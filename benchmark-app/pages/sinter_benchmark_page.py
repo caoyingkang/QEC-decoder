@@ -80,7 +80,7 @@ run_dirs = discover_run_dirs(TORCH_RUNS_ROOT, qec_params)
 
 if len(run_dirs) > 0:
     selected_run_dirs, torchdecoder_shared_params = render_torchdecoder_selection(
-        run_dirs, qec_params
+        run_dirs, qec_params, allow_relaybp_mode=False
     )
 else:
     selected_run_dirs = []

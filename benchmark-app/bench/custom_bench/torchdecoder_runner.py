@@ -32,10 +32,10 @@ def run_torchdecoder_benchmark(
     experiments: Optional[dict[float, Experiment]] = None,
 ) -> None:
     decoder_params = benchtask_params.torchdecoder_shared_params
-    max_iter = decoder_params["max_iter"]
     use_prior_in_ckpt = decoder_params["use_prior_in_ckpt"]
     relaybp_mode = decoder_params.get("relaybp_mode", False)
     relaybp_params = decoder_params.get("relaybp", {})
+    max_iter = decoder_params["max_iter"] if not relaybp_mode else None
 
     use_rust_transplant = (
         collector_params.device == "cpu" and model_cfg.name == "LearnedDMemBP"

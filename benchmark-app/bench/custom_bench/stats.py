@@ -68,9 +68,7 @@ class TaskMetadata(NamedTuple):
             )
         elif params.get("relaybp_mode"):
             relay = params["relaybp"]
-            return (
-                relay["pre_iter"] + relay["num_relays"] * relay["max_iter_per_relay"]
-            )
+            return relay["pre_iter"] + relay["num_relays"] * relay["max_iter_per_relay"]
         else:
             return params["max_iter"]
 

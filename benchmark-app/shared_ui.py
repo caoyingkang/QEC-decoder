@@ -8,7 +8,12 @@ import torch
 import streamlit as st
 from omegaconf import OmegaConf
 
-from bench.constants import BASELINE_DECODERS_GRAPHLIKE, BASELINE_DECODERS_HYPERGRAPH
+from bench.constants import (
+    BASELINE_DECODERS_GRAPHLIKE,
+    BASELINE_DECODERS_HYPERGRAPH,
+    DEFAULT_BASELINE_DECODERS_GRAPHLIKE,
+    DEFAULT_BASELINE_DECODERS_HYPERGRAPH,
+)
 from bench.params import QECParams
 from constants import (
     CIRCUITS_ROOT,
@@ -19,7 +24,6 @@ from constants import (
     DEFAULT_RELAYBP_MAX_ITER_PER_RELAY,
     DEFAULT_RELAYBP_NUM_RELAYS,
     DEFAULT_RELAYBP_STOP_NCONV,
-    DEFAULT_RELAYBP_NUM_INDEP_DECODERS,
     DEFAULT_RELAYBP_GAMMA0,
     DEFAULT_RELAYBP_GDI,
     DEFAULT_BPOSD_MAX_ITER,
@@ -56,15 +60,17 @@ def render_baselines_selection(
     st.subheader("Select baseline decoder(s)")
     if qec_params.code == "RotatedSurfaceCode":
         available_decoders = BASELINE_DECODERS_GRAPHLIKE
+        default_decoders = DEFAULT_BASELINE_DECODERS_GRAPHLIKE
     elif qec_params.code.startswith("BB_") or qec_params.code == "HexColorCode":
         available_decoders = BASELINE_DECODERS_HYPERGRAPH
+        default_decoders = DEFAULT_BASELINE_DECODERS_HYPERGRAPH
     else:
         raise ValueError(f"Unknown code: {qec_params.code}")
 
     selected_decoders = st.multiselect(
         "Baseline decoder(s) to benchmark against",
         options=available_decoders,
-        default=available_decoders,
+        default=default_decoders,
     )
 
     baseline_decoder_params: dict[str, dict] = {}
@@ -161,7 +167,7 @@ def render_baselines_selection(
                         key="relaybp_max_iter_per_relay",
                         help="Max number of iterations per DMemBP relay.",
                     )
-                col7, col8, _ = st.columns(3)
+                col7, _, _ = st.columns(3)
                 with col7:
                     stop_nconv = st.number_input(
                         "stop_nconv",
@@ -171,14 +177,6 @@ def render_baselines_selection(
                         key="relaybp_stop_nconv",
                         help="How many solutions to find before terminating.",
                     )
-                with col8:
-                    num_indep_decoders = st.number_input(
-                        "num_indep_decoders",
-                        value=DEFAULT_RELAYBP_NUM_INDEP_DECODERS,
-                        min_value=1,
-                        key="relaybp_num_indep_decoders",
-                        help="Number of independent RelayBP decoders running in parallel.",
-                    )
             baseline_decoder_params["RelayBP"] = {
                 "gamma0": gamma0,
                 "gamma_dist_interval": [gdi_low, gdi_high],
@@ -186,7 +184,6 @@ def render_baselines_selection(
                 "pre_iter": pre_iter,
                 "max_iter_per_relay": max_iter_per_relay,
                 "stop_nconv": stop_nconv,
-                "num_indep_decoders": num_indep_decoders,
             }
         elif name == "EnsSerialBP":
             with st.expander("EnsSerialBP configuration", expanded=True):
@@ -347,7 +344,10 @@ def render_qec_selection() -> QECParams:
 
 
 def render_torchdecoder_selection(
-    run_dirs: list[Path], qec_params: QECParams
+    run_dirs: list[Path],
+    qec_params: QECParams,
+    *,
+    allow_relaybp_mode: bool = True,
 ) -> tuple[list[Path], dict[str, Any]]:
     """Render torch decoder tables with row selection and individual config expanders,
     as well as a shared configuration panel for the PyTorch decoder(s).
@@ -357,6 +357,10 @@ def render_torchdecoder_selection(
     ``qec_params`` is used to namespace widget keys so that changing the
     upstream QEC selection resets row selections instead of carrying over
     stale indices from a previous table.
+
+    ``allow_relaybp_mode`` gates the "Run as RelayBP" toggle. Pages whose
+    runners don't implement the RelayBP CPU-swap (e.g. the sinter page)
+    must pass ``False`` to hide it.
     """
     qec_key = (
         f"{qec_params.code}_{qec_params.noise_model}"
@@ -423,6 +427,9 @@ def render_torchdecoder_selection(
             "When device is CPU and the selected model is LearnedDMemBP, "
             "inference runs via the equivalent Rust DMemBPDecoder for speed."
         )
+        relaybp_mode_pending = allow_relaybp_mode and st.session_state.get(
+            "td_relaybp_mode", False
+        )
         col1, col2, col3 = st.columns(3)
         with col1:
             which_prior = st.selectbox(
@@ -441,21 +448,27 @@ def render_torchdecoder_selection(
                 value=DEFAULT_PYTORCH_MAX_ITER,
                 min_value=1,
                 key="pytorch_max_iter",
-                help="Max number of decoding iterations for inference.",
-            )
-        with col3:
-            relaybp_mode = st.checkbox(
-                "Run as RelayBP",
-                value=False,
-                key="td_relaybp_mode",
+                disabled=relaybp_mode_pending,
                 help=(
-                    "If on, the CPU swap builds a Rust RelayBPDecoder using "
-                    "the checkpoint's gamma vector as gamma0 instead of "
-                    "running DMemBP. Requires device=CPU and LearnedDMemBP. "
-                    "max_iter is ignored in this mode; the effective budget "
-                    "is pre_iter + num_relays * max_iter_per_relay."
+                    "Max number of decoding iterations for inference. "
+                    "Ignored when 'Run as RelayBP' is enabled; the effective "
+                    "budget becomes pre_iter + num_relays * max_iter_per_relay."
                 ),
             )
+        if not allow_relaybp_mode:
+            relaybp_mode = False
+        else:
+            with col3:
+                relaybp_mode = st.checkbox(
+                    "Run as RelayBP",
+                    value=False,
+                    key="td_relaybp_mode",
+                    help=(
+                        "If on, the CPU swap builds a Rust RelayBPDecoder using "
+                        "the checkpoint's gamma vector as gamma0 instead of "
+                        "running DMemBP. Requires device=CPU and LearnedDMemBP."
+                    ),
+                )
 
         relaybp_params: dict[str, Any] = {}
         if relaybp_mode:
@@ -527,11 +540,12 @@ def render_torchdecoder_selection(
 
     torchdecoder_shared_params: dict[str, Any] = {
         "use_prior_in_ckpt": use_prior_in_ckpt,
-        "max_iter": max_iter,
         "relaybp_mode": relaybp_mode,
     }
     if relaybp_mode:
         torchdecoder_shared_params["relaybp"] = relaybp_params
+    else:
+        torchdecoder_shared_params["max_iter"] = max_iter
     return selected_run_dirs, torchdecoder_shared_params
 
 
