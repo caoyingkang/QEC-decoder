@@ -8,9 +8,11 @@ use rand::distr::Uniform;
 /// Used by both RelayBP (after its own stage 0) and MultiRelayBP (where many
 /// chains share a single stage 0). Return `(ehat, converged, num_iter)`.
 ///
-/// Update `chk_inmsg`, `var_inmsg`, `llr`, and `ehat` in place. `candidates` may
-/// already contain an entry from a prior stage (e.g., a converged stage 0 result);
-/// `num_iters_init` is the iteration count accumulated before this call.
+/// Update `chk_inmsg`, `var_inmsg`, `llr`, and `ehat` in place. The caller is
+/// responsible for making sure that `llr` is passed from the initial stage of RelayBP.
+/// `candidates` may already contain an entry from a prior stage (e.g., a converged
+/// stage 0 result); `num_iters_init` is the iteration count accumulated before this
+/// call.
 pub(crate) fn run_random_relays(
     base: &BPBase,
     gamma_dist: &Uniform<f64>,

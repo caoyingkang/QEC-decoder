@@ -9,13 +9,15 @@ use rand::distr::Uniform;
 use rand::Rng;
 use rayon::prelude::*;
 
-/// Run RelayBP decoding algorithm. Return `(ehat, converged, num_iter)`.
+/// Run MultiRelayBP decoding algorithm. Return `(ehat, converged, num_iter)`.
 ///
-/// `chk_inmsg` and `var_inmsg` serve as scratch space.
-fn run_relaybp(
+/// `chk_inmsg` and `var_inmsg` serve as scratch space for stage 0 and are mutated in
+/// place; afterward they are also used as templates that each chain clones.
+fn run_multi_relaybp(
     base: &BPBase,
     gamma0: ArrayView1<f64>,
     gamma_dist: &Uniform<f64>,
+    num_chains: usize,
     num_relays: usize,
     pre_iter: usize,
     max_iter_per_relay: usize,
@@ -30,7 +32,7 @@ fn run_relaybp(
         return (Array1::zeros(base.num_vars), true, 0);
     }
 
-    // ===== Stage 0: user-provided gamma0 =====
+    // ===== Shared stage 0: user-provided gamma0 =====
     let mut llr0 = base.prior_llr.to_vec();
     let mut ehat0 = vec![0; base.num_vars];
     let (conv0, it0) = run_dmembp_in_relay(
@@ -48,42 +50,87 @@ fn run_relaybp(
         Vec::new()
     };
 
-    // ===== Stage 1, 2, ..., num_relays: random gamma =====
-    let (ehat, converged, num_iter) = run_random_relays(
-        base,
-        gamma_dist,
-        num_relays,
-        max_iter_per_relay,
-        stop_nconv,
-        chk_inmsg,
-        var_inmsg,
-        &mut llr0,
-        &mut ehat0,
-        synd,
-        initial_candidates,
-        it0,
-        seed,
-    );
+    // ===== Generate per-chain seeds from `seed` =====
+    let chain_seeds: Vec<Option<u64>> = if seed.is_some() {
+        let mut master_rng = make_pcg64_rng(seed);
+        (0..num_chains)
+            .map(|_| Some(master_rng.next_u64()))
+            .collect()
+    } else {
+        vec![None; num_chains]
+    };
 
-    (ehat, converged, num_iter)
+    // ===== Fork into chains (parallel) =====
+    // Reborrow the post-stage-0 buffers as shared slices to use as clone templates.
+    let chk_template: &[Vec<f64>] = chk_inmsg;
+    let var_template: &[Vec<f64>] = var_inmsg;
+    let llr_template: &[f64] = &llr0;
+    let ehat_template: &[u8] = &ehat0;
+    let candidates_template = &initial_candidates;
+
+    let mut chain_results: Vec<(Array1<u8>, bool, usize)> = chain_seeds
+        .into_par_iter()
+        .map(|chain_seed| {
+            let mut chk_inmsg = chk_template.to_vec();
+            let mut var_inmsg = var_template.to_vec();
+            let mut llr = llr_template.to_vec();
+            let mut ehat = ehat_template.to_vec();
+            run_random_relays(
+                base,
+                gamma_dist,
+                num_relays,
+                max_iter_per_relay,
+                stop_nconv,
+                &mut chk_inmsg,
+                &mut var_inmsg,
+                &mut llr,
+                &mut ehat,
+                synd,
+                candidates_template.clone(),
+                it0,
+                chain_seed,
+            )
+        })
+        .collect();
+
+    // ===== Cross-chain selection =====
+    // Among converged chains, pick the one with the smallest total iteration count.
+    // If no chain converged, fallback to chain 0.
+    let idx = chain_results
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, conv, _))| *conv)
+        .min_by_key(|(_, (_, _, it))| *it)
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    chain_results.swap_remove(idx)
 }
 
-/// RelayBP decoder.
+/// MultiRelayBP decoder: `num_chains` chains sharing a deterministic first stage,
+/// then forking into independent random-relay sequences.
+/// We say that a chain has converged if it has found at least one candidate error pattern.
+/// The output of that chain is the min-LLR-weight candidate.
+/// We say that the overall MultiRelayBP decoder has converged if at least one chain has
+/// converged. In this case, the chain that finished decoding with fewest iterations wins,
+/// with ties broken by lowest chain index. If no chain converged, output the estimated
+/// error pattern in the final iteration of the first chain.
 #[pyclass]
-pub struct RelayBPDecoderRust {
+pub struct MultiRelayBPDecoderRust {
     /// Base struct for BP-based decoders, which stores parity-check matrix and prior error probabilities.
     base: BPBase,
-    /// Per-VN memory strength for the initial DMemBP stage.
+    /// Per-VN memory strength for the shared initial DMemBP stage.
     gamma0: Array1<f64>,
     /// Uniform distribution from which to sample gamma vectors at each relay stage.
     gamma_dist: Uniform<f64>,
+    /// Number of independent chains.
+    num_chains: usize,
     /// Number of DMemBP relays beyond the initial stage.
     num_relays: usize,
-    /// Max number of iterations for the initial DMemBP stage.
+    /// Max number of iterations for the shared initial DMemBP stage.
     pre_iter: usize,
     /// Max number of iterations for each relay stage.
     max_iter_per_relay: usize,
-    /// Stop decoding after collecting this many converged candidates.
+    /// Stop a chain after that chain has collected this many converged candidates.
     stop_nconv: usize,
     /// `chk_inmsg[i]` stores the incoming messages at CN `i` from its neighboring VNs during the current BP iteration.
     chk_inmsg: Vec<Vec<f64>>,
@@ -92,27 +139,29 @@ pub struct RelayBPDecoderRust {
 }
 
 #[pymethods]
-impl RelayBPDecoderRust {
-    /// Create a RelayBP decoder.
+impl MultiRelayBPDecoderRust {
+    /// Create a MultiRelayBP decoder.
     ///
     /// Parameters:
     /// - `pcm`: Parity-check matrix. Each row has ≥2 nonzeros; each column has ≥1 nonzero.
     /// - `prior`: Prior error probabilities, shape `(num_vars,)`.
-    /// - `gamma0`: Per-VN memory strength for the initial DMemBP stage, shape `(num_vars,)`.
+    /// - `gamma0`: Per-VN memory strength for the shared initial DMemBP stage, shape `(num_vars,)`.
     /// - `gamma_dist_interval`: `(low, high)` uniform distribution for sampling gamma vectors
     /// at each relay stage.
+    /// - `num_chains`: Number of independent chains (≥1).
     /// - `num_relays`: Number of DMemBP relays beyond the initial stage.
-    /// - `pre_iter`: Max iterations for the initial DMemBP stage.
+    /// - `pre_iter`: Max iterations for the shared initial DMemBP stage.
     /// - `max_iter_per_relay`: Max number of iterations for each relay stage.
-    /// - `stop_nconv`: Stop decoding after collecting this many converged candidates. The returned
-    /// error is the min-LLR-weight candidate. Must satisfy `1 ≤ stop_nconv ≤ num_relays + 1`.
+    /// - `stop_nconv`: Stop a chain after that chain has collected this many converged candidates.
+    /// Must satisfy `1 ≤ stop_nconv ≤ num_relays + 1`.
     #[new]
-    #[pyo3(signature = (pcm, prior, *, gamma0, gamma_dist_interval, num_relays, pre_iter, max_iter_per_relay, stop_nconv))]
+    #[pyo3(signature = (pcm, prior, *, gamma0, gamma_dist_interval, num_chains, num_relays, pre_iter, max_iter_per_relay, stop_nconv))]
     pub fn new(
         pcm: PyReadonlyArray2<'_, u8>,
         prior: PyReadonlyArray1<'_, f64>,
         gamma0: PyReadonlyArray1<'_, f64>,
         gamma_dist_interval: (f64, f64),
+        num_chains: usize,
         num_relays: usize,
         pre_iter: usize,
         max_iter_per_relay: usize,
@@ -130,6 +179,7 @@ impl RelayBPDecoderRust {
             base: base,
             gamma0: gamma0.as_array().to_owned(),
             gamma_dist: gamma_dist,
+            num_chains: num_chains,
             num_relays: num_relays,
             pre_iter: pre_iter,
             max_iter_per_relay: max_iter_per_relay,
@@ -139,16 +189,17 @@ impl RelayBPDecoderRust {
         }
     }
 
-    /// Decode a syndrome vector.
+    /// Decode a syndrome vector. Chains run in parallel via rayon.
     ///
     /// Parameters:
     /// - `syndrome`: Syndrome vector.
-    /// - `seed`: Optional RNG seed for reproducibility.
+    /// - `seed`: Optional RNG seed for reproducibility. If provided, this will be the
+    /// master seed used to generate child seeds for each chain.
     ///
     /// Returns:
     /// - `ehat`: Estimated error vector.
-    /// - `converged`: Whether the decoder converged (i.e. the syndrome was satisfied).
-    /// - `num_iter`: The number of BP iterations actually run.
+    /// - `converged`: Whether the decoder converged.
+    /// - `num_iter`: Total BP iterations of the winning chain.
     #[pyo3(signature = (syndrome, *, seed=None))]
     pub fn decode_detailed<'py>(
         &mut self,
@@ -156,19 +207,32 @@ impl RelayBPDecoderRust {
         syndrome: PyReadonlyArray1<'py, u8>,
         seed: Option<u64>,
     ) -> PyResult<(Bound<'py, PyArray1<u8>>, bool, usize)> {
-        let (ehat, converged, num_iter) = run_relaybp(
-            &self.base,
-            self.gamma0.view(),
-            &self.gamma_dist,
-            self.num_relays,
-            self.pre_iter,
-            self.max_iter_per_relay,
-            self.stop_nconv,
-            &mut self.chk_inmsg,
-            &mut self.var_inmsg,
-            syndrome.as_array(),
-            seed,
-        );
+        let base = &self.base;
+        let gamma0 = self.gamma0.view();
+        let gamma_dist = &self.gamma_dist;
+        let num_chains = self.num_chains;
+        let num_relays = self.num_relays;
+        let pre_iter = self.pre_iter;
+        let max_iter_per_relay = self.max_iter_per_relay;
+        let stop_nconv = self.stop_nconv;
+        let synd = syndrome.as_array();
+
+        let (ehat, converged, num_iter) = py.allow_threads(|| {
+            run_multi_relaybp(
+                base,
+                gamma0,
+                gamma_dist,
+                num_chains,
+                num_relays,
+                pre_iter,
+                max_iter_per_relay,
+                stop_nconv,
+                &mut self.chk_inmsg,
+                &mut self.var_inmsg,
+                synd,
+                seed,
+            )
+        });
         Ok((PyArray1::from_owned_array(py, ehat), converged, num_iter))
     }
 
@@ -176,14 +240,15 @@ impl RelayBPDecoderRust {
     ///
     /// Parameters:
     /// - `syndrome_batch`: Batch of syndrome vectors.
-    /// - `parallel`: Whether to use multithreaded decoding.
-    /// - `seed`: Optional RNG seed for reproducibility. If provided, this will
-    /// be the master seed used to generate child seeds for each shot in the batch.
+    /// - `parallel`: Whether to parallelize at the **batch** level. Chain-level
+    /// parallelism is always on.
+    /// - `seed`: Optional RNG seed for reproducibility. Derives per-shot seeds which are
+    /// in turn used to derive per-chain seeds inside each shot.
     ///
     /// Returns:
     /// - `ehat_batch`: Batch of estimated error vectors.
     /// - `converged_mask`: Whether the decoder converged in each shot.
-    /// - `decoding_iters`: Number of BP iterations actually run in each shot.
+    /// - `decoding_iters`: Total BP iterations of the winning chain in each shot.
     #[pyo3(signature = (syndrome_batch, *, parallel, seed=None))]
     pub fn decode_batch_detailed<'py>(
         &mut self,
@@ -214,8 +279,9 @@ impl RelayBPDecoderRust {
         if parallel {
             let syndrome_batch = syndrome_batch.to_owned();
             let base = &self.base;
-            let gamma0 = &self.gamma0;
+            let gamma0 = self.gamma0.view();
             let gamma_dist = &self.gamma_dist;
+            let num_chains = self.num_chains;
             let num_relays = self.num_relays;
             let pre_iter = self.pre_iter;
             let max_iter_per_relay = self.max_iter_per_relay;
@@ -230,10 +296,11 @@ impl RelayBPDecoderRust {
                     .map(|(i, child_seed)| {
                         let mut chk_inmsg = chk_inmsg_template.clone();
                         let mut var_inmsg = var_inmsg_template.clone();
-                        run_relaybp(
+                        run_multi_relaybp(
                             base,
-                            gamma0.view(),
+                            gamma0,
                             gamma_dist,
+                            num_chains,
                             num_relays,
                             pre_iter,
                             max_iter_per_relay,
@@ -252,20 +319,40 @@ impl RelayBPDecoderRust {
                 decoding_iters[i] = num_iter as i64;
             }
         } else {
-            for (i, &child_seed) in child_seeds.iter().enumerate() {
-                let (ehat, converged, num_iter) = run_relaybp(
-                    &self.base,
-                    self.gamma0.view(),
-                    &self.gamma_dist,
-                    self.num_relays,
-                    self.pre_iter,
-                    self.max_iter_per_relay,
-                    self.stop_nconv,
-                    &mut self.chk_inmsg,
-                    &mut self.var_inmsg,
-                    syndrome_batch.row(i),
-                    child_seed,
-                );
+            let base = &self.base;
+            let gamma0 = self.gamma0.view();
+            let gamma_dist = &self.gamma_dist;
+            let num_chains = self.num_chains;
+            let num_relays = self.num_relays;
+            let pre_iter = self.pre_iter;
+            let max_iter_per_relay = self.max_iter_per_relay;
+            let stop_nconv = self.stop_nconv;
+
+            // Wrap the serial batch loop in allow_threads so the inner chain-level
+            // par_iter in run_multi_relaybp can use other CPU cores without the GIL.
+            let results: Vec<(Array1<u8>, bool, usize)> = py.allow_threads(|| {
+                child_seeds
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &child_seed)| {
+                        run_multi_relaybp(
+                            base,
+                            gamma0,
+                            gamma_dist,
+                            num_chains,
+                            num_relays,
+                            pre_iter,
+                            max_iter_per_relay,
+                            stop_nconv,
+                            &mut self.chk_inmsg,
+                            &mut self.var_inmsg,
+                            syndrome_batch.row(i),
+                            child_seed,
+                        )
+                    })
+                    .collect()
+            });
+            for (i, (ehat, converged, num_iter)) in results.into_iter().enumerate() {
                 ehat_batch.row_mut(i).assign(&ehat);
                 converged_mask[i] = converged;
                 decoding_iters[i] = num_iter as i64;
@@ -281,6 +368,6 @@ impl RelayBPDecoderRust {
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<RelayBPDecoderRust>()?;
+    m.add_class::<MultiRelayBPDecoderRust>()?;
     Ok(())
 }

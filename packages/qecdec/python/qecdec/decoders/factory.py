@@ -11,6 +11,7 @@ from .serialbp import SerialBPDecoder
 from .ens_serial_bp import EnsSerialBPDecoder
 from .bposd import BPOSDDecoder
 from .relaybp import RelayBPDecoder
+from .multi_relaybp import MultiRelayBPDecoder
 from .deprecated_relaybp import Deprecated_RelayBPDecoder
 from .mwpm import MWPMDecoder
 from .uf import UnionFindDecoder
@@ -25,6 +26,7 @@ DECODER_NAME_TO_CLASS: dict[str, type[Decoder]] = {
     "EnsSerialBP": EnsSerialBPDecoder,
     "BPOSD": BPOSDDecoder,
     "RelayBP": RelayBPDecoder,
+    "MultiRelayBP": MultiRelayBPDecoder,
     "Deprecated_RelayBP": Deprecated_RelayBPDecoder,
     "MWPM": MWPMDecoder,
     "UnionFind": UnionFindDecoder,

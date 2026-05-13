@@ -4,6 +4,7 @@ mod dmembp;
 mod dmembp_core;
 mod dmemoffsetbp;
 mod ens_serial_bp;
+mod multi_relaybp;
 mod relaybp;
 mod relaybp_core;
 mod serial_bp;
@@ -18,6 +19,7 @@ fn qecdec(m: &Bound<'_, PyModule>) -> PyResult<()> {
     dmembp::register(m)?;
     dmemoffsetbp::register(m)?;
     ens_serial_bp::register(m)?;
+    multi_relaybp::register(m)?;
     relaybp::register(m)?;
     serial_bp::register(m)?;
     uf::register(m)?;
