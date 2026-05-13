@@ -157,7 +157,7 @@ def plot_fr_vs_iter_budget(
             x_metric=x_metric,
             y_metric=y_metric,
         )
-        ax.plot(x, y, label=label)
+        ax.plot(x, y, label=label, marker="+")
 
     if title:
         ax.set_title(title, fontsize=TITLE_FONTSIZE, fontweight="bold")
