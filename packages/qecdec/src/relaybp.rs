@@ -1,12 +1,67 @@
 use crate::bp_base::{alloc_msg_buffers, BPBase};
-use crate::relaybp_core::run_relaybp;
-use crate::utils::make_pcg64_rng;
-use numpy::ndarray::{Array1, Array2};
+use crate::dmembp_core::run_dmembp_in_relay;
+use crate::relaybp_core::run_random_relays;
+use crate::utils::{is_all_zeros, make_pcg64_rng};
+use numpy::ndarray::{Array1, Array2, ArrayView1};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 use rand::distr::Uniform;
 use rand::Rng;
 use rayon::prelude::*;
+
+/// Run RelayBP decoding algorithm. Return `(ehat, converged, num_iter)`.
+///
+/// Update `chk_inmsg` and `var_inmsg` in place. `chk_inmsg` and `var_inmsg`
+/// only need to be sized correctly; their initial values will be overwritten.
+fn run_relaybp(
+    base: &BPBase,
+    gamma0: ArrayView1<f64>,
+    gamma_dist: &Uniform<f64>,
+    num_relays: usize,
+    pre_iter: usize,
+    max_iter_per_relay: usize,
+    stop_nconv: usize,
+    chk_inmsg: &mut [Vec<f64>],
+    var_inmsg: &mut [Vec<f64>],
+    synd: ArrayView1<u8>,
+    seed: Option<u64>,
+) -> (Array1<u8>, bool, usize) {
+    // Return immediately if syndrome is all zeros.
+    if is_all_zeros(synd) {
+        return (Array1::zeros(base.num_vars), true, 0);
+    }
+
+    let mut llr = base.prior_llr.to_vec();
+    let mut ehat = vec![0; base.num_vars];
+    let mut candidates = Vec::with_capacity(stop_nconv);
+
+    // Stage 0: user-provided gamma0.
+    let (conv, num_iters_init) = run_dmembp_in_relay(
+        base, gamma0, 1.0, pre_iter, chk_inmsg, var_inmsg, &mut llr, &mut ehat, synd,
+    );
+    if conv {
+        candidates.push(ehat.clone());
+    }
+
+    // Stages 1, 2, ..., num_relays: random gamma.
+    let (ehat, converged, num_iter) = run_random_relays(
+        base,
+        gamma_dist,
+        num_relays,
+        max_iter_per_relay,
+        stop_nconv,
+        chk_inmsg,
+        var_inmsg,
+        &mut llr,
+        &mut ehat,
+        synd,
+        candidates,
+        num_iters_init,
+        seed,
+    );
+
+    (ehat, converged, num_iter)
+}
 
 /// RelayBP decoder.
 #[pyclass]
