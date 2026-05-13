@@ -10,6 +10,7 @@ from .ens_serial_bp import EnsSerialBPDecoder
 from .bposd import BPOSDDecoder
 from .mwpm import MWPMDecoder
 from .relaybp import RelayBPDecoder
+from .deprecated_relaybp import Deprecated_RelayBPDecoder
 from .uf import UnionFindDecoder
 from .factory import (
     DECODER_NAME_TO_CLASS,
@@ -30,6 +31,7 @@ __all__ = [
     "BPOSDDecoder",
     "MWPMDecoder",
     "RelayBPDecoder",
+    "Deprecated_RelayBPDecoder",
     "UnionFindDecoder",
     "DECODER_NAME_TO_CLASS",
     "ALL_DECODERS",

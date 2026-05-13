@@ -1,7 +1,9 @@
+from typing import Optional, Union
+
 import numpy as np
-from relay_bp import RelayDecoderF64
 
 from .base import IterativeDecoder
+from ..qecdec import RelayBPDecoderRust
 from ..types import (
     Bit1DArray,
     Bit2DArray,
@@ -12,10 +14,18 @@ from ..types import (
 
 
 class RelayBPDecoder(IterativeDecoder):
-    """RelayBP decoder — ensemble BP with disordered memory and relaying.
+    """RelayBP decoder — single-chain DMemBP relay.
 
-    Wraps `relay_bp.RelayDecoderF64` from the `relay-bp` package.
-    See https://github.com/trmue/relay for details.
+    First stage runs DMemBP with the user-provided per-variable `gamma0` vector for up to
+    `pre_iter` iterations. If it converges, the codeword is added to the candidate set.
+    Then up to `num_relays` further DMemBP stages run with per-variable gamma vectors
+    sampled uniformly from `gamma_dist_interval`, inheriting messages and posterior LLRs
+    from the previous stage (the relay step). Each converged stage adds a candidate.
+    The chain terminates after `stop_nconv` candidates are collected, or after all relays
+    are exhausted. The returned error is the candidate with the smallest LLR weight
+    (``sum_j prior_llr[j] * ehat[j]``).
+
+    For multi-chain ensemble variants, see `MultiRelayBPDecoder`.
     """
 
     def __init__(
@@ -23,13 +33,12 @@ class RelayBPDecoder(IterativeDecoder):
         pcm: Bit2DArray,
         prior: Float1DArray,
         *,
-        gamma0: float,
+        gamma0: Union[Float1DArray, float],
         gamma_dist_interval: tuple[float, float],
         num_relays: int,
         pre_iter: int,
         max_iter_per_relay: int,
         stop_nconv: int,
-        num_indep_decoders: int = 1,
     ):
         """
         Parameters
@@ -42,35 +51,39 @@ class RelayBPDecoder(IterativeDecoder):
         prior : ndarray
             Prior error probabilities, shape=(num_vars,), float64 ∈ (0,0.5).
 
-        gamma0 : float
-            Memory parameter for the first MemBP instance.
+        gamma0 : ndarray or float
+            Per-variable memory strength for the first DMemBP stage,
+            shape=(num_vars,), float64.
 
         gamma_dist_interval : tuple[float, float]
-            The uniform distribution for random memory weights used in DMemBP relays.
-            Must be tuned per decoding graph.
+            (low, high) range for sampling per-variable gamma vectors uniformly at each
+            relay stage. Must be tuned per decoding graph.
 
         num_relays : int
-            Number of DMemBP relays (beyond the first MemBP instance).
+            Number of DMemBP relays beyond the first stage.
 
         pre_iter : int
-            Number of iterations for the first MemBP instance.
+            Max number of iterations for the first DMemBP stage.
 
         max_iter_per_relay : int
-            Max number of iterations per DMemBP relay.
+            Max number of iterations per relay stage.
 
         stop_nconv : int
-            How many solutions to find before terminating. Must be less than or equal to num_relays + 1.
-
-        num_indep_decoders : int
-            Number of independent decoding runs per syndrome. The earliest output
-            (fewest iterations) across all runs is returned. Defaults to 1.
+            Stop after collecting this many converged candidates. The returned error
+            is the candidate with the smallest LLR weight. Must satisfy
+            ``1 <= stop_nconv <= num_relays + 1``.
         """
         super().__init__(pre_iter + num_relays * max_iter_per_relay, pcm, prior)
 
-        if stop_nconv > num_relays + 1:
-            raise ValueError("stop_nconv must be less than or equal to num_relays + 1")
-        if num_indep_decoders < 1:
-            raise ValueError("num_indep_decoders must be at least 1")
+        if isinstance(gamma0, (float, int)):
+            gamma0 = np.full(self.num_vars, gamma0)
+        assert isinstance(gamma0, np.ndarray) and gamma0.shape == (self.num_vars,)
+        if stop_nconv < 1 or stop_nconv > num_relays + 1:
+            raise ValueError(
+                "stop_nconv must satisfy 1 <= stop_nconv <= num_relays + 1"
+            )
+        if gamma_dist_interval[0] > gamma_dist_interval[1]:
+            raise ValueError("gamma_dist_interval must have low <= high")
 
         self.gamma0 = gamma0
         self.gamma_dist_interval: tuple[float, float] = tuple(gamma_dist_interval)
@@ -78,19 +91,18 @@ class RelayBPDecoder(IterativeDecoder):
         self.pre_iter = pre_iter
         self.max_iter_per_relay = max_iter_per_relay
         self.stop_nconv = stop_nconv
-        self.num_indep_decoders = num_indep_decoders
 
         self._decoder = self._build_decoder()
 
-    def _build_decoder(self) -> RelayDecoderF64:
-        return RelayDecoderF64(
+    def _build_decoder(self) -> RelayBPDecoderRust:
+        return RelayBPDecoderRust(
             self.pcm,
             self.prior,
             gamma0=self.gamma0,
-            pre_iter=self.pre_iter,
-            num_sets=self.num_relays,
-            set_max_iter=self.max_iter_per_relay,
             gamma_dist_interval=self.gamma_dist_interval,
+            num_relays=self.num_relays,
+            pre_iter=self.pre_iter,
+            max_iter_per_relay=self.max_iter_per_relay,
             stop_nconv=self.stop_nconv,
         )
 
@@ -103,68 +115,68 @@ class RelayBPDecoder(IterativeDecoder):
         self.__dict__.update(state)
         self._decoder = self._build_decoder()
 
-    def _select_earliest_result(self, results):
-        """Return the earliest result: converged with fewest iterations, or first if none converged."""
-        earliest = None
-        for result in results:
-            if not result.success:
-                continue
-            if earliest is None or result.iterations < earliest.iterations:
-                earliest = result
-        if earliest is None:
-            return results[0]
-        return earliest
+    def decode(self, syndrome: Bit1DArray, *, seed: Optional[int] = None) -> Bit1DArray:
+        ehat, _, _ = self._decoder.decode_detailed(syndrome, seed=seed)
+        return ehat
 
-    def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
-        if self.num_indep_decoders == 1:
-            return self._decoder.decode(syndrome)
-        results = [
-            self._decoder.decode_detailed(syndrome)
-            for _ in range(self.num_indep_decoders)
-        ]
-        earliest = self._select_earliest_result(results)
-        return earliest.decoding
-
-    def decode_batch(self, syndrome_batch: Bit2DArray) -> Bit2DArray:
-        if self.num_indep_decoders == 1:
-            return self._decoder.decode_batch(syndrome_batch)
-        batch_size = syndrome_batch.shape[0]
-        ehat_batch = np.empty((batch_size, self.num_vars), dtype=np.uint8)
-        for i in range(batch_size):
-            ehat_batch[i] = self.decode(syndrome_batch[i])
+    def decode_batch(
+        self,
+        syndrome_batch: Bit2DArray,
+        *,
+        parallel: bool = False,
+        seed: Optional[int] = None,
+    ) -> Bit2DArray:
+        ehat_batch, _, _ = self._decoder.decode_batch_detailed(
+            syndrome_batch, parallel=parallel, seed=seed
+        )
         return ehat_batch
 
-    def decode_detailed(self, syndrome: Bit1DArray):
-        """Decode a syndrome vector with detailed diagnostics.
+    def decode_detailed(
+        self, syndrome: Bit1DArray, *, seed: Optional[int] = None
+    ) -> tuple[Bit1DArray, bool, int]:
+        """Decode a syndrome with detailed diagnostics.
 
         Parameters
         ----------
         syndrome : ndarray
             Syndrome vector, shape=(num_chks,), dtype=uint8.
 
+        seed : int or None
+            Optional RNG seed for reproducibility. None → OS entropy.
+
         Returns
         -------
-        relay_bp.DecodeResult
-            See https://github.com/trmue/relay/blob/main/examples/GettingStarted.ipynb for details.
+        ehat : ndarray
+            Estimated error vector, shape=(num_vars,), dtype=uint8.
+
+        converged : bool
+            Whether at least one converged candidate was found.
+
+        num_iter : int
+            Total BP iterations summed across all stages run.
         """
-        if self.num_indep_decoders == 1:
-            return self._decoder.decode_detailed(syndrome)
-        results = [
-            self._decoder.decode_detailed(syndrome)
-            for _ in range(self.num_indep_decoders)
-        ]
-        earliest = self._select_earliest_result(results)
-        return earliest
+        return self._decoder.decode_detailed(syndrome, seed=seed)
 
     def decode_batch_detailed(
-        self, syndrome_batch: Bit2DArray
+        self,
+        syndrome_batch: Bit2DArray,
+        *,
+        parallel: bool = False,
+        seed: Optional[int] = None,
     ) -> tuple[Bit2DArray, Bool1DArray, Int1DArray]:
-        """Decode a batch of syndrome vectors with detailed diagnostics.
+        """Decode a batch of syndromes with detailed diagnostics.
 
         Parameters
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+
+        parallel : bool
+            Whether to use multithreaded decoding.
+
+        seed : int or None
+            Optional master RNG seed for reproducibility. Each shot's RNG stream
+            is derived independently from this master seed. None → OS entropy.
 
         Returns
         -------
@@ -172,18 +184,12 @@ class RelayBPDecoder(IterativeDecoder):
             Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
 
         converged_mask : ndarray
-            Whether the decoder converged in each shot, shape=(batch_size,), dtype=bool.
+            Whether each shot found at least one converged candidate,
+            shape=(batch_size,), dtype=bool.
 
         decoding_iters : ndarray
-            Number of BP iterations actually run in each shot, shape=(batch_size,), dtype=int64.
+            Total BP iterations per shot, shape=(batch_size,), dtype=int64.
         """
-        batch_size = syndrome_batch.shape[0]
-        ehat_batch = np.empty((batch_size, self.num_vars), dtype=np.uint8)
-        converged_mask = np.empty(batch_size, dtype=np.bool_)
-        decoding_iters = np.empty(batch_size, dtype=np.int64)
-        for i in range(batch_size):
-            result = self.decode_detailed(syndrome_batch[i])
-            ehat_batch[i] = result.decoding
-            converged_mask[i] = result.success
-            decoding_iters[i] = result.iterations
-        return ehat_batch, converged_mask, decoding_iters
+        return self._decoder.decode_batch_detailed(
+            syndrome_batch, parallel=parallel, seed=seed
+        )
