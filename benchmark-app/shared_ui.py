@@ -423,7 +423,7 @@ def render_torchdecoder_selection(
             "When device is CPU and the selected model is LearnedDMemBP, "
             "inference runs via the equivalent Rust DMemBPDecoder for speed."
         )
-        col1, col2, _ = st.columns(3)
+        col1, col2, col3 = st.columns(3)
         with col1:
             which_prior = st.selectbox(
                 "prior",
@@ -443,11 +443,95 @@ def render_torchdecoder_selection(
                 key="pytorch_max_iter",
                 help="Max number of decoding iterations for inference.",
             )
+        with col3:
+            relaybp_mode = st.checkbox(
+                "Run as RelayBP",
+                value=False,
+                key="td_relaybp_mode",
+                help=(
+                    "If on, the CPU swap builds a Rust RelayBPDecoder using "
+                    "the checkpoint's gamma vector as gamma0 instead of "
+                    "running DMemBP. Requires device=CPU and LearnedDMemBP. "
+                    "max_iter is ignored in this mode; the effective budget "
+                    "is pre_iter + num_relays * max_iter_per_relay."
+                ),
+            )
 
-    torchdecoder_shared_params = {
+        relaybp_params: dict[str, Any] = {}
+        if relaybp_mode:
+            st.markdown("**RelayBP hyperparameters**")
+            default_gdi = DEFAULT_RELAYBP_GDI.get(qec_params, (-0.5, 0.5))
+            rcol1, rcol2, rcol3 = st.columns(3)
+            with rcol1:
+                gdi_low = st.number_input(
+                    "gamma_dist_interval low",
+                    value=default_gdi[0],
+                    format="%f",
+                    step=0.0001,
+                    key="td_relaybp_gdi_low",
+                    help="Lower bound of the uniform distribution for random gamma vectors at each relay stage.",
+                )
+            with rcol2:
+                gdi_high = st.number_input(
+                    "gamma_dist_interval high",
+                    value=default_gdi[1],
+                    format="%f",
+                    step=0.0001,
+                    key="td_relaybp_gdi_high",
+                    help="Upper bound of the uniform distribution for random gamma vectors at each relay stage.",
+                )
+            with rcol3:
+                num_relays = st.number_input(
+                    "num_relays",
+                    value=DEFAULT_RELAYBP_NUM_RELAYS,
+                    min_value=1,
+                    key="td_relaybp_num_relays",
+                    help="Number of DMemBP relays beyond the first stage.",
+                )
+            if gdi_low >= gdi_high:
+                st.error("gamma_dist_interval: low must be strictly less than high.")
+                st.stop()
+            rcol4, rcol5, rcol6 = st.columns(3)
+            with rcol4:
+                pre_iter = st.number_input(
+                    "pre_iter",
+                    value=DEFAULT_RELAYBP_PRE_ITER,
+                    min_value=1,
+                    key="td_relaybp_pre_iter",
+                    help="Max iterations for the first DMemBP stage (uses checkpoint gamma as gamma0).",
+                )
+            with rcol5:
+                max_iter_per_relay = st.number_input(
+                    "max_iter_per_relay",
+                    value=DEFAULT_RELAYBP_MAX_ITER_PER_RELAY,
+                    min_value=1,
+                    key="td_relaybp_max_iter_per_relay",
+                    help="Max iterations per relay stage.",
+                )
+            with rcol6:
+                stop_nconv = st.number_input(
+                    "stop_nconv",
+                    value=DEFAULT_RELAYBP_STOP_NCONV,
+                    min_value=1,
+                    max_value=num_relays + 1,
+                    key="td_relaybp_stop_nconv",
+                    help="Stop after collecting this many converged candidates.",
+                )
+            relaybp_params = {
+                "gamma_dist_interval": (gdi_low, gdi_high),
+                "num_relays": num_relays,
+                "pre_iter": pre_iter,
+                "max_iter_per_relay": max_iter_per_relay,
+                "stop_nconv": stop_nconv,
+            }
+
+    torchdecoder_shared_params: dict[str, Any] = {
         "use_prior_in_ckpt": use_prior_in_ckpt,
         "max_iter": max_iter,
+        "relaybp_mode": relaybp_mode,
     }
+    if relaybp_mode:
+        torchdecoder_shared_params["relaybp"] = relaybp_params
     return selected_run_dirs, torchdecoder_shared_params
 
 

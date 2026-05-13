@@ -6,7 +6,7 @@ from typing import Optional, Union
 
 from omegaconf import DictConfig
 import stim
-from qecdec.decoders import DMemBPDecoder
+from qecdec.decoders import DMemBPDecoder, RelayBPDecoder
 from qecdec.experiments import Experiment, RotatedSurfaceCode_Memory
 
 from torchdecoder_utils import load_gamma_from_checkpoint, load_prior_from_checkpoint
@@ -34,10 +34,20 @@ def run_torchdecoder_benchmark(
     decoder_params = benchtask_params.torchdecoder_shared_params
     max_iter = decoder_params["max_iter"]
     use_prior_in_ckpt = decoder_params["use_prior_in_ckpt"]
+    relaybp_mode = decoder_params.get("relaybp_mode", False)
+    relaybp_params = decoder_params.get("relaybp", {})
 
     use_rust_transplant = (
         collector_params.device == "cpu" and model_cfg.name == "LearnedDMemBP"
     )
+    if relaybp_mode and not use_rust_transplant:
+        raise ValueError(
+            "relaybp_mode=True requires device='cpu' and model 'LearnedDMemBP'. "
+            f"Got device={collector_params.device!r}, model={model_cfg.name!r}."
+        )
+    if relaybp_mode:
+        decoder_name = f"{decoder_name} (RelayBP)"
+
     ckpt_gamma = load_gamma_from_checkpoint(ckpt_path) if use_rust_transplant else None
     ckpt_prior = (
         load_prior_from_checkpoint(ckpt_path)
@@ -73,13 +83,27 @@ def run_torchdecoder_benchmark(
             )
         )
         if use_rust_transplant:
-            dmembp = DMemBPDecoder(
-                pcm=expmt.chkmat,
-                prior=ckpt_prior if use_prior_in_ckpt else expmt.prior,
-                gamma=ckpt_gamma,
-                max_iter=max_iter,
-            )
-            decoder_list.append(QecdecBenchmarkDecoder(dmembp, expmt.obsmat))
+            prior = ckpt_prior if use_prior_in_ckpt else expmt.prior
+            if relaybp_mode:
+                relaybp = RelayBPDecoder(
+                    pcm=expmt.chkmat,
+                    prior=prior,
+                    gamma0=ckpt_gamma,
+                    gamma_dist_interval=relaybp_params["gamma_dist_interval"],
+                    num_relays=relaybp_params["num_relays"],
+                    pre_iter=relaybp_params["pre_iter"],
+                    max_iter_per_relay=relaybp_params["max_iter_per_relay"],
+                    stop_nconv=relaybp_params["stop_nconv"],
+                )
+                decoder_list.append(QecdecBenchmarkDecoder(relaybp, expmt.obsmat))
+            else:
+                dmembp = DMemBPDecoder(
+                    pcm=expmt.chkmat,
+                    prior=prior,
+                    gamma=ckpt_gamma,
+                    max_iter=max_iter,
+                )
+                decoder_list.append(QecdecBenchmarkDecoder(dmembp, expmt.obsmat))
         else:
             model = load_torchdecoder(
                 chkmat=expmt.chkmat,
