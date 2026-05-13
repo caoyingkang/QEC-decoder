@@ -54,6 +54,8 @@ class TaskMetadata(NamedTuple):
         """Max number of iterations.
 
         For RelayBP: ``decoder_params["pre_iter"] + decoder_params["num_relays"] * decoder_params["max_iter_per_relay"]``.
+        For LearnedDMemBP-as-RelayBP (relaybp_mode=True): same formula but with
+        the RelayBP params nested under ``decoder_params["relaybp"]``.
         For other iterative decoders: ``decoder_params["max_iter"]``.
         For non-iterative decoders: raises ``ValueError``.
         """
@@ -63,6 +65,11 @@ class TaskMetadata(NamedTuple):
         if self.decoder_name == "RelayBP":
             return (
                 params["pre_iter"] + params["num_relays"] * params["max_iter_per_relay"]
+            )
+        elif params.get("relaybp_mode"):
+            relay = params["relaybp"]
+            return (
+                relay["pre_iter"] + relay["num_relays"] * relay["max_iter_per_relay"]
             )
         else:
             return params["max_iter"]

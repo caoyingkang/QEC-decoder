@@ -518,7 +518,7 @@ def render_torchdecoder_selection(
                     help="Stop after collecting this many converged candidates.",
                 )
             relaybp_params = {
-                "gamma_dist_interval": (gdi_low, gdi_high),
+                "gamma_dist_interval": [gdi_low, gdi_high],
                 "num_relays": num_relays,
                 "pre_iter": pre_iter,
                 "max_iter_per_relay": max_iter_per_relay,
