@@ -152,28 +152,30 @@ impl EnsSerialBPDecoderRust {
         vn_orders: PyReadonlyArray2<'_, i64>,
         max_iter: usize,
         topk: usize,
-    ) -> Self {
+    ) -> PyResult<Self> {
         let pcm = pcm.as_array();
         let prior = prior.as_array();
-        let base = BPBase::new(pcm, prior);
+        let base = BPBase::new(pcm, prior)?;
         let vn_orders = vn_orders.as_array();
         let ensemble_size = vn_orders.nrows();
-        assert!(
-            vn_orders.ncols() == base.num_vars,
-            "vn_orders must have {} columns",
-            base.num_vars
-        );
-        assert!(
-            topk >= 1 && topk <= ensemble_size,
-            "Require 1 <= topk <= ensemble_size"
-        );
+        if vn_orders.ncols() != base.num_vars {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "vn_orders must have {} columns",
+                base.num_vars
+            )));
+        }
+        if topk < 1 || topk > ensemble_size {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Require 1 <= topk <= ensemble_size",
+            ));
+        }
         let vn_orders_vecs = vn_orders
             .axis_iter(Axis(0))
             .map(|row| row.iter().map(|&x| x as usize).collect())
             .collect();
         let (chk_inmsg_template, var_inmsg_template) = alloc_msg_buffers(&base);
 
-        Self {
+        Ok(Self {
             base,
             ensemble_size,
             topk,
@@ -181,7 +183,7 @@ impl EnsSerialBPDecoderRust {
             max_iter,
             chk_inmsg_template,
             var_inmsg_template,
-        }
+        })
     }
 
     /// Decode a syndrome vector.

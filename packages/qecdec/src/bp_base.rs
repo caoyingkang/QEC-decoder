@@ -1,5 +1,7 @@
 use crate::utils::prob_to_llr;
 use numpy::ndarray::{Array1, ArrayView1, ArrayView2};
+use pyo3::exceptions::PyValueError;
+use pyo3::PyResult;
 
 /// Base struct for BP-based decoders.
 pub(crate) struct BPBase {
@@ -22,9 +24,17 @@ pub(crate) struct BPBase {
 }
 
 impl BPBase {
-    pub(crate) fn new(pcm: ArrayView2<u8>, prior: ArrayView1<f64>) -> Self {
+    pub(crate) fn new(pcm: ArrayView2<u8>, prior: ArrayView1<f64>) -> PyResult<Self> {
         let num_chks = pcm.nrows();
         let num_vars = pcm.ncols();
+
+        if prior.len() != num_vars {
+            return Err(PyValueError::new_err(format!(
+                "prior length ({}) must equal number of variable nodes ({})",
+                prior.len(),
+                num_vars
+            )));
+        }
 
         let mut chk_nbrs = vec![Vec::new(); num_chks];
         let mut var_nbrs = vec![Vec::new(); num_vars];
@@ -41,13 +51,20 @@ impl BPBase {
             }
         }
         for (i, nbrs) in chk_nbrs.iter().enumerate() {
-            assert!(nbrs.len() >= 2, "CN {} has less than 2 neighbors", i);
+            if nbrs.len() < 2 {
+                return Err(PyValueError::new_err(format!(
+                    "CN {} has less than 2 neighbors",
+                    i
+                )));
+            }
         }
         for (j, nbrs) in var_nbrs.iter().enumerate() {
-            assert!(!nbrs.is_empty(), "VN {} has zero neighbor", j);
+            if nbrs.is_empty() {
+                return Err(PyValueError::new_err(format!("VN {} has zero neighbor", j)));
+            }
         }
 
-        Self {
+        Ok(Self {
             prior_llr: prior.mapv(prob_to_llr),
             num_chks,
             num_vars,
@@ -55,7 +72,7 @@ impl BPBase {
             var_nbrs,
             chk_nbr_pos,
             var_nbr_pos,
-        }
+        })
     }
 
     /// Check whether the candidate error pattern `ehat` produces the syndrome `synd`.

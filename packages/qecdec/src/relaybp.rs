@@ -116,16 +116,17 @@ impl RelayBPDecoderRust {
         pre_iter: usize,
         max_iter_per_relay: usize,
         stop_nconv: usize,
-    ) -> Self {
+    ) -> PyResult<Self> {
         let pcm = pcm.as_array();
         let prior = prior.as_array();
-        let base = BPBase::new(pcm, prior);
+        let base = BPBase::new(pcm, prior)?;
         let (gamma_low, gamma_high) = gamma_dist_interval;
-        let gamma_dist =
-            Uniform::new_inclusive(gamma_low, gamma_high).expect("Invalid gamma_dist_interval");
+        let gamma_dist = Uniform::new_inclusive(gamma_low, gamma_high).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("Invalid gamma_dist_interval: {}", e))
+        })?;
         let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
 
-        Self {
+        Ok(Self {
             base,
             gamma0: gamma0.as_array().to_owned(),
             gamma_dist,
@@ -135,7 +136,7 @@ impl RelayBPDecoderRust {
             stop_nconv,
             chk_inmsg,
             var_inmsg,
-        }
+        })
     }
 
     /// Decode a syndrome vector.

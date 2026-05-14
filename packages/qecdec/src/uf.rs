@@ -1,5 +1,6 @@
 use numpy::ndarray::{Array1, Array2, ArrayView1};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::collections::{HashSet, LinkedList, VecDeque};
 use std::ops::Add;
@@ -179,7 +180,7 @@ impl UnionFindDecoderRust {
     /// - `pcm`: Parity-check matrix. Every row (check) must have at least 2 nonzero entries.
     /// Every column (variable) must have at least 1 and at most 2 nonzero entries.
     #[new]
-    pub fn new(pcm: PyReadonlyArray2<'_, u8>) -> Self {
+    pub fn new(pcm: PyReadonlyArray2<'_, u8>) -> PyResult<Self> {
         let pcm = pcm.as_array();
         let num_chks = pcm.nrows();
         let num_vars = pcm.ncols();
@@ -195,23 +196,26 @@ impl UnionFindDecoderRust {
             }
         }
         for (i, supp) in chk2vars.iter().enumerate() {
-            assert!(
-                supp.len() >= 2,
-                "Check {} involves less than 2 variables",
-                i
-            );
+            if supp.len() < 2 {
+                return Err(PyValueError::new_err(format!(
+                    "Check {} involves less than 2 variables",
+                    i
+                )));
+            }
         }
         for (j, supp) in var2chks.iter().enumerate() {
-            assert!(
-                !supp.is_empty(),
-                "Variable {} is not involved in any check",
-                j
-            );
-            assert!(
-                supp.len() <= 2,
-                "Variable {} is involved in more than 2 checks",
-                j
-            );
+            if supp.is_empty() {
+                return Err(PyValueError::new_err(format!(
+                    "Variable {} is not involved in any check",
+                    j
+                )));
+            }
+            if supp.len() > 2 {
+                return Err(PyValueError::new_err(format!(
+                    "Variable {} is involved in more than 2 checks",
+                    j
+                )));
+            }
         }
 
         let mut graph = vec![Vec::new(); num_chks];
@@ -225,7 +229,7 @@ impl UnionFindDecoderRust {
             graph[y].push((x, e));
         }
 
-        Self {
+        Ok(Self {
             num_chks,
             num_vars,
             chk2vars,
@@ -237,7 +241,7 @@ impl UnionFindDecoderRust {
             sf_parent: vec![None; num_chks],
             sf_nchild: vec![0; num_chks],
             sf_leaves: Vec::new(),
-        }
+        })
     }
 
     /// Decode a syndrome vector.

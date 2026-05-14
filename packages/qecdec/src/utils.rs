@@ -32,7 +32,7 @@ pub(crate) fn llr_weight(llr: ArrayView1<f64>, ehat: &[u8]) -> f64 {
 /// Pick the most likely error vector (i.e., the one with the smallest LLR-weight)
 /// among the nonempty `candidates` list. Ties broken by encounter order.
 ///
-/// Panic if `candidates` is empty.
+/// Panics if `candidates` is empty or LLR values are not finite.
 pub(crate) fn pick_most_likely(candidates: Vec<Vec<u8>>, prior_llr: ArrayView1<f64>) -> Vec<u8> {
     let cost_fn = |e: &[u8]| -> f64 { llr_weight(prior_llr, e) };
     candidates

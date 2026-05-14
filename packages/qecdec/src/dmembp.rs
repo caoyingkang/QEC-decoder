@@ -68,21 +68,21 @@ impl DMemBPDecoderRust {
         gamma: PyReadonlyArray1<'_, f64>,
         norm: Option<f64>,
         max_iter: usize,
-    ) -> Self {
+    ) -> PyResult<Self> {
         let pcm = pcm.as_array();
         let prior = prior.as_array();
-        let base = BPBase::new(pcm, prior);
+        let base = BPBase::new(pcm, prior)?;
         let norm = norm.unwrap_or(1.0);
         let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
 
-        Self {
+        Ok(Self {
             base,
             gamma: gamma.as_array().to_owned(),
             norm,
             max_iter,
             chk_inmsg,
             var_inmsg,
-        }
+        })
     }
 
     /// Decode a syndrome vector.

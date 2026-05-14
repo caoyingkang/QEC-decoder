@@ -77,19 +77,19 @@ impl SerialBPDecoderRust {
         prior: PyReadonlyArray1<'_, f64>,
         vn_order: PyReadonlyArray1<'_, i64>,
         max_iter: usize,
-    ) -> Self {
+    ) -> PyResult<Self> {
         let pcm = pcm.as_array();
         let prior = prior.as_array();
-        let base = BPBase::new(pcm, prior);
+        let base = BPBase::new(pcm, prior)?;
         let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
 
-        Self {
+        Ok(Self {
             base,
             vn_order: vn_order.as_array().iter().map(|&x| x as usize).collect(),
             max_iter,
             chk_inmsg,
             var_inmsg,
-        }
+        })
     }
 
     /// Decode a syndrome vector.

@@ -138,13 +138,13 @@ impl DMemOffsetBPDecoderRust {
         offset: Vec<Vec<f64>>,
         norm: Vec<Vec<f64>>,
         max_iter: usize,
-    ) -> Self {
+    ) -> PyResult<Self> {
         let pcm = pcm.as_array();
         let prior = prior.as_array();
-        let base = BPBase::new(pcm, prior);
+        let base = BPBase::new(pcm, prior)?;
         let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
 
-        Self {
+        Ok(Self {
             base,
             gamma: gamma.as_array().to_owned(),
             offset,
@@ -152,7 +152,7 @@ impl DMemOffsetBPDecoderRust {
             max_iter,
             chk_inmsg,
             var_inmsg,
-        }
+        })
     }
 
     /// Decode a syndrome vector.
