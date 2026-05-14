@@ -126,15 +126,15 @@ impl RelayBPDecoderRust {
         let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
 
         Self {
-            base: base,
+            base,
             gamma0: gamma0.as_array().to_owned(),
-            gamma_dist: gamma_dist,
-            num_relays: num_relays,
-            pre_iter: pre_iter,
-            max_iter_per_relay: max_iter_per_relay,
-            stop_nconv: stop_nconv,
-            chk_inmsg: chk_inmsg,
-            var_inmsg: var_inmsg,
+            gamma_dist,
+            num_relays,
+            pre_iter,
+            max_iter_per_relay,
+            stop_nconv,
+            chk_inmsg,
+            var_inmsg,
         }
     }
 

@@ -76,12 +76,12 @@ impl DMemBPDecoderRust {
         let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
 
         Self {
-            base: base,
+            base,
             gamma: gamma.as_array().to_owned(),
-            norm: norm,
-            max_iter: max_iter,
-            chk_inmsg: chk_inmsg,
-            var_inmsg: var_inmsg,
+            norm,
+            max_iter,
+            chk_inmsg,
+            var_inmsg,
         }
     }
 

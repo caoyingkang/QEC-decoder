@@ -68,8 +68,8 @@ impl EnsSerialBPDecoderRust {
                 init_v2c_msg(base, &mut chk_inmsg);
                 let var_inmsg = self.var_inmsg_template.clone();
                 MemberState {
-                    chk_inmsg: chk_inmsg,
-                    var_inmsg: var_inmsg,
+                    chk_inmsg,
+                    var_inmsg,
                     llr: vec![0.0; num_vars],
                     ehat: vec![0_u8; num_vars],
                     num_iter_on_conv: None,
@@ -174,13 +174,13 @@ impl EnsSerialBPDecoderRust {
         let (chk_inmsg_template, var_inmsg_template) = alloc_msg_buffers(&base);
 
         Self {
-            base: base,
-            ensemble_size: ensemble_size,
-            topk: topk,
+            base,
+            ensemble_size,
+            topk,
             vn_orders: vn_orders_vecs,
-            max_iter: max_iter,
-            chk_inmsg_template: chk_inmsg_template,
-            var_inmsg_template: var_inmsg_template,
+            max_iter,
+            chk_inmsg_template,
+            var_inmsg_template,
         }
     }
 

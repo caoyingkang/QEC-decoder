@@ -40,21 +40,21 @@ impl BPBase {
                 }
             }
         }
-        for i in 0..num_chks {
-            assert!(chk_nbrs[i].len() >= 2, "CN {} has less than 2 neighbors", i);
+        for (i, nbrs) in chk_nbrs.iter().enumerate() {
+            assert!(nbrs.len() >= 2, "CN {} has less than 2 neighbors", i);
         }
-        for j in 0..num_vars {
-            assert!(var_nbrs[j].len() >= 1, "VN {} has less than 1 neighbor", j);
+        for (j, nbrs) in var_nbrs.iter().enumerate() {
+            assert!(!nbrs.is_empty(), "VN {} has zero neighbor", j);
         }
 
         Self {
             prior_llr: prior.mapv(prob_to_llr),
-            num_chks: num_chks,
-            num_vars: num_vars,
-            chk_nbrs: chk_nbrs,
-            var_nbrs: var_nbrs,
-            chk_nbr_pos: chk_nbr_pos,
-            var_nbr_pos: var_nbr_pos,
+            num_chks,
+            num_vars,
+            chk_nbrs,
+            var_nbrs,
+            chk_nbr_pos,
+            var_nbr_pos,
         }
     }
 

@@ -84,11 +84,11 @@ impl SerialBPDecoderRust {
         let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
 
         Self {
-            base: base,
+            base,
             vn_order: vn_order.as_array().iter().map(|&x| x as usize).collect(),
-            max_iter: max_iter,
-            chk_inmsg: chk_inmsg,
-            var_inmsg: var_inmsg,
+            max_iter,
+            chk_inmsg,
+            var_inmsg,
         }
     }
 

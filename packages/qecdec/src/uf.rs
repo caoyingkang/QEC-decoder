@@ -10,7 +10,7 @@ use std::ops::Add;
 ///
 /// This data structure is realized as a forest of trees, one for each set. The representative element of each set is chosen to
 /// be the root of the corresponding tree.
-struct UFDS {
+struct UFDataStructure {
     /// Total number of elements in the universe.
     n: usize,
     /// Parent of each node in the forest. Root nodes are their own parents.
@@ -19,11 +19,11 @@ struct UFDS {
     size: Vec<usize>,
 }
 
-impl UFDS {
+impl UFDataStructure {
     /// Create and initialize a Union-Find data structure for `n` elements.
     fn new(n: usize) -> Self {
         Self {
-            n: n,
+            n,
             parent: (0..n).collect(),
             size: vec![1; n],
         }
@@ -42,11 +42,11 @@ impl UFDS {
         assert!(x < self.n, "Element index out of bounds");
 
         if self.parent[x] == x {
-            return x;
+            x
         } else {
             let r = self.find(self.parent[x]);
             self.parent[x] = r; // path compression
-            return r;
+            r
         }
     }
 
@@ -69,11 +69,11 @@ impl UFDS {
         if self.size[rx] < self.size[ry] {
             self.parent[rx] = ry;
             self.size[ry] += self.size[rx];
-            return (rx, ry, ry);
+            (rx, ry, ry)
         } else {
             self.parent[ry] = rx;
             self.size[rx] += self.size[ry];
-            return (rx, ry, rx);
+            (rx, ry, rx)
         }
     }
 }
@@ -90,7 +90,7 @@ struct Cluster {
     /// A designated node in the cluster that tells the peeling decoder to consider it as the root when constructing a spanning tree.
     /// - If `touches_boundary` is false, `st_root` can be any node in the cluster.
     /// - If `touches_boundary` is true, `st_root` must be a node in the cluster that is connected to a virtual boundary
-    /// node via a fully grown edge, but is otherwise arbitrary.
+    ///   node via a fully grown edge, but is otherwise arbitrary.
     st_root: usize,
 }
 
@@ -124,7 +124,7 @@ impl Add for Cluster {
         Self {
             odd: self.odd ^ other.odd,
             touches_boundary: self.touches_boundary | other.touches_boundary,
-            frontier: frontier,
+            frontier,
             st_root: if !self.touches_boundary && other.touches_boundary {
                 other.st_root
             } else {
@@ -152,7 +152,7 @@ pub struct UnionFindDecoderRust {
     graph: Vec<Vec<(usize, usize)>>,
     /// Union-Find data structure on `num_chks` elements to keep track of the clusters.
     /// `uf` maintains a partition of all the check nodes into disjoint sets, some of which are clusters.
-    uf: UFDS,
+    uf: UFDataStructure,
     /// For each node `x`, if `x` is the representative node of a cluster, then `clusters[x]`
     /// stores the metadata of that cluster; otherwise, `clusters[x]` is `None`.
     clusters: Vec<Option<Cluster>>,
@@ -194,44 +194,44 @@ impl UnionFindDecoderRust {
                 }
             }
         }
-        for i in 0..num_chks {
+        for (i, supp) in chk2vars.iter().enumerate() {
             assert!(
-                chk2vars[i].len() >= 2,
+                supp.len() >= 2,
                 "Check {} involves less than 2 variables",
                 i
             );
         }
-        for j in 0..num_vars {
+        for (j, supp) in var2chks.iter().enumerate() {
             assert!(
-                var2chks[j].len() >= 1,
+                !supp.is_empty(),
                 "Variable {} is not involved in any check",
                 j
             );
             assert!(
-                var2chks[j].len() <= 2,
+                supp.len() <= 2,
                 "Variable {} is involved in more than 2 checks",
                 j
             );
         }
 
         let mut graph = vec![Vec::new(); num_chks];
-        for e in 0..num_vars {
-            if var2chks[e].len() == 1 {
+        for (e, supp) in var2chks.iter().enumerate() {
+            if supp.len() == 1 {
                 continue;
             }
-            let x = var2chks[e][0];
-            let y = var2chks[e][1];
+            let x = supp[0];
+            let y = supp[1];
             graph[x].push((y, e));
             graph[y].push((x, e));
         }
 
         Self {
-            num_chks: num_chks,
-            num_vars: num_vars,
-            chk2vars: chk2vars,
-            var2chks: var2chks,
-            graph: graph,
-            uf: UFDS::new(num_chks),
+            num_chks,
+            num_vars,
+            chk2vars,
+            var2chks,
+            graph,
+            uf: UFDataStructure::new(num_chks),
             clusters: (0..num_chks).map(|_| None).collect(),
             growth: vec![0; num_vars],
             sf_parent: vec![None; num_chks],

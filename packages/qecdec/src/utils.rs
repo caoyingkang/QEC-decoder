@@ -8,13 +8,7 @@ use rand_pcg::Pcg64;
 pub(crate) fn prob_to_llr(p: f64) -> f64 {
     // Clamp the probability to [EPS, 1-EPS] to avoid numerical instability.
     const EPS: f64 = 1e-10;
-    let pp = if p < EPS {
-        EPS
-    } else if p > 1.0 - EPS {
-        1.0 - EPS
-    } else {
-        p
-    };
+    let pp = p.clamp(EPS, 1.0 - EPS);
     ((1.0 - pp) / pp).ln()
 }
 
@@ -43,7 +37,11 @@ pub(crate) fn pick_most_likely(candidates: Vec<Vec<u8>>, prior_llr: ArrayView1<f
     let cost_fn = |e: &[u8]| -> f64 { llr_weight(prior_llr, e) };
     candidates
         .into_iter()
-        .min_by(|e1, e2| cost_fn(e1).partial_cmp(&cost_fn(e2)).unwrap())
+        .min_by(|e1, e2| {
+            cost_fn(e1)
+                .partial_cmp(&cost_fn(e2))
+                .expect("LLR weights are finite by construction")
+        })
         .expect("candidates must be non-empty")
 }
 

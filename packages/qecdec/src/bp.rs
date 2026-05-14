@@ -26,11 +26,7 @@ fn run_bp(
             Array1::zeros(base.num_vars),
             true,
             0,
-            if record_llr_history {
-                Some(Array2::zeros((0, base.num_vars)))
-            } else {
-                None
-            },
+            record_llr_history.then(|| Array2::zeros((0, base.num_vars))),
         );
     }
 
@@ -40,11 +36,7 @@ fn run_bp(
     // Posterior LLR values at current iteration.
     let mut llr = vec![0.0; base.num_vars];
     // History of posterior LLR values, stored as a flattened vector.
-    let mut llr_hist_flattened = if record_llr_history {
-        Some(Vec::new())
-    } else {
-        None
-    };
+    let mut llr_hist_flattened = record_llr_history.then(Vec::new);
 
     // Main BP iteration loop.
     let mut num_iter = 0;
@@ -113,11 +105,10 @@ fn run_bp(
     }
 
     // Convert the flattened LLR history vector into a 2D array.
-    let llr_hist = if let Some(v) = llr_hist_flattened {
-        Some(Array2::from_shape_vec((num_iter, base.num_vars), v).unwrap())
-    } else {
-        None
-    };
+    let llr_hist = llr_hist_flattened.map(|v| {
+        Array2::from_shape_vec((num_iter, base.num_vars), v)
+            .expect("llr history is (num_iter, num_vars) by construction")
+    });
 
     (ehat, converged, num_iter, llr_hist)
 }
@@ -161,11 +152,11 @@ impl BPDecoderRust {
         let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
 
         Self {
-            base: base,
-            norm: norm,
-            max_iter: max_iter,
-            chk_inmsg: chk_inmsg,
-            var_inmsg: var_inmsg,
+            base,
+            norm,
+            max_iter,
+            chk_inmsg,
+            var_inmsg,
         }
     }
 

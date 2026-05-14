@@ -145,13 +145,13 @@ impl DMemOffsetBPDecoderRust {
         let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
 
         Self {
-            base: base,
+            base,
             gamma: gamma.as_array().to_owned(),
-            offset: offset,
-            norm: norm,
-            max_iter: max_iter,
-            chk_inmsg: chk_inmsg,
-            var_inmsg: var_inmsg,
+            offset,
+            norm,
+            max_iter,
+            chk_inmsg,
+            var_inmsg,
         }
     }
 
