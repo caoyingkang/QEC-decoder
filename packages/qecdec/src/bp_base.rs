@@ -57,6 +57,20 @@ impl BPBase {
             var_nbr_pos: var_nbr_pos,
         }
     }
+
+    /// Check whether the candidate error pattern `ehat` produces the syndrome `synd`.
+    pub(crate) fn syndrome_satisfied(&self, ehat: &[u8], synd: ArrayView1<u8>) -> bool {
+        for i in 0..self.num_chks {
+            let mut parity = 0_u8;
+            for &j in self.chk_nbrs[i].iter() {
+                parity ^= ehat[j];
+            }
+            if parity != synd[i] {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 /// Allocate fresh per-node message buffers sized to the Tanner graph degrees.

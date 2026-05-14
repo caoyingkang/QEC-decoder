@@ -54,14 +54,5 @@ pub(crate) fn run_serial_bp_one_iteration(
     }
 
     // Check if the syndrome is satisfied.
-    for c in 0..base.num_chks {
-        let mut parity = 0_u8;
-        for &v in base.chk_nbrs[c].iter() {
-            parity ^= ehat[v];
-        }
-        if parity != synd[c] {
-            return false;
-        }
-    }
-    true
+    base.syndrome_satisfied(ehat, synd)
 }

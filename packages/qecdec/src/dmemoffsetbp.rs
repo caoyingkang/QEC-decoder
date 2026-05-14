@@ -90,18 +90,7 @@ fn run_dmemoffsetbp(
         }
 
         // Check if the syndrome is satisfied. If so, early stop.
-        let mut satisfied = true;
-        for i in 0..base.num_chks {
-            let mut parity = 0_u8;
-            for &j in base.chk_nbrs[i].iter() {
-                parity ^= ehat[j];
-            }
-            if parity != synd[i] {
-                satisfied = false;
-                break;
-            }
-        }
-        if satisfied {
+        if base.syndrome_satisfied(ehat.as_slice().unwrap(), synd) {
             converged = true;
             break;
         }
