@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 
@@ -14,17 +14,15 @@ from ..types import (
 
 
 class MultiRelayBPDecoder(IterativeDecoder):
-    """MultiRelayBP decoder — `num_chains` parallel RelayBP chains sharing a first stage.
+    """Multi-chain RelayBP decoder: Run `num_chains` parallel RelayBP chains sharing a
+    deterministic first stage, then forking into independent random-relay sequences.
 
-    All chains share the deterministic first DMemBP stage driven by `gamma0`. After that
-    stage, each chain forks into its own random-relay sequence (each chain has an
-    independent RNG stream derived from the per-call `seed`). The chain that collects
-    its `stop_nconv`-th converged candidate in the fewest total BP iterations wins
-    (ties broken by lowest chain index); within that chain, the min-LLR-weight candidate
-    is returned. If no chain converges, the last `ehat` of chain 0 is returned.
-
-    Trades memory and core-count for wall-clock — useful when some chains get stuck while
-    others converge quickly.
+    We say that a chain has converged if it has found at least one candidate error pattern.
+    The output of that chain is the min-LLR-weight candidate.
+    We say that the overall MultiRelayBP decoder has converged if at least one chain has
+    converged. In this case, the chain that finished decoding with fewest iterations wins,
+    with ties broken by lowest chain index. If no chain converged, output the estimated
+    error pattern in the final iteration of the first chain.
     """
 
     def __init__(
@@ -32,7 +30,7 @@ class MultiRelayBPDecoder(IterativeDecoder):
         pcm: Bit2DArray,
         prior: Float1DArray,
         *,
-        gamma0: Float1DArray,
+        gamma0: Union[Float1DArray, float],
         gamma_dist_interval: tuple[float, float],
         num_chains: int,
         num_relays: int,
@@ -52,8 +50,11 @@ class MultiRelayBPDecoder(IterativeDecoder):
             DMemBP stage; thereafter they run independent random-relay sequences in
             parallel.
         """
-        super().__init__(pre_iter + num_relays * max_iter_per_relay, pcm, prior)
+        max_iter = pre_iter + num_relays * max_iter_per_relay
+        super().__init__(max_iter, pcm, prior)
 
+        if isinstance(gamma0, (float, int)):
+            gamma0 = np.full(self.num_vars, gamma0)
         assert isinstance(gamma0, np.ndarray) and gamma0.shape == (self.num_vars,)
         if stop_nconv < 1 or stop_nconv > num_relays + 1:
             raise ValueError(
@@ -64,13 +65,13 @@ class MultiRelayBPDecoder(IterativeDecoder):
         if gamma_dist_interval[0] > gamma_dist_interval[1]:
             raise ValueError("gamma_dist_interval must have low <= high")
 
-        self.gamma0 = gamma0
+        self.gamma0 = np.asarray(gamma0, dtype=np.float64)
         self.gamma_dist_interval: tuple[float, float] = tuple(gamma_dist_interval)
+        self.num_chains = num_chains
         self.num_relays = num_relays
         self.pre_iter = pre_iter
         self.max_iter_per_relay = max_iter_per_relay
         self.stop_nconv = stop_nconv
-        self.num_chains = num_chains
 
         self._decoder = self._build_decoder()
 
@@ -97,6 +98,20 @@ class MultiRelayBPDecoder(IterativeDecoder):
         self._decoder = self._build_decoder()
 
     def decode(self, syndrome: Bit1DArray, *, seed: Optional[int] = None) -> Bit1DArray:
+        """Decode a syndrome vector with detailed diagnostics.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector, shape=(num_chks,), dtype=uint8.
+        seed : int or None
+            Optional RNG seed for reproducibility. None → OS entropy.
+
+        Returns
+        -------
+        ehat : ndarray
+            Estimated error vector, shape=(num_vars,), dtype=uint8.
+        """
         ehat, _, _ = self._decoder.decode_detailed(syndrome, seed=seed)
         return ehat
 
@@ -107,6 +122,23 @@ class MultiRelayBPDecoder(IterativeDecoder):
         parallel: bool = False,
         seed: Optional[int] = None,
     ) -> Bit2DArray:
+        """Decode a batch of syndromes.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+        parallel : bool
+            Whether to use multithreaded decoding.
+        seed : int or None
+            Optional master RNG seed for reproducibility. Each shot's RNG stream
+            is derived independently from this master seed. None → OS entropy.
+
+        Returns
+        -------
+        ehat_batch : ndarray
+            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
+        """
         ehat_batch, _, _ = self._decoder.decode_batch_detailed(
             syndrome_batch, parallel=parallel, seed=seed
         )
@@ -115,19 +147,23 @@ class MultiRelayBPDecoder(IterativeDecoder):
     def decode_detailed(
         self, syndrome: Bit1DArray, *, seed: Optional[int] = None
     ) -> tuple[Bit1DArray, bool, int]:
-        """Decode a syndrome with detailed diagnostics.
+        """Decode a syndrome vector with detailed diagnostics.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector, shape=(num_chks,), dtype=uint8.
+        seed : int or None
+            Optional RNG seed for reproducibility. None → OS entropy.
 
         Returns
         -------
         ehat : ndarray
-            Winning chain's chosen error estimate, shape=(num_vars,), dtype=uint8.
-
+            Estimated error vector, shape=(num_vars,), dtype=uint8.
         converged : bool
             Whether at least one chain found a converged candidate.
-
         num_iter : int
-            Total BP iterations of the winning chain (sum across its stages,
-            including the shared first stage).
+            Total BP iterations of the winning chain.
         """
         return self._decoder.decode_detailed(syndrome, seed=seed)
 
@@ -138,7 +174,28 @@ class MultiRelayBPDecoder(IterativeDecoder):
         parallel: bool = False,
         seed: Optional[int] = None,
     ) -> tuple[Bit2DArray, Bool1DArray, Int1DArray]:
-        """Decode a batch of syndromes with detailed diagnostics."""
+        """Decode a batch of syndromes with detailed diagnostics.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+        parallel : bool
+            Whether to use multithreaded decoding.
+        seed : int or None
+            Optional master RNG seed for reproducibility. Each shot's RNG stream
+            is derived independently from this master seed. None → OS entropy.
+
+        Returns
+        -------
+        ehat_batch : ndarray
+            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
+        converged_mask : ndarray
+            Whether each shot found at least one converged candidate,
+            shape=(batch_size,), dtype=bool.
+        decoding_iters : ndarray
+            Total BP iterations per shot, shape=(batch_size,), dtype=int64.
+        """
         return self._decoder.decode_batch_detailed(
             syndrome_batch, parallel=parallel, seed=seed
         )

@@ -14,19 +14,7 @@ from ..types import (
 
 
 class RelayBPDecoder(IterativeDecoder):
-    """RelayBP decoder — single-chain DMemBP relay.
-
-    First stage runs DMemBP with the user-provided per-variable `gamma0` vector for up to
-    `pre_iter` iterations. If it converges, the codeword is added to the candidate set.
-    Then up to `num_relays` further DMemBP stages run with per-variable gamma vectors
-    sampled uniformly from `gamma_dist_interval`, inheriting messages and posterior LLRs
-    from the previous stage (the relay step). Each converged stage adds a candidate.
-    The chain terminates after `stop_nconv` candidates are collected, or after all relays
-    are exhausted. The returned error is the candidate with the smallest LLR weight
-    (``sum_j prior_llr[j] * ehat[j]``).
-
-    For multi-chain ensemble variants, see `MultiRelayBPDecoder`.
-    """
+    """RelayBP decoder."""
 
     def __init__(
         self,
@@ -47,33 +35,27 @@ class RelayBPDecoder(IterativeDecoder):
             Parity-check matrix, shape=(num_chks, num_vars), uint8 ∈ {0,1}.
             Each row (check) must have at least two nonzero entries; each column
             (variable) must have at least one nonzero entry.
-
         prior : ndarray
             Prior error probabilities, shape=(num_vars,), float64 ∈ (0,0.5).
-
         gamma0 : ndarray or float
             Per-variable memory strength for the first DMemBP stage,
             shape=(num_vars,), float64.
-
         gamma_dist_interval : tuple[float, float]
             (low, high) range for sampling per-variable gamma vectors uniformly at each
             relay stage. Must be tuned per decoding graph.
-
         num_relays : int
             Number of DMemBP relays beyond the first stage.
-
         pre_iter : int
             Max number of iterations for the first DMemBP stage.
-
         max_iter_per_relay : int
             Max number of iterations per relay stage.
-
         stop_nconv : int
             Stop after collecting this many converged candidates. The returned error
             is the candidate with the smallest LLR weight. Must satisfy
             ``1 <= stop_nconv <= num_relays + 1``.
         """
-        super().__init__(pre_iter + num_relays * max_iter_per_relay, pcm, prior)
+        max_iter = pre_iter + num_relays * max_iter_per_relay
+        super().__init__(max_iter, pcm, prior)
 
         if isinstance(gamma0, (float, int)):
             gamma0 = np.full(self.num_vars, gamma0)
@@ -85,7 +67,7 @@ class RelayBPDecoder(IterativeDecoder):
         if gamma_dist_interval[0] > gamma_dist_interval[1]:
             raise ValueError("gamma_dist_interval must have low <= high")
 
-        self.gamma0 = gamma0
+        self.gamma0 = np.asarray(gamma0, dtype=np.float64)
         self.gamma_dist_interval: tuple[float, float] = tuple(gamma_dist_interval)
         self.num_relays = num_relays
         self.pre_iter = pre_iter
@@ -116,6 +98,20 @@ class RelayBPDecoder(IterativeDecoder):
         self._decoder = self._build_decoder()
 
     def decode(self, syndrome: Bit1DArray, *, seed: Optional[int] = None) -> Bit1DArray:
+        """Decode a syndrome vector.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector, shape=(num_chks,), dtype=uint8.
+        seed : int or None
+            Optional RNG seed for reproducibility. None → OS entropy.
+
+        Returns
+        -------
+        ehat : ndarray
+            Estimated error vector, shape=(num_vars,), dtype=uint8.
+        """
         ehat, _, _ = self._decoder.decode_detailed(syndrome, seed=seed)
         return ehat
 
@@ -126,6 +122,22 @@ class RelayBPDecoder(IterativeDecoder):
         parallel: bool = False,
         seed: Optional[int] = None,
     ) -> Bit2DArray:
+        """Decode a batch of syndromes.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
+        parallel : bool
+            Whether to use multithreaded decoding.
+        seed : int or None
+            Optional RNG seed for reproducibility.
+
+        Returns
+        -------
+        ehat_batch : ndarray
+            Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
+        """
         ehat_batch, _, _ = self._decoder.decode_batch_detailed(
             syndrome_batch, parallel=parallel, seed=seed
         )
@@ -134,13 +146,12 @@ class RelayBPDecoder(IterativeDecoder):
     def decode_detailed(
         self, syndrome: Bit1DArray, *, seed: Optional[int] = None
     ) -> tuple[Bit1DArray, bool, int]:
-        """Decode a syndrome with detailed diagnostics.
+        """Decode a syndrome vector with detailed diagnostics.
 
         Parameters
         ----------
         syndrome : ndarray
             Syndrome vector, shape=(num_chks,), dtype=uint8.
-
         seed : int or None
             Optional RNG seed for reproducibility. None → OS entropy.
 
@@ -148,10 +159,8 @@ class RelayBPDecoder(IterativeDecoder):
         -------
         ehat : ndarray
             Estimated error vector, shape=(num_vars,), dtype=uint8.
-
         converged : bool
             Whether at least one converged candidate was found.
-
         num_iter : int
             Total BP iterations summed across all stages run.
         """
@@ -170,10 +179,8 @@ class RelayBPDecoder(IterativeDecoder):
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
-
         parallel : bool
             Whether to use multithreaded decoding.
-
         seed : int or None
             Optional master RNG seed for reproducibility. Each shot's RNG stream
             is derived independently from this master seed. None → OS entropy.
@@ -182,11 +189,9 @@ class RelayBPDecoder(IterativeDecoder):
         -------
         ehat_batch : ndarray
             Estimated error vectors, shape=(batch_size, num_vars), dtype=uint8.
-
         converged_mask : ndarray
             Whether each shot found at least one converged candidate,
             shape=(batch_size,), dtype=bool.
-
         decoding_iters : ndarray
             Total BP iterations per shot, shape=(batch_size,), dtype=int64.
         """

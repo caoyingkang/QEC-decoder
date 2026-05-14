@@ -366,6 +366,199 @@ class EnsSerialBPDecoderRust:
         """
         ...
 
+class RelayBPDecoderRust:
+    """RelayBP decoder (Rust implementation).
+
+    Run an initial DMemBP stage followed by up to `num_relays` DMemBP stages with
+    per-variable gamma vectors sampled uniformly from `gamma_dist_interval`. Each
+    stage inherits posterior LLRs from the previous stage. The returned error is
+    the smallest-LLR-weight candidate among the converged stages.
+
+    This is a re-implementation of https://github.com/trmue/relay/tree/main.
+    Note that the original version only accepts MemBP as the initial stage.
+    """
+
+    def __init__(
+        self,
+        pcm: Bit2DArray,
+        prior: Float1DArray,
+        *,
+        gamma0: Float1DArray,
+        gamma_dist_interval: tuple[float, float],
+        num_relays: int,
+        pre_iter: int,
+        max_iter_per_relay: int,
+        stop_nconv: int,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        pcm : ndarray
+            Parity-check matrix. Each row has ≥2 nonzeros; each column has ≥1 nonzero.
+        prior : ndarray
+            Prior error probabilities.
+        gamma0 : ndarray
+            Per-variable memory strength for the initial DMemBP stage.
+        gamma_dist_interval : tuple[float, float]
+            (low, high) range for sampling per-variable gamma vectors at each relay stage.
+        num_relays : int
+            Number of DMemBP relays beyond the initial stage.
+        pre_iter : int
+            Max number of iterations for the initial DMemBP stage.
+        max_iter_per_relay : int
+            Max number of iterations per relay stage.
+        stop_nconv : int
+            Stop after this many converged candidates. Must satisfy
+            1 <= stop_nconv <= num_relays + 1.
+        """
+        ...
+
+    def decode_detailed(
+        self, syndrome: Bit1DArray, *, seed: Optional[int] = None
+    ) -> tuple[Bit1DArray, bool, int]:
+        """Decode a syndrome vector.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector.
+        seed : int or None
+            Optional RNG seed for reproducibility. None → OS entropy.
+
+        Returns
+        -------
+        ehat : ndarray
+            Estimated error vector.
+        converged : bool
+            Whether at least one converged candidate was found.
+        num_iter : int
+            Total BP iterations summed across all stages run.
+        """
+        ...
+
+    def decode_batch_detailed(
+        self,
+        syndrome_batch: Bit2DArray,
+        *,
+        parallel: bool,
+        seed: Optional[int] = None,
+    ) -> tuple[Bit2DArray, Bool1DArray, Int1DArray]:
+        """Decode a batch of syndrome vectors.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Batch of syndrome vectors.
+        parallel : bool
+            Whether to use multithreaded decoding.
+        seed : int or None
+            Optional master RNG seed. Each shot derives a child seed from it.
+
+        Returns
+        -------
+        ehat_batch : ndarray
+            Batch of estimated error vectors.
+        converged_mask : ndarray
+            Whether each shot found at least one converged candidate.
+        decoding_iters : ndarray
+            Total BP iterations per shot.
+        """
+        ...
+
+class MultiRelayBPDecoderRust:
+    """Multi-chain RelayBP decoder (Rust implementation)."""
+
+    def __init__(
+        self,
+        pcm: Bit2DArray,
+        prior: Float1DArray,
+        *,
+        gamma0: Float1DArray,
+        gamma_dist_interval: tuple[float, float],
+        num_chains: int,
+        num_relays: int,
+        pre_iter: int,
+        max_iter_per_relay: int,
+        stop_nconv: int,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        pcm : ndarray
+            Parity-check matrix. Each row has ≥2 nonzeros; each column has ≥1 nonzero.
+        prior : ndarray
+            Prior error probabilities.
+        gamma0 : ndarray
+            Per-variable memory strength for the shared initial DMemBP stage.
+        gamma_dist_interval : tuple[float, float]
+            (low, high) range for sampling per-variable gamma vectors at each relay stage.
+        num_chains : int
+            Number of independent chains (≥ 1).
+        num_relays : int
+            Number of DMemBP relays beyond the initial stage.
+        pre_iter : int
+            Max number of iterations for the shared initial DMemBP stage.
+        max_iter_per_relay : int
+            Max number of iterations per relay stage.
+        stop_nconv : int
+            Stop a chain after this many converged candidates. Must satisfy
+            1 <= stop_nconv <= num_relays + 1.
+        """
+        ...
+
+    def decode_detailed(
+        self, syndrome: Bit1DArray, *, seed: Optional[int] = None
+    ) -> tuple[Bit1DArray, bool, int]:
+        """Decode a syndrome vector.
+
+        Parameters
+        ----------
+        syndrome : ndarray
+            Syndrome vector.
+        seed : int or None
+            Optional RNG seed for reproducibility. None → OS entropy.
+
+        Returns
+        -------
+        ehat : ndarray
+            Winning chain's chosen error estimate.
+        converged : bool
+            Whether at least one chain found a converged candidate.
+        num_iter : int
+            Total BP iterations of the winning chain.
+        """
+        ...
+
+    def decode_batch_detailed(
+        self,
+        syndrome_batch: Bit2DArray,
+        *,
+        parallel: bool,
+        seed: Optional[int] = None,
+    ) -> tuple[Bit2DArray, Bool1DArray, Int1DArray]:
+        """Decode a batch of syndrome vectors.
+
+        Parameters
+        ----------
+        syndrome_batch : ndarray
+            Batch of syndrome vectors.
+        parallel : bool
+            Whether to parallelize at the batch level. Chain-level parallelism
+            is always on.
+        seed : int or None
+            Optional master RNG seed. Each shot derives its own stream from it.
+
+        Returns
+        -------
+        ehat_batch : ndarray
+            Batch of estimated error vectors.
+        converged_mask : ndarray
+            Whether each shot found at least one converged candidate.
+        decoding_iters : ndarray
+            Total BP iterations per shot.
+        """
+        ...
+
 class UnionFindDecoderRust:
     """Union-Find decoder (Rust implementation)."""
 
@@ -413,6 +606,8 @@ __all__ = [
     "DMemBPDecoderRust",
     "DMemOffsetBPDecoderRust",
     "EnsSerialBPDecoderRust",
+    "MultiRelayBPDecoderRust",
+    "RelayBPDecoderRust",
     "SerialBPDecoderRust",
     "UnionFindDecoderRust",
 ]
