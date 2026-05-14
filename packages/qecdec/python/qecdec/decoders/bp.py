@@ -60,7 +60,9 @@ class BPDecoder(IterativeDecoder):
         self._decoder = self._build_decoder()
 
     def decode(self, syndrome: Bit1DArray) -> Bit1DArray:
-        ehat, _, _, _ = self._decoder.decode_detailed(syndrome)
+        ehat, _, _, _ = self._decoder.decode_detailed(
+            syndrome, record_llr_history=False
+        )
         return ehat
 
     def decode_batch(

@@ -34,11 +34,11 @@ class MultiRelayBPDecoder(IterativeDecoder):
         *,
         gamma0: Float1DArray,
         gamma_dist_interval: tuple[float, float],
+        num_chains: int,
         num_relays: int,
         pre_iter: int,
         max_iter_per_relay: int,
         stop_nconv: int,
-        num_chains: int,
     ):
         """
         Parameters
@@ -80,11 +80,11 @@ class MultiRelayBPDecoder(IterativeDecoder):
             self.prior,
             gamma0=self.gamma0,
             gamma_dist_interval=self.gamma_dist_interval,
+            num_chains=self.num_chains,
             num_relays=self.num_relays,
             pre_iter=self.pre_iter,
             max_iter_per_relay=self.max_iter_per_relay,
             stop_nconv=self.stop_nconv,
-            num_chains=self.num_chains,
         )
 
     def __getstate__(self):

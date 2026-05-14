@@ -3698,6 +3698,9 @@ qecdec-notebooks = [
     { name = "plotly" },
     { name = "sinter" },
 ]
+test = [
+    { name = "pytest" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -3722,6 +3725,7 @@ qecdec-notebooks = [
     { name = "plotly" },
     { name = "sinter" },
 ]
+test = [{ name = "pytest" }]
 
 [[package]]
 name = "referencing"

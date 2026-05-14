@@ -23,6 +23,15 @@ Extra dependencies for `notebooks/` are listed under `[dependency-groups]` in `p
 uv sync --all-packages --group qecdec-notebooks
 ```
 
+## Running tests
+
+The test suite under `tests/` uses [pytest](https://pytest.org). From the repository root, install the `test` dependency group and run the suite:
+
+```bash
+uv sync --group test
+uv run pytest packages/qecdec/tests -v
+```
+
 ## Usage examples
 
 - Sample syndrome-observable pairs from a repetition code memory experiment under circuit-level noise, and decode the syndromes using a BP decoder:
