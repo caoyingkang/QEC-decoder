@@ -55,6 +55,18 @@ pub(crate) fn make_pcg64_rng(seed: Option<u64>) -> Pcg64 {
     }
 }
 
+/// Spawn `n` random seeds used for downstream applications from a `master_seed`.
+/// If `master_seed` is `None`, then the output is a vector of `None`'s.
+pub(crate) fn spawn_seeds(master_seed: Option<u64>, n: usize) -> Vec<Option<u64>> {
+    match master_seed {
+        Some(s) => {
+            let mut rng = Pcg64::seed_from_u64(s);
+            (0..n).map(|_| Some(rng.next_u64())).collect()
+        }
+        None => vec![None; n],
+    }
+}
+
 /// Sample vector components i.i.d. uniformly from `dist` into `out`.
 pub(crate) fn sample_vec_uniform(
     mut out: ArrayViewMut1<f64>,

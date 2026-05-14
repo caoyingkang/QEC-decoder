@@ -1,12 +1,11 @@
 use crate::bp_base::{alloc_msg_buffers, BPBase};
 use crate::dmembp_core::run_dmembp_in_relay;
 use crate::relaybp_core::run_random_relays;
-use crate::utils::{is_all_zeros, make_pcg64_rng};
+use crate::utils::{is_all_zeros, spawn_seeds};
 use numpy::ndarray::{Array1, Array2, ArrayView1};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 use rand::distr::Uniform;
-use rand::Rng;
 use rayon::prelude::*;
 
 /// Run MultiRelayBP decoding algorithm. Return `(ehat, converged, num_iter)`.
@@ -51,14 +50,7 @@ fn run_multi_relaybp(
     };
 
     // ===== Generate per-chain seeds from `seed` =====
-    let chain_seeds: Vec<Option<u64>> = if seed.is_some() {
-        let mut master_rng = make_pcg64_rng(seed);
-        (0..num_chains)
-            .map(|_| Some(master_rng.next_u64()))
-            .collect()
-    } else {
-        vec![None; num_chains]
-    };
+    let chain_seeds = spawn_seeds(seed, num_chains);
 
     // ===== Fork into chains (parallel) =====
     // Reborrow the post-stage-0 buffers as shared slices to use as clone templates.
@@ -267,14 +259,7 @@ impl MultiRelayBPDecoderRust {
         let mut converged_mask = Array1::default(batch_size);
         let mut decoding_iters = Array1::zeros(batch_size);
 
-        let child_seeds: Vec<Option<u64>> = if seed.is_some() {
-            let mut master_rng = make_pcg64_rng(seed);
-            (0..batch_size)
-                .map(|_| Some(master_rng.next_u64()))
-                .collect()
-        } else {
-            vec![None; batch_size]
-        };
+        let child_seeds = spawn_seeds(seed, batch_size);
 
         if parallel {
             let syndrome_batch = syndrome_batch.to_owned();
