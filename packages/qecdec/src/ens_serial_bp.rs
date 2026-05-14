@@ -56,22 +56,16 @@ impl EnsSerialBPDecoderRust {
             return (Array1::zeros(self.base.num_vars), true, 0);
         }
 
-        let base = &self.base;
-        let vn_orders = &self.vn_orders;
-        let num_vars = base.num_vars;
-        let topk = self.topk;
-
         // Build per-member states for this syndrome.
         let mut members: Vec<MemberState> = (0..self.ensemble_size)
             .map(|_| {
                 let mut chk_inmsg = self.chk_inmsg_template.clone();
-                init_v2c_msg(base, &mut chk_inmsg);
-                let var_inmsg = self.var_inmsg_template.clone();
+                init_v2c_msg(&self.base, &mut chk_inmsg);
                 MemberState {
                     chk_inmsg,
-                    var_inmsg,
-                    llr: vec![0.0; num_vars],
-                    ehat: vec![0_u8; num_vars],
+                    var_inmsg: self.var_inmsg_template.clone(),
+                    llr: vec![0.0; self.base.num_vars],
+                    ehat: vec![0_u8; self.base.num_vars],
                     num_iter_on_conv: None,
                 }
             })
@@ -88,8 +82,8 @@ impl EnsSerialBPDecoderRust {
                     return;
                 }
                 let conv = run_serial_bp_one_iteration(
-                    base,
-                    &vn_orders[i],
+                    &self.base,
+                    &self.vn_orders[i],
                     &mut m.chk_inmsg,
                     &mut m.var_inmsg,
                     &mut m.llr,
@@ -108,7 +102,7 @@ impl EnsSerialBPDecoderRust {
             if count > 0 {
                 at_least_one_converged = true;
             }
-            if count >= topk {
+            if count >= self.topk {
                 break;
             }
         }
@@ -127,7 +121,7 @@ impl EnsSerialBPDecoderRust {
             .filter(|m| m.num_iter_on_conv.is_some())
             .map(|m| m.ehat)
             .collect();
-        let best_ehat = pick_most_likely(candidates, base.prior_llr.view());
+        let best_ehat = pick_most_likely(candidates, self.base.prior_llr.view());
 
         (Array1::from_vec(best_ehat), true, num_iter)
     }

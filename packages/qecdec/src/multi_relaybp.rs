@@ -200,26 +200,17 @@ impl MultiRelayBPDecoderRust {
         syndrome: PyReadonlyArray1<'py, u8>,
         seed: Option<u64>,
     ) -> PyResult<(Bound<'py, PyArray1<u8>>, bool, usize)> {
-        let base = &self.base;
-        let gamma0 = self.gamma0.view();
-        let gamma_dist = &self.gamma_dist;
-        let num_chains = self.num_chains;
-        let num_relays = self.num_relays;
-        let pre_iter = self.pre_iter;
-        let max_iter_per_relay = self.max_iter_per_relay;
-        let stop_nconv = self.stop_nconv;
         let synd = syndrome.as_array();
-
         let (ehat, converged, num_iter) = py.allow_threads(|| {
             run_multi_relaybp(
-                base,
-                gamma0,
-                gamma_dist,
-                num_chains,
-                num_relays,
-                pre_iter,
-                max_iter_per_relay,
-                stop_nconv,
+                &self.base,
+                self.gamma0.view(),
+                &self.gamma_dist,
+                self.num_chains,
+                self.num_relays,
+                self.pre_iter,
+                self.max_iter_per_relay,
+                self.stop_nconv,
                 &mut self.chk_inmsg,
                 &mut self.var_inmsg,
                 synd,
@@ -262,35 +253,23 @@ impl MultiRelayBPDecoderRust {
 
         let child_seeds = spawn_seeds(seed, batch_size);
 
-        if parallel {
-            let syndrome_batch = syndrome_batch.to_owned();
-            let base = &self.base;
-            let gamma0 = self.gamma0.view();
-            let gamma_dist = &self.gamma_dist;
-            let num_chains = self.num_chains;
-            let num_relays = self.num_relays;
-            let pre_iter = self.pre_iter;
-            let max_iter_per_relay = self.max_iter_per_relay;
-            let stop_nconv = self.stop_nconv;
-            let chk_inmsg_template = &self.chk_inmsg;
-            let var_inmsg_template = &self.var_inmsg;
-
-            let results: Vec<(Array1<u8>, bool, usize)> = py.allow_threads(|| {
+        let results: Vec<(Array1<u8>, bool, usize)> = if parallel {
+            py.allow_threads(|| {
                 child_seeds
                     .into_par_iter()
                     .enumerate()
                     .map(|(i, child_seed)| {
-                        let mut chk_inmsg = chk_inmsg_template.clone();
-                        let mut var_inmsg = var_inmsg_template.clone();
+                        let mut chk_inmsg = self.chk_inmsg.clone();
+                        let mut var_inmsg = self.var_inmsg.clone();
                         run_multi_relaybp(
-                            base,
-                            gamma0,
-                            gamma_dist,
-                            num_chains,
-                            num_relays,
-                            pre_iter,
-                            max_iter_per_relay,
-                            stop_nconv,
+                            &self.base,
+                            self.gamma0.view(),
+                            &self.gamma_dist,
+                            self.num_chains,
+                            self.num_relays,
+                            self.pre_iter,
+                            self.max_iter_per_relay,
+                            self.stop_nconv,
                             &mut chk_inmsg,
                             &mut var_inmsg,
                             syndrome_batch.row(i),
@@ -298,38 +277,24 @@ impl MultiRelayBPDecoderRust {
                         )
                     })
                     .collect()
-            });
-            for (i, (ehat, converged, num_iter)) in results.into_iter().enumerate() {
-                ehat_batch.row_mut(i).assign(&ehat);
-                converged_mask[i] = converged;
-                decoding_iters[i] = num_iter as i64;
-            }
+            })
         } else {
-            let base = &self.base;
-            let gamma0 = self.gamma0.view();
-            let gamma_dist = &self.gamma_dist;
-            let num_chains = self.num_chains;
-            let num_relays = self.num_relays;
-            let pre_iter = self.pre_iter;
-            let max_iter_per_relay = self.max_iter_per_relay;
-            let stop_nconv = self.stop_nconv;
-
             // Wrap the serial batch loop in allow_threads so the inner chain-level
             // par_iter in run_multi_relaybp can use other CPU cores without the GIL.
-            let results: Vec<(Array1<u8>, bool, usize)> = py.allow_threads(|| {
+            py.allow_threads(|| {
                 child_seeds
                     .iter()
                     .enumerate()
                     .map(|(i, &child_seed)| {
                         run_multi_relaybp(
-                            base,
-                            gamma0,
-                            gamma_dist,
-                            num_chains,
-                            num_relays,
-                            pre_iter,
-                            max_iter_per_relay,
-                            stop_nconv,
+                            &self.base,
+                            self.gamma0.view(),
+                            &self.gamma_dist,
+                            self.num_chains,
+                            self.num_relays,
+                            self.pre_iter,
+                            self.max_iter_per_relay,
+                            self.stop_nconv,
                             &mut self.chk_inmsg,
                             &mut self.var_inmsg,
                             syndrome_batch.row(i),
@@ -337,12 +302,13 @@ impl MultiRelayBPDecoderRust {
                         )
                     })
                     .collect()
-            });
-            for (i, (ehat, converged, num_iter)) in results.into_iter().enumerate() {
-                ehat_batch.row_mut(i).assign(&ehat);
-                converged_mask[i] = converged;
-                decoding_iters[i] = num_iter as i64;
-            }
+            })
+        };
+
+        for (i, (ehat, converged, num_iter)) in results.into_iter().enumerate() {
+            ehat_batch.row_mut(i).assign(&ehat);
+            converged_mask[i] = converged;
+            decoding_iters[i] = num_iter as i64;
         }
 
         Ok((

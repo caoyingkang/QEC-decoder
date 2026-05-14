@@ -145,52 +145,45 @@ impl SerialBPDecoderRust {
         let mut converged_mask = Array1::default(batch_size);
         let mut decoding_iters = Array1::zeros(batch_size);
 
-        if parallel {
-            let syndrome_batch = syndrome_batch.to_owned();
-            let base = &self.base;
-            let vn_order = &self.vn_order;
-            let max_iter = self.max_iter;
-            let chk_inmsg_template = &self.chk_inmsg;
-            let var_inmsg_template = &self.var_inmsg;
-
-            let results: Vec<(Array1<u8>, bool, usize)> = py.allow_threads(|| {
+        let results: Vec<(Array1<u8>, bool, usize)> = if parallel {
+            py.allow_threads(|| {
                 (0..batch_size)
                     .into_par_iter()
                     .map(|i| {
-                        let mut chk_inmsg = chk_inmsg_template.clone();
-                        let mut var_inmsg = var_inmsg_template.clone();
-                        let (ehat, converged, num_iter) = run_serial_bp(
-                            base,
-                            vn_order,
-                            max_iter,
+                        let mut chk_inmsg = self.chk_inmsg.clone();
+                        let mut var_inmsg = self.var_inmsg.clone();
+                        run_serial_bp(
+                            &self.base,
+                            &self.vn_order,
+                            self.max_iter,
                             &mut chk_inmsg,
                             &mut var_inmsg,
                             syndrome_batch.row(i),
-                        );
-                        (ehat, converged, num_iter)
+                        )
                     })
                     .collect()
-            });
-
-            for (i, (ehat, converged, num_iter)) in results.into_iter().enumerate() {
-                ehat_batch.row_mut(i).assign(&ehat);
-                converged_mask[i] = converged;
-                decoding_iters[i] = num_iter as i64;
-            }
+            })
         } else {
-            for i in 0..batch_size {
-                let (ehat, converged, num_iter) = run_serial_bp(
-                    &self.base,
-                    &self.vn_order,
-                    self.max_iter,
-                    &mut self.chk_inmsg,
-                    &mut self.var_inmsg,
-                    syndrome_batch.row(i),
-                );
-                ehat_batch.row_mut(i).assign(&ehat);
-                converged_mask[i] = converged;
-                decoding_iters[i] = num_iter as i64;
-            }
+            py.allow_threads(|| {
+                (0..batch_size)
+                    .map(|i| {
+                        run_serial_bp(
+                            &self.base,
+                            &self.vn_order,
+                            self.max_iter,
+                            &mut self.chk_inmsg,
+                            &mut self.var_inmsg,
+                            syndrome_batch.row(i),
+                        )
+                    })
+                    .collect()
+            })
+        };
+
+        for (i, (ehat, converged, num_iter)) in results.into_iter().enumerate() {
+            ehat_batch.row_mut(i).assign(&ehat);
+            converged_mask[i] = converged;
+            decoding_iters[i] = num_iter as i64;
         }
 
         Ok((
