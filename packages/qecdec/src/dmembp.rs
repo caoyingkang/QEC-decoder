@@ -1,4 +1,4 @@
-use crate::bp_base::{alloc_msg_buffers, BPBase};
+use crate::bp_base::{BPBase, BPBuffer};
 use crate::dmembp_core::run_dmembp_in_relay;
 use crate::utils::is_all_zeros;
 use numpy::ndarray::{Array1, Array2, ArrayView1};
@@ -8,15 +8,13 @@ use rayon::prelude::*;
 
 /// Run disordered-memory BP decoding algorithm. Return `(ehat, converged, num_iter)`.
 ///
-/// Update `chk_inmsg` and `var_inmsg` in place. `chk_inmsg` and `var_inmsg`
-/// only need to be sized correctly; their initial values will be overwritten.
+/// Update `buffer` in place. The initial contents of `buffer` are overwritten.
 fn run_dmembp(
     base: &BPBase,
     gamma: ArrayView1<f64>,
     norm: f64,
     max_iter: usize,
-    chk_inmsg: &mut [Vec<f64>],
-    var_inmsg: &mut [Vec<f64>],
+    buffer: &mut BPBuffer,
     synd: ArrayView1<u8>,
 ) -> (Array1<u8>, bool, usize) {
     // Return immediately if syndrome is all zeros.
@@ -27,7 +25,7 @@ fn run_dmembp(
     let mut llr = base.prior_llr.to_vec();
     let mut ehat = vec![0; base.num_vars];
     let (converged, num_iter) = run_dmembp_in_relay(
-        base, gamma, norm, max_iter, chk_inmsg, var_inmsg, &mut llr, &mut ehat, synd,
+        base, gamma, norm, max_iter, buffer, &mut llr, &mut ehat, synd,
     );
 
     (Array1::from_vec(ehat), converged, num_iter)
@@ -44,10 +42,8 @@ pub struct DMemBPDecoderRust {
     norm: f64,
     /// Maximum number of iterations.
     max_iter: usize,
-    /// `chk_inmsg[i]` stores the incoming messages at CN `i` from its neighboring VNs during the current BP iteration.
-    chk_inmsg: Vec<Vec<f64>>,
-    /// `var_inmsg[j]` stores the incoming messages at VN `j` from its neighboring CNs during the current BP iteration.
-    var_inmsg: Vec<Vec<f64>>,
+    /// Message buffer.
+    buffer: BPBuffer,
 }
 
 #[pymethods]
@@ -69,19 +65,15 @@ impl DMemBPDecoderRust {
         norm: Option<f64>,
         max_iter: usize,
     ) -> PyResult<Self> {
-        let pcm = pcm.as_array();
-        let prior = prior.as_array();
-        let base = BPBase::new(pcm, prior)?;
-        let norm = norm.unwrap_or(1.0);
-        let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
+        let base = BPBase::new(pcm.as_array(), prior.as_array())?;
+        let buffer = BPBuffer::new(&base);
 
         Ok(Self {
             base,
             gamma: gamma.as_array().to_owned(),
-            norm,
+            norm: norm.unwrap_or(1.0),
             max_iter,
-            chk_inmsg,
-            var_inmsg,
+            buffer,
         })
     }
 
@@ -104,8 +96,7 @@ impl DMemBPDecoderRust {
             self.gamma.view(),
             self.norm,
             self.max_iter,
-            &mut self.chk_inmsg,
-            &mut self.var_inmsg,
+            &mut self.buffer,
             syndrome.as_array(),
         );
         Ok((PyArray1::from_owned_array(py, ehat), converged, num_iter))
@@ -143,15 +134,13 @@ impl DMemBPDecoderRust {
                 (0..batch_size)
                     .into_par_iter()
                     .map(|i| {
-                        let mut chk_inmsg = self.chk_inmsg.clone();
-                        let mut var_inmsg = self.var_inmsg.clone();
+                        let mut buffer = self.buffer.clone();
                         run_dmembp(
                             &self.base,
                             self.gamma.view(),
                             self.norm,
                             self.max_iter,
-                            &mut chk_inmsg,
-                            &mut var_inmsg,
+                            &mut buffer,
                             syndrome_batch.row(i),
                         )
                     })
@@ -166,8 +155,7 @@ impl DMemBPDecoderRust {
                             self.gamma.view(),
                             self.norm,
                             self.max_iter,
-                            &mut self.chk_inmsg,
-                            &mut self.var_inmsg,
+                            &mut self.buffer,
                             syndrome_batch.row(i),
                         )
                     })

@@ -90,25 +90,38 @@ impl BPBase {
     }
 }
 
-/// Allocate fresh per-node message buffers sized to the Tanner graph degrees.
-/// Return `(chk_inmsg, var_inmsg)`.
-pub(crate) fn alloc_msg_buffers(base: &BPBase) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
-    let mut chk_inmsg = Vec::with_capacity(base.num_chks);
-    for i in 0..base.num_chks {
-        chk_inmsg.push(vec![0.0; base.chk_nbrs[i].len()]);
+/// Message buffer for a BP decoder run.
+#[derive(Clone)]
+pub(crate) struct BPBuffer {
+    /// `chk_inmsg[i]` stores the incoming messages at CN `i` from its neighboring VNs.
+    pub(crate) chk_inmsg: Vec<Vec<f64>>,
+    /// `var_inmsg[j]` stores the incoming messages at VN `j` from its neighboring CNs.
+    pub(crate) var_inmsg: Vec<Vec<f64>>,
+}
+
+impl BPBuffer {
+    /// Allocate fresh per-node message buffers sized to the Tanner graph degrees.
+    pub(crate) fn new(base: &BPBase) -> Self {
+        let mut chk_inmsg = Vec::with_capacity(base.num_chks);
+        for i in 0..base.num_chks {
+            chk_inmsg.push(vec![0.0; base.chk_nbrs[i].len()]);
+        }
+        let mut var_inmsg = Vec::with_capacity(base.num_vars);
+        for j in 0..base.num_vars {
+            var_inmsg.push(vec![0.0; base.var_nbrs[j].len()]);
+        }
+        Self {
+            chk_inmsg,
+            var_inmsg,
+        }
     }
-    let mut var_inmsg = Vec::with_capacity(base.num_vars);
-    for j in 0..base.num_vars {
-        var_inmsg.push(vec![0.0; base.var_nbrs[j].len()]);
-    }
-    (chk_inmsg, var_inmsg)
 }
 
 /// Initialize VN-to-CN messages from prior LLRs.
-pub(crate) fn init_v2c_msg(base: &BPBase, chk_inmsg: &mut [Vec<f64>]) {
+pub(crate) fn init_v2c_msg(base: &BPBase, buffer: &mut BPBuffer) {
     for (j, &value) in base.prior_llr.iter().enumerate() {
         for (k, &i) in base.var_nbrs[j].iter().enumerate() {
-            chk_inmsg[i][base.var_nbr_pos[j][k]] = value;
+            buffer.chk_inmsg[i][base.var_nbr_pos[j][k]] = value;
         }
     }
 }

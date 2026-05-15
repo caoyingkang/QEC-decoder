@@ -1,4 +1,4 @@
-use crate::bp_base::{alloc_msg_buffers, init_v2c_msg, BPBase};
+use crate::bp_base::{init_v2c_msg, BPBase, BPBuffer};
 use crate::utils::{is_all_zeros, sign_parities, two_smallest_abs};
 use numpy::ndarray::{Array1, Array2, ArrayView1};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
@@ -9,14 +9,12 @@ use rayon::prelude::*;
 /// `record_llr_history` is true) or `(ehat, converged, num_iter, llr_hist)`
 /// (if `record_llr_history` is false).
 ///
-/// Update `chk_inmsg` and `var_inmsg` in place. `chk_inmsg` and `var_inmsg`
-/// only need to be sized correctly; their initial values will be overwritten.
+/// Update `buffer` in place. The initial contents of `buffer` are overwritten.
 fn run_bp(
     base: &BPBase,
     norm: f64,
     max_iter: usize,
-    chk_inmsg: &mut [Vec<f64>],
-    var_inmsg: &mut [Vec<f64>],
+    buffer: &mut BPBuffer,
     synd: ArrayView1<u8>,
     record_llr_history: bool,
 ) -> (Array1<u8>, bool, usize, Option<Array2<f64>>) {
@@ -30,7 +28,7 @@ fn run_bp(
         );
     }
 
-    init_v2c_msg(base, chk_inmsg);
+    init_v2c_msg(base, buffer);
     // Estimated error vector at current iteration.
     let mut ehat = Array1::zeros(base.num_vars);
     // Posterior LLR values at current iteration.
@@ -46,28 +44,28 @@ fn run_bp(
 
         // Message processing at CNs.
         for i in 0..base.num_chks {
-            let inmsg = &chk_inmsg[i];
+            let inmsg = &buffer.chk_inmsg[i];
             let (inmsg_sgnpar, total_sgnpar) = sign_parities(inmsg);
             let (minabs1, minabs2, minidx) = two_smallest_abs(inmsg);
             for (k, &j) in base.chk_nbrs[i].iter().enumerate() {
                 let msg_sgnpar = synd[i] ^ total_sgnpar ^ inmsg_sgnpar[k];
                 let msg_abs = if k == minidx { minabs2 } else { minabs1 };
                 let msg = if msg_sgnpar == 0 { msg_abs } else { -msg_abs };
-                var_inmsg[j][base.chk_nbr_pos[i][k]] = norm * msg;
+                buffer.var_inmsg[j][base.chk_nbr_pos[i][k]] = norm * msg;
             }
         }
 
         // Message processing at VNs.
         for j in 0..base.num_vars {
             // List of incoming messages.
-            let inmsg = &var_inmsg[j];
+            let inmsg = &buffer.var_inmsg[j];
             // Get posterior LLR.
             llr[j] = base.prior_llr[j] + inmsg.iter().sum::<f64>();
             // Hard decision.
             ehat[j] = if llr[j] < 0.0 { 1 } else { 0 };
             // Calculate the outgoing messages.
             for (k, &i) in base.var_nbrs[j].iter().enumerate() {
-                chk_inmsg[i][base.var_nbr_pos[j][k]] = llr[j] - inmsg[k];
+                buffer.chk_inmsg[i][base.var_nbr_pos[j][k]] = llr[j] - inmsg[k];
             }
         }
 
@@ -101,10 +99,8 @@ pub struct BPDecoderRust {
     norm: f64,
     /// Maximum number of iterations.
     max_iter: usize,
-    /// `chk_inmsg[i]` stores the incoming messages at CN `i` from its neighboring VNs during the current BP iteration.
-    chk_inmsg: Vec<Vec<f64>>,
-    /// `var_inmsg[j]` stores the incoming messages at VN `j` from its neighboring CNs during the current BP iteration.
-    var_inmsg: Vec<Vec<f64>>,
+    /// Message buffer.
+    buffer: BPBuffer,
 }
 
 #[pymethods]
@@ -124,18 +120,14 @@ impl BPDecoderRust {
         norm: Option<f64>,
         max_iter: usize,
     ) -> PyResult<Self> {
-        let pcm = pcm.as_array();
-        let prior = prior.as_array();
-        let base = BPBase::new(pcm, prior)?;
-        let norm = norm.unwrap_or(1.0);
-        let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
+        let base = BPBase::new(pcm.as_array(), prior.as_array())?;
+        let buffer = BPBuffer::new(&base);
 
         Ok(Self {
             base,
-            norm,
+            norm: norm.unwrap_or(1.0),
             max_iter,
-            chk_inmsg,
-            var_inmsg,
+            buffer,
         })
     }
 
@@ -167,8 +159,7 @@ impl BPDecoderRust {
             &self.base,
             self.norm,
             self.max_iter,
-            &mut self.chk_inmsg,
-            &mut self.var_inmsg,
+            &mut self.buffer,
             syndrome.as_array(),
             record_llr_history,
         );
@@ -214,14 +205,12 @@ impl BPDecoderRust {
                 (0..batch_size)
                     .into_par_iter()
                     .map(|i| {
-                        let mut chk_inmsg = self.chk_inmsg.clone();
-                        let mut var_inmsg = self.var_inmsg.clone();
+                        let mut buffer = self.buffer.clone();
                         let (ehat, converged, num_iter, _) = run_bp(
                             &self.base,
                             self.norm,
                             self.max_iter,
-                            &mut chk_inmsg,
-                            &mut var_inmsg,
+                            &mut buffer,
                             syndrome_batch.row(i),
                             false,
                         );
@@ -237,8 +226,7 @@ impl BPDecoderRust {
                             &self.base,
                             self.norm,
                             self.max_iter,
-                            &mut self.chk_inmsg,
-                            &mut self.var_inmsg,
+                            &mut self.buffer,
                             syndrome_batch.row(i),
                             false,
                         );

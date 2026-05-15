@@ -1,4 +1,4 @@
-use crate::bp_base::{alloc_msg_buffers, BPBase};
+use crate::bp_base::{BPBase, BPBuffer};
 use crate::dmembp_core::run_dmembp_in_relay;
 use crate::relaybp_core::run_random_relays;
 use crate::utils::{is_all_zeros, spawn_seeds};
@@ -10,7 +10,7 @@ use rayon::prelude::*;
 
 /// Run RelayBP decoding algorithm. Return `(ehat, converged, num_iter)`.
 ///
-/// `chk_inmsg` and `var_inmsg` serve as scratch space.
+/// Update `buffer` in place. The initial contents of `buffer` are overwritten.
 fn run_relaybp(
     base: &BPBase,
     gamma0: ArrayView1<f64>,
@@ -19,8 +19,7 @@ fn run_relaybp(
     pre_iter: usize,
     max_iter_per_relay: usize,
     stop_nconv: usize,
-    chk_inmsg: &mut [Vec<f64>],
-    var_inmsg: &mut [Vec<f64>],
+    buffer: &mut BPBuffer,
     synd: ArrayView1<u8>,
     seed: Option<u64>,
 ) -> (Array1<u8>, bool, usize) {
@@ -33,7 +32,7 @@ fn run_relaybp(
     let mut llr0 = base.prior_llr.to_vec();
     let mut ehat0 = vec![0; base.num_vars];
     let (conv0, it0) = run_dmembp_in_relay(
-        base, gamma0, 1.0, pre_iter, chk_inmsg, var_inmsg, &mut llr0, &mut ehat0, synd,
+        base, gamma0, 1.0, pre_iter, buffer, &mut llr0, &mut ehat0, synd,
     );
 
     // Shortcut: stage 0 alone meets the stopping criterion.
@@ -54,8 +53,7 @@ fn run_relaybp(
         num_relays,
         max_iter_per_relay,
         stop_nconv,
-        chk_inmsg,
-        var_inmsg,
+        buffer,
         &mut llr0,
         &mut ehat0,
         synd,
@@ -84,10 +82,8 @@ pub struct RelayBPDecoderRust {
     max_iter_per_relay: usize,
     /// Stop decoding after collecting this many converged candidates.
     stop_nconv: usize,
-    /// `chk_inmsg[i]` stores the incoming messages at CN `i` from its neighboring VNs during the current BP iteration.
-    chk_inmsg: Vec<Vec<f64>>,
-    /// `var_inmsg[j]` stores the incoming messages at VN `j` from its neighboring CNs during the current BP iteration.
-    var_inmsg: Vec<Vec<f64>>,
+    /// Message buffer.
+    buffer: BPBuffer,
 }
 
 #[pymethods]
@@ -117,14 +113,12 @@ impl RelayBPDecoderRust {
         max_iter_per_relay: usize,
         stop_nconv: usize,
     ) -> PyResult<Self> {
-        let pcm = pcm.as_array();
-        let prior = prior.as_array();
-        let base = BPBase::new(pcm, prior)?;
+        let base = BPBase::new(pcm.as_array(), prior.as_array())?;
         let (gamma_low, gamma_high) = gamma_dist_interval;
         let gamma_dist = Uniform::new_inclusive(gamma_low, gamma_high).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("Invalid gamma_dist_interval: {}", e))
         })?;
-        let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
+        let buffer = BPBuffer::new(&base);
 
         Ok(Self {
             base,
@@ -134,8 +128,7 @@ impl RelayBPDecoderRust {
             pre_iter,
             max_iter_per_relay,
             stop_nconv,
-            chk_inmsg,
-            var_inmsg,
+            buffer,
         })
     }
 
@@ -164,8 +157,7 @@ impl RelayBPDecoderRust {
             self.pre_iter,
             self.max_iter_per_relay,
             self.stop_nconv,
-            &mut self.chk_inmsg,
-            &mut self.var_inmsg,
+            &mut self.buffer,
             syndrome.as_array(),
             seed,
         );
@@ -210,8 +202,7 @@ impl RelayBPDecoderRust {
                     .into_par_iter()
                     .enumerate()
                     .map(|(i, child_seed)| {
-                        let mut chk_inmsg = self.chk_inmsg.clone();
-                        let mut var_inmsg = self.var_inmsg.clone();
+                        let mut buffer = self.buffer.clone();
                         run_relaybp(
                             &self.base,
                             self.gamma0.view(),
@@ -220,8 +211,7 @@ impl RelayBPDecoderRust {
                             self.pre_iter,
                             self.max_iter_per_relay,
                             self.stop_nconv,
-                            &mut chk_inmsg,
-                            &mut var_inmsg,
+                            &mut buffer,
                             syndrome_batch.row(i),
                             child_seed,
                         )
@@ -242,8 +232,7 @@ impl RelayBPDecoderRust {
                             self.pre_iter,
                             self.max_iter_per_relay,
                             self.stop_nconv,
-                            &mut self.chk_inmsg,
-                            &mut self.var_inmsg,
+                            &mut self.buffer,
                             syndrome_batch.row(i),
                             child_seed,
                         )

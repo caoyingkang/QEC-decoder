@@ -1,4 +1,4 @@
-use crate::bp_base::{alloc_msg_buffers, init_v2c_msg, BPBase};
+use crate::bp_base::{init_v2c_msg, BPBase, BPBuffer};
 use crate::serial_bp_core::run_serial_bp_one_iteration;
 use crate::utils::is_all_zeros;
 use numpy::ndarray::{Array1, Array2, ArrayView1};
@@ -10,15 +10,13 @@ use rayon::prelude::*;
 /// Return `(ehat, converged, num_iter)`.
 ///
 /// Convergence is checked once per iteration (iteration = one full pass
-/// over `vn_order`). Update `chk_inmsg` and `var_inmsg` in place.
-/// `chk_inmsg` and `var_inmsg` only need to be sized correctly; their
-/// initial values will be overwritten.
+/// over `vn_order`). Update `buffer` in place. The initial contents of
+/// `buffer` are overwritten.
 fn run_serial_bp(
     base: &BPBase,
     vn_order: &[usize],
     max_iter: usize,
-    chk_inmsg: &mut [Vec<f64>],
-    var_inmsg: &mut [Vec<f64>],
+    buffer: &mut BPBuffer,
     synd: ArrayView1<u8>,
 ) -> (Array1<u8>, bool, usize) {
     // Return immediately if syndrome is all zeros.
@@ -26,7 +24,7 @@ fn run_serial_bp(
         return (Array1::zeros(base.num_vars), true, 0);
     }
 
-    init_v2c_msg(base, chk_inmsg);
+    init_v2c_msg(base, buffer);
     let mut ehat = vec![0_u8; base.num_vars];
     let mut llr = vec![0.0; base.num_vars];
 
@@ -35,9 +33,7 @@ fn run_serial_bp(
     let mut converged = false;
     while num_iter < max_iter {
         num_iter += 1;
-        converged = run_serial_bp_one_iteration(
-            base, vn_order, chk_inmsg, var_inmsg, &mut llr, &mut ehat, synd,
-        );
+        converged = run_serial_bp_one_iteration(base, vn_order, buffer, &mut llr, &mut ehat, synd);
         if converged {
             break;
         }
@@ -55,10 +51,8 @@ pub struct SerialBPDecoderRust {
     vn_order: Vec<usize>,
     /// Maximum number of iterations (one iteration = one full pass over `vn_order`).
     max_iter: usize,
-    /// `chk_inmsg[i]` stores the incoming messages at CN `i` from its neighboring VNs.
-    chk_inmsg: Vec<Vec<f64>>,
-    /// `var_inmsg[j]` stores the incoming messages at VN `j` from its neighboring CNs.
-    var_inmsg: Vec<Vec<f64>>,
+    /// Message buffer.
+    buffer: BPBuffer,
 }
 
 #[pymethods]
@@ -78,17 +72,14 @@ impl SerialBPDecoderRust {
         vn_order: PyReadonlyArray1<'_, i64>,
         max_iter: usize,
     ) -> PyResult<Self> {
-        let pcm = pcm.as_array();
-        let prior = prior.as_array();
-        let base = BPBase::new(pcm, prior)?;
-        let (chk_inmsg, var_inmsg) = alloc_msg_buffers(&base);
+        let base = BPBase::new(pcm.as_array(), prior.as_array())?;
+        let buffer = BPBuffer::new(&base);
 
         Ok(Self {
             base,
             vn_order: vn_order.as_array().iter().map(|&x| x as usize).collect(),
             max_iter,
-            chk_inmsg,
-            var_inmsg,
+            buffer,
         })
     }
 
@@ -110,8 +101,7 @@ impl SerialBPDecoderRust {
             &self.base,
             &self.vn_order,
             self.max_iter,
-            &mut self.chk_inmsg,
-            &mut self.var_inmsg,
+            &mut self.buffer,
             syndrome.as_array(),
         );
         Ok((PyArray1::from_owned_array(py, ehat), converged, num_iter))
@@ -150,14 +140,12 @@ impl SerialBPDecoderRust {
                 (0..batch_size)
                     .into_par_iter()
                     .map(|i| {
-                        let mut chk_inmsg = self.chk_inmsg.clone();
-                        let mut var_inmsg = self.var_inmsg.clone();
+                        let mut buffer = self.buffer.clone();
                         run_serial_bp(
                             &self.base,
                             &self.vn_order,
                             self.max_iter,
-                            &mut chk_inmsg,
-                            &mut var_inmsg,
+                            &mut buffer,
                             syndrome_batch.row(i),
                         )
                     })
@@ -171,8 +159,7 @@ impl SerialBPDecoderRust {
                             &self.base,
                             &self.vn_order,
                             self.max_iter,
-                            &mut self.chk_inmsg,
-                            &mut self.var_inmsg,
+                            &mut self.buffer,
                             syndrome_batch.row(i),
                         )
                     })

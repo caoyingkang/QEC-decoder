@@ -1,4 +1,4 @@
-use crate::bp_base::BPBase;
+use crate::bp_base::{BPBase, BPBuffer};
 use crate::dmembp_core::run_dmembp_in_relay;
 use crate::utils::{make_pcg64_rng, pick_most_likely, sample_vec_uniform};
 use numpy::ndarray::{Array1, ArrayView1};
@@ -8,19 +8,17 @@ use rand::distr::Uniform;
 /// Used by both RelayBP (after its own stage 0) and MultiRelayBP (where many
 /// chains share a single stage 0). Return `(ehat, converged, num_iter)`.
 ///
-/// Update `chk_inmsg`, `var_inmsg`, `llr`, and `ehat` in place. The caller is
-/// responsible for making sure that `llr` is passed from the initial stage of RelayBP.
-/// `candidates` may already contain an entry from a prior stage (e.g., a converged
-/// stage 0 result); `num_iters_init` is the iteration count accumulated before this
-/// call.
+/// Update `buffer`, `llr`, and `ehat` in place. The caller is responsible for
+/// making sure that `llr` is passed from the initial stage of RelayBP. `candidates`
+/// may already contain an entry from a prior stage (e.g., a converged stage 0
+/// result); `num_iters_init` is the iteration count accumulated before this call.
 pub(crate) fn run_random_relays(
     base: &BPBase,
     gamma_dist: &Uniform<f64>,
     num_relays: usize,
     max_iter_per_relay: usize,
     stop_nconv: usize,
-    chk_inmsg: &mut [Vec<f64>],
-    var_inmsg: &mut [Vec<f64>],
+    buffer: &mut BPBuffer,
     llr: &mut [f64],
     ehat: &mut [u8],
     synd: ArrayView1<u8>,
@@ -39,8 +37,7 @@ pub(crate) fn run_random_relays(
                 gamma.view(),
                 1.0,
                 max_iter_per_relay,
-                chk_inmsg,
-                var_inmsg,
+                buffer,
                 llr,
                 ehat,
                 synd,

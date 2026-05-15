@@ -6,7 +6,7 @@
 //! still-active members are stopped, and the most-likely candidate among the
 //! converged members (lowest prior-LLR weight) is returned.
 
-use crate::bp_base::{alloc_msg_buffers, init_v2c_msg, BPBase};
+use crate::bp_base::{init_v2c_msg, BPBase, BPBuffer};
 use crate::serial_bp_core::run_serial_bp_one_iteration;
 use crate::utils::{is_all_zeros, pick_most_likely};
 use numpy::ndarray::{Array1, Array2, ArrayView1, Axis};
@@ -16,10 +16,8 @@ use rayon::prelude::*;
 use std::mem;
 
 struct MemberState {
-    /// `chk_inmsg[i]` stores the incoming messages at CN `i` from its neighboring VNs.
-    chk_inmsg: Vec<Vec<f64>>,
-    /// `var_inmsg[j]` stores the incoming messages at VN `j` from its neighboring CNs.
-    var_inmsg: Vec<Vec<f64>>,
+    /// Message buffer.
+    buffer: BPBuffer,
     /// Posterior LLR values.
     llr: Vec<f64>,
     /// Estimated error vector.
@@ -41,10 +39,8 @@ pub struct EnsSerialBPDecoderRust {
     vn_orders: Vec<Vec<usize>>,
     /// Maximum number of iterations (one iteration = one full pass over `vn_order`).
     max_iter: usize,
-    /// All-zeros template (with correct sizes); to be cloned per member.
-    chk_inmsg_template: Vec<Vec<f64>>,
-    /// All-zeros template (with correct sizes); to be cloned per member.
-    var_inmsg_template: Vec<Vec<f64>>,
+    /// Message buffer template; to be cloned per member.
+    buffer_template: BPBuffer,
 }
 
 impl EnsSerialBPDecoderRust {
@@ -59,11 +55,10 @@ impl EnsSerialBPDecoderRust {
         // Build per-member states for this syndrome.
         let mut members: Vec<MemberState> = (0..self.ensemble_size)
             .map(|_| {
-                let mut chk_inmsg = self.chk_inmsg_template.clone();
-                init_v2c_msg(&self.base, &mut chk_inmsg);
+                let mut buffer = self.buffer_template.clone();
+                init_v2c_msg(&self.base, &mut buffer);
                 MemberState {
-                    chk_inmsg,
-                    var_inmsg: self.var_inmsg_template.clone(),
+                    buffer,
                     llr: vec![0.0; self.base.num_vars],
                     ehat: vec![0_u8; self.base.num_vars],
                     num_iter_on_conv: None,
@@ -84,8 +79,7 @@ impl EnsSerialBPDecoderRust {
                 let conv = run_serial_bp_one_iteration(
                     &self.base,
                     &self.vn_orders[i],
-                    &mut m.chk_inmsg,
-                    &mut m.var_inmsg,
+                    &mut m.buffer,
                     &mut m.llr,
                     &mut m.ehat,
                     synd,
@@ -147,9 +141,7 @@ impl EnsSerialBPDecoderRust {
         max_iter: usize,
         topk: usize,
     ) -> PyResult<Self> {
-        let pcm = pcm.as_array();
-        let prior = prior.as_array();
-        let base = BPBase::new(pcm, prior)?;
+        let base = BPBase::new(pcm.as_array(), prior.as_array())?;
         let vn_orders = vn_orders.as_array();
         let ensemble_size = vn_orders.nrows();
         if vn_orders.ncols() != base.num_vars {
@@ -167,7 +159,7 @@ impl EnsSerialBPDecoderRust {
             .axis_iter(Axis(0))
             .map(|row| row.iter().map(|&x| x as usize).collect())
             .collect();
-        let (chk_inmsg_template, var_inmsg_template) = alloc_msg_buffers(&base);
+        let buffer_template = BPBuffer::new(&base);
 
         Ok(Self {
             base,
@@ -175,8 +167,7 @@ impl EnsSerialBPDecoderRust {
             topk,
             vn_orders: vn_orders_vecs,
             max_iter,
-            chk_inmsg_template,
-            var_inmsg_template,
+            buffer_template,
         })
     }
 
