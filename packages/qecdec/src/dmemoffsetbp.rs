@@ -1,5 +1,5 @@
 use crate::bp_base::{alloc_msg_buffers, init_v2c_msg, BPBase};
-use crate::utils::is_all_zeros;
+use crate::utils::{is_all_zeros, sign_parities, two_smallest_abs};
 use numpy::ndarray::{Array1, Array2, ArrayView1};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
@@ -36,30 +36,9 @@ fn run_dmemoffsetbp(
 
         // Message processing at CNs.
         for i in 0..base.num_chks {
-            // List of incoming messages.
             let inmsg = &chk_inmsg[i];
-            // List of sign parities of the incoming messages (0 for positive, 1 for negative).
-            let inmsg_sgnpar: Vec<u8> =
-                inmsg.iter().map(|&x| if x < 0.0 { 1 } else { 0 }).collect();
-            // Total sign parity of the incoming messages (i.e. XOR of the entries in inmsg_sgnpar).
-            let total_sgnpar = inmsg_sgnpar.iter().fold(0, |acc, &x| acc ^ x);
-            // Minimum absolute value of the incoming messages.
-            let mut minabs1 = f64::MAX;
-            // Second minimum absolute value of the incoming messages.
-            let mut minabs2 = f64::MAX;
-            // Index of the incoming message with minimum absolute value.
-            let mut minidx = 0;
-            for (k, &val) in inmsg.iter().enumerate() {
-                let val_abs = val.abs();
-                if val_abs < minabs1 {
-                    minabs2 = minabs1;
-                    minabs1 = val_abs;
-                    minidx = k;
-                } else if val_abs < minabs2 {
-                    minabs2 = val_abs;
-                }
-            }
-            // Calculate the outgoing messages.
+            let (inmsg_sgnpar, total_sgnpar) = sign_parities(inmsg);
+            let (minabs1, minabs2, minidx) = two_smallest_abs(inmsg);
             for (k, &j) in base.chk_nbrs[i].iter().enumerate() {
                 let msg_sgnpar = synd[i] ^ total_sgnpar ^ inmsg_sgnpar[k];
                 let msg_abs = if k == minidx { minabs2 } else { minabs1 };

@@ -17,6 +17,42 @@ pub(crate) fn is_all_zeros(arr: ArrayView1<u8>) -> bool {
     arr.iter().all(|&x| x == 0)
 }
 
+/// Per-entry sign bits (1 if negative, 0 otherwise) of `values`, plus their XOR.
+#[inline]
+pub(crate) fn sign_parities(values: &[f64]) -> (Vec<u8>, u8) {
+    let sgnpar: Vec<u8> = values
+        .iter()
+        .map(|&x| if x < 0.0 { 1 } else { 0 })
+        .collect();
+    let total = sgnpar.iter().fold(0, |acc, &x| acc ^ x);
+    (sgnpar, total)
+}
+
+/// Smallest and second-smallest absolute values in `values` (they can be equal),
+/// plus the index of the smallest.
+///
+/// Panics if `values` has less than 2 elements.
+#[inline]
+pub(crate) fn two_smallest_abs(values: &[f64]) -> (f64, f64, usize) {
+    if values.len() < 2 {
+        panic!("values should contain at least two elements");
+    }
+    let mut minabs1 = f64::MAX;
+    let mut minabs2 = f64::MAX;
+    let mut minidx = 0;
+    for (k, &val) in values.iter().enumerate() {
+        let val_abs = val.abs();
+        if val_abs < minabs1 {
+            minabs2 = minabs1;
+            minabs1 = val_abs;
+            minidx = k;
+        } else if val_abs < minabs2 {
+            minabs2 = val_abs;
+        }
+    }
+    (minabs1, minabs2, minidx)
+}
+
 /// LLR-weight of an error pattern: Σ_j llr\[j\] * ehat\[j\].
 /// Smaller weight ↔ more likely error pattern.
 pub(crate) fn llr_weight(llr: ArrayView1<f64>, ehat: &[u8]) -> f64 {
