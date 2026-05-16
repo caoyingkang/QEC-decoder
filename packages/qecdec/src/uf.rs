@@ -3,7 +3,6 @@ use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::collections::{HashSet, LinkedList, VecDeque};
-use std::ops::Add;
 
 /// Union-Find Data Structure: a partition of {0, 1, ..., n-1} into disjoint subsets that supports the following basic operations:
 /// - Find the representative element of the set containing a given element.
@@ -12,8 +11,6 @@ use std::ops::Add;
 /// This data structure is realized as a forest of trees, one for each set. The representative element of each set is chosen to
 /// be the root of the corresponding tree.
 struct UFDataStructure {
-    /// Total number of elements in the universe.
-    n: usize,
     /// Parent of each node in the forest. Root nodes are their own parents.
     parent: Vec<usize>,
     /// If `x` is the root node of a tree, then `size[x]` is the size of that tree; otherwise, `size[x]` is undefined.
@@ -24,7 +21,6 @@ impl UFDataStructure {
     /// Create and initialize a Union-Find data structure for `n` elements.
     fn new(n: usize) -> Self {
         Self {
-            n,
             parent: (0..n).collect(),
             size: vec![1; n],
         }
@@ -32,7 +28,7 @@ impl UFDataStructure {
 
     /// Reset the Union-Find data structure to the initial state: every element forms a singleton set.
     fn reset(&mut self) {
-        for i in 0..self.n {
+        for i in 0..self.parent.len() {
             self.parent[i] = i;
             self.size[i] = 1;
         }
@@ -40,8 +36,6 @@ impl UFDataStructure {
 
     /// Find the representative element of the set containing `x`.
     fn find(&mut self, x: usize) -> usize {
-        assert!(x < self.n, "Element index out of bounds");
-
         if self.parent[x] == x {
             x
         } else {
@@ -110,16 +104,12 @@ impl Cluster {
     fn is_active(&self) -> bool {
         self.odd && !self.touches_boundary
     }
-}
 
-impl Add for Cluster {
-    type Output = Self;
-
-    /// Combine the two clusters' metadata.
-    fn add(self, other: Self) -> Self {
+    /// Combine the two clusters' metadata into a single cluster.
+    fn merge(self, other: Self) -> Self {
         let mut frontier = self.frontier;
         let mut other_frontier = other.frontier;
-        // Concatenate the two linked lists in O(1) complexity.
+        // Splice the two linked lists in O(1) complexity.
         frontier.append(&mut other_frontier);
 
         Self {
@@ -393,7 +383,7 @@ impl UnionFindDecoderRust {
                 (Some(cx), Some(cy)) => {
                     // `x` and `y` are contained in two different clusters.
                     // Merge the clusters.
-                    self.clusters[r] = Some(cx + cy);
+                    self.clusters[r] = Some(cx.merge(cy));
                 }
                 (None, None) => {
                     panic!("You should never run into this case.");
