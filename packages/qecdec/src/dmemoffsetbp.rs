@@ -1,5 +1,6 @@
 use crate::bp_base::{init_v2c_msg, BPBase, BPBuffer};
 use crate::bp_like::{BPLike, DetBPLike};
+use crate::csr::Csr;
 use crate::utils::{is_all_zeros, sign_parities, two_smallest_abs};
 use numpy::ndarray::{Array1, ArrayView1};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
@@ -13,9 +14,9 @@ pub struct DMemOffsetBPDecoderRust {
     /// Per-VN memory strength.
     gamma: Array1<f64>,
     /// Offset parameter for each CN-to-VN edge.
-    offset: Vec<Vec<f64>>,
+    offset: Csr<f64>,
     /// Normalization factor for each CN-to-VN edge.
-    norm: Vec<Vec<f64>>,
+    norm: Csr<f64>,
     /// Maximum number of iterations.
     max_iter: usize,
 }
@@ -49,7 +50,9 @@ impl DetBPLike for DMemOffsetBPDecoderRust {
                 let inmsg = &buffer.chk_inmsg[i];
                 let (inmsg_sgnpar, total_sgnpar) = sign_parities(inmsg);
                 let (minabs1, minabs2, minidx) = two_smallest_abs(inmsg);
-                for (k, &j) in base.chk_nbrs[i].iter().enumerate() {
+                let nbrs = &base.chk_nbrs[i];
+                let pos = &base.chk_nbr_pos[i];
+                for (k, (&j, &p)) in nbrs.iter().zip(pos).enumerate() {
                     let msg_sgnpar = synd[i] ^ total_sgnpar ^ inmsg_sgnpar[k];
                     let msg_abs = if k == minidx { minabs2 } else { minabs1 };
                     let msg_abs_offset = (msg_abs - self.offset[i][k]).max(0.0);
@@ -58,7 +61,7 @@ impl DetBPLike for DMemOffsetBPDecoderRust {
                     } else {
                         -msg_abs_offset
                     };
-                    buffer.var_inmsg[j][base.chk_nbr_pos[i][k]] = self.norm[i][k] * msg;
+                    buffer.var_inmsg[j][p] = self.norm[i][k] * msg;
                 }
             }
 
@@ -69,8 +72,10 @@ impl DetBPLike for DMemOffsetBPDecoderRust {
                     + self.gamma[j] * llr[j]
                     + inmsg.iter().sum::<f64>();
                 ehat[j] = if llr[j] < 0.0 { 1 } else { 0 };
-                for (k, &i) in base.var_nbrs[j].iter().enumerate() {
-                    buffer.chk_inmsg[i][base.var_nbr_pos[j][k]] = llr[j] - inmsg[k];
+                let nbrs = &base.var_nbrs[j];
+                let pos = &base.var_nbr_pos[j];
+                for ((&i, &p), &m) in nbrs.iter().zip(pos).zip(inmsg) {
+                    buffer.chk_inmsg[i][p] = llr[j] - m;
                 }
             }
 
@@ -106,6 +111,11 @@ impl DMemOffsetBPDecoderRust {
         max_iter: usize,
     ) -> PyResult<Self> {
         let base = BPBase::new(pcm.as_array(), prior.as_array())?;
+        let chk_lens: Vec<usize> = (0..base.num_chks)
+            .map(|i| base.chk_nbrs.row_len(i))
+            .collect();
+        let offset = Csr::from_rows_with_lens(offset, &chk_lens, "offset")?;
+        let norm = Csr::from_rows_with_lens(norm, &chk_lens, "norm")?;
 
         Ok(Self {
             base,

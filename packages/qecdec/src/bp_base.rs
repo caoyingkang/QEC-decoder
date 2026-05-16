@@ -1,3 +1,4 @@
+use crate::csr::Csr;
 use crate::utils::prob_to_llr;
 use numpy::ndarray::{Array1, ArrayView1, ArrayView2};
 use pyo3::exceptions::PyValueError;
@@ -12,15 +13,15 @@ pub(crate) struct BPBase {
     /// Number of variable nodes (= number of columns of pcm).
     pub(crate) num_vars: usize,
     /// `chk_nbrs[i]` is the list of VNs connected to CN `i` (ordered by VN indices).
-    pub(crate) chk_nbrs: Vec<Vec<usize>>,
+    pub(crate) chk_nbrs: Csr<usize>,
     /// `var_nbrs[j]` is the list of CNs connected to VN `j` (ordered by CN indices).
-    pub(crate) var_nbrs: Vec<Vec<usize>>,
+    pub(crate) var_nbrs: Csr<usize>,
     /// `chk_nbr_pos[i][k]` is the relative position of CN `i` in the list of neighbors of the VN `chk_nbrs[i][k]`.
     /// I.e., if `chk_nbrs[i][k] == j`, then `var_nbrs[j][chk_nbr_pos[i][k]] == i`.
-    pub(crate) chk_nbr_pos: Vec<Vec<usize>>,
+    pub(crate) chk_nbr_pos: Csr<usize>,
     /// `var_nbr_pos[j][k]` is the relative position of VN `j` in the list of neighbors of the CN `var_nbrs[j][k]`.
     /// I.e., if `var_nbrs[j][k] == i`, then `chk_nbrs[i][var_nbr_pos[j][k]] == j`.
-    pub(crate) var_nbr_pos: Vec<Vec<usize>>,
+    pub(crate) var_nbr_pos: Csr<usize>,
 }
 
 impl BPBase {
@@ -68,10 +69,10 @@ impl BPBase {
             prior_llr: prior.mapv(prob_to_llr),
             num_chks,
             num_vars,
-            chk_nbrs,
-            var_nbrs,
-            chk_nbr_pos,
-            var_nbr_pos,
+            chk_nbrs: Csr::from_rows(chk_nbrs),
+            var_nbrs: Csr::from_rows(var_nbrs),
+            chk_nbr_pos: Csr::from_rows(chk_nbr_pos),
+            var_nbr_pos: Csr::from_rows(var_nbr_pos),
         })
     }
 
@@ -94,25 +95,23 @@ impl BPBase {
 #[derive(Clone)]
 pub(crate) struct BPBuffer {
     /// `chk_inmsg[i]` stores the incoming messages at CN `i` from its neighboring VNs.
-    pub(crate) chk_inmsg: Vec<Vec<f64>>,
+    pub(crate) chk_inmsg: Csr<f64>,
     /// `var_inmsg[j]` stores the incoming messages at VN `j` from its neighboring CNs.
-    pub(crate) var_inmsg: Vec<Vec<f64>>,
+    pub(crate) var_inmsg: Csr<f64>,
 }
 
 impl BPBuffer {
     /// Allocate fresh per-node message buffers sized to the Tanner graph degrees.
     pub(crate) fn new(base: &BPBase) -> Self {
-        let mut chk_inmsg = Vec::with_capacity(base.num_chks);
-        for i in 0..base.num_chks {
-            chk_inmsg.push(vec![0.0; base.chk_nbrs[i].len()]);
-        }
-        let mut var_inmsg = Vec::with_capacity(base.num_vars);
-        for j in 0..base.num_vars {
-            var_inmsg.push(vec![0.0; base.var_nbrs[j].len()]);
-        }
+        let chk_lens: Vec<usize> = (0..base.num_chks)
+            .map(|i| base.chk_nbrs.row_len(i))
+            .collect();
+        let var_lens: Vec<usize> = (0..base.num_vars)
+            .map(|j| base.var_nbrs.row_len(j))
+            .collect();
         Self {
-            chk_inmsg,
-            var_inmsg,
+            chk_inmsg: Csr::zeros(&chk_lens),
+            var_inmsg: Csr::zeros(&var_lens),
         }
     }
 }
@@ -120,8 +119,10 @@ impl BPBuffer {
 /// Initialize VN-to-CN messages from prior LLRs.
 pub(crate) fn init_v2c_msg(base: &BPBase, buffer: &mut BPBuffer) {
     for (j, &value) in base.prior_llr.iter().enumerate() {
-        for (k, &i) in base.var_nbrs[j].iter().enumerate() {
-            buffer.chk_inmsg[i][base.var_nbr_pos[j][k]] = value;
+        let nbrs = &base.var_nbrs[j];
+        let pos = &base.var_nbr_pos[j];
+        for (&i, &p) in nbrs.iter().zip(pos) {
+            buffer.chk_inmsg[i][p] = value;
         }
     }
 }

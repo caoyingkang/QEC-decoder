@@ -20,14 +20,16 @@ pub(crate) fn run_serial_bp_one_iteration(
     synd: ArrayView1<u8>,
 ) -> bool {
     for &v in vn_order.iter() {
+        let nbrs = &base.var_nbrs[v];
+        let pos = &base.var_nbr_pos[v];
+
         // Update c->v message for all neighbor c of v.
-        for (k, &c) in base.var_nbrs[v].iter().enumerate() {
-            let v_pos = base.var_nbr_pos[v][k];
+        for (k, (&c, &p)) in nbrs.iter().zip(pos).enumerate() {
             let inmsg = &buffer.chk_inmsg[c];
             let mut sgnpar = synd[c];
             let mut minabs = f64::MAX;
             for (kk, &val) in inmsg.iter().enumerate() {
-                if kk == v_pos {
+                if kk == p {
                     continue;
                 }
                 sgnpar ^= if val < 0.0 { 1 } else { 0 };
@@ -41,13 +43,13 @@ pub(crate) fn run_serial_bp_one_iteration(
         }
 
         // Update posterior LLR and hard decision at VN v.
-        llr[v] = base.prior_llr[v] + buffer.var_inmsg[v].iter().sum::<f64>();
+        let v_inmsg = &buffer.var_inmsg[v];
+        llr[v] = base.prior_llr[v] + v_inmsg.iter().sum::<f64>();
         ehat[v] = if llr[v] < 0.0 { 1 } else { 0 };
 
         // Update v->c message for all neighbor c of v.
-        for (k, &c) in base.var_nbrs[v].iter().enumerate() {
-            let v_pos = base.var_nbr_pos[v][k];
-            buffer.chk_inmsg[c][v_pos] = llr[v] - buffer.var_inmsg[v][k];
+        for ((&c, &p), &m) in nbrs.iter().zip(pos).zip(v_inmsg) {
+            buffer.chk_inmsg[c][p] = llr[v] - m;
         }
     }
 
