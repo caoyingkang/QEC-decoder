@@ -1,46 +1,10 @@
 use crate::bp_base::{init_v2c_msg, BPBase, BPBuffer};
+use crate::bp_like::{BPLike, DetBPLike};
 use crate::serial_bp_core::run_serial_bp_one_iteration;
 use crate::utils::is_all_zeros;
-use numpy::ndarray::{Array1, Array2, ArrayView1};
+use numpy::ndarray::{Array1, ArrayView1};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
-use rayon::prelude::*;
-
-/// Run serial-schedule min-sum BP decoding algorithm.
-/// Return `(ehat, converged, num_iter)`.
-///
-/// Convergence is checked once per iteration (iteration = one full pass
-/// over `vn_order`). Update `buffer` in place. The initial contents of
-/// `buffer` are overwritten.
-fn run_serial_bp(
-    base: &BPBase,
-    vn_order: &[usize],
-    max_iter: usize,
-    buffer: &mut BPBuffer,
-    synd: ArrayView1<u8>,
-) -> (Array1<u8>, bool, usize) {
-    // Return immediately if syndrome is all zeros.
-    if is_all_zeros(synd) {
-        return (Array1::zeros(base.num_vars), true, 0);
-    }
-
-    init_v2c_msg(base, buffer);
-    let mut ehat = vec![0_u8; base.num_vars];
-    let mut llr = vec![0.0; base.num_vars];
-
-    // Main BP iteration loop.
-    let mut num_iter = 0;
-    let mut converged = false;
-    while num_iter < max_iter {
-        num_iter += 1;
-        converged = run_serial_bp_one_iteration(base, vn_order, buffer, &mut llr, &mut ehat, synd);
-        if converged {
-            break;
-        }
-    }
-
-    (Array1::from_vec(ehat), converged, num_iter)
-}
 
 /// Belief Propagation decoder with serial message passing schedule and min-sum CN update rule.
 #[pyclass]
@@ -51,8 +15,46 @@ pub struct SerialBPDecoderRust {
     vn_order: Vec<usize>,
     /// Maximum number of iterations (one iteration = one full pass over `vn_order`).
     max_iter: usize,
-    /// Message buffer.
-    buffer: BPBuffer,
+}
+
+impl BPLike for SerialBPDecoderRust {
+    fn base(&self) -> &BPBase {
+        &self.base
+    }
+}
+
+impl DetBPLike for SerialBPDecoderRust {
+    fn run(&self, buffer: &mut BPBuffer, synd: ArrayView1<u8>) -> (Array1<u8>, bool, usize) {
+        let base = &self.base;
+
+        // Return immediately if syndrome is all zeros.
+        if is_all_zeros(synd) {
+            return (Array1::zeros(base.num_vars), true, 0);
+        }
+
+        init_v2c_msg(base, buffer);
+        let mut ehat = vec![0_u8; base.num_vars];
+        let mut llr = vec![0.0; base.num_vars];
+
+        let mut num_iter = 0;
+        let mut converged = false;
+        while num_iter < self.max_iter {
+            num_iter += 1;
+            converged = run_serial_bp_one_iteration(
+                base,
+                &self.vn_order,
+                buffer,
+                &mut llr,
+                &mut ehat,
+                synd,
+            );
+            if converged {
+                break;
+            }
+        }
+
+        (Array1::from_vec(ehat), converged, num_iter)
+    }
 }
 
 #[pymethods]
@@ -73,13 +75,11 @@ impl SerialBPDecoderRust {
         max_iter: usize,
     ) -> PyResult<Self> {
         let base = BPBase::new(pcm.as_array(), prior.as_array())?;
-        let buffer = BPBuffer::new(&base);
 
         Ok(Self {
             base,
             vn_order: vn_order.as_array().iter().map(|&x| x as usize).collect(),
             max_iter,
-            buffer,
         })
     }
 
@@ -93,17 +93,12 @@ impl SerialBPDecoderRust {
     /// - `converged`: Whether the decoder converged (i.e. the syndrome was satisfied).
     /// - `num_iter`: The number of iterations actually run.
     pub fn decode_detailed<'py>(
-        &mut self,
+        &self,
         py: Python<'py>,
         syndrome: PyReadonlyArray1<'py, u8>,
     ) -> PyResult<(Bound<'py, PyArray1<u8>>, bool, usize)> {
-        let (ehat, converged, num_iter) = run_serial_bp(
-            &self.base,
-            &self.vn_order,
-            self.max_iter,
-            &mut self.buffer,
-            syndrome.as_array(),
-        );
+        let mut buf = BPBuffer::new(&self.base);
+        let (ehat, converged, num_iter) = self.run(&mut buf, syndrome.as_array());
         Ok((PyArray1::from_owned_array(py, ehat), converged, num_iter))
     }
 
@@ -119,7 +114,7 @@ impl SerialBPDecoderRust {
     /// - `decoding_iters`: Number of iterations actually run in each shot.
     #[pyo3(signature = (syndrome_batch, *, parallel))]
     pub fn decode_batch_detailed<'py>(
-        &mut self,
+        &self,
         py: Python<'py>,
         syndrome_batch: PyReadonlyArray2<'_, u8>,
         parallel: bool,
@@ -128,51 +123,9 @@ impl SerialBPDecoderRust {
         Bound<'py, PyArray1<bool>>,
         Bound<'py, PyArray1<i64>>,
     )> {
-        let syndrome_batch = syndrome_batch.as_array();
-        let batch_size = syndrome_batch.nrows();
-
-        let mut ehat_batch = Array2::zeros((batch_size, self.base.num_vars));
-        let mut converged_mask = Array1::default(batch_size);
-        let mut decoding_iters = Array1::zeros(batch_size);
-
-        let results: Vec<(Array1<u8>, bool, usize)> = if parallel {
-            py.allow_threads(|| {
-                (0..batch_size)
-                    .into_par_iter()
-                    .map(|i| {
-                        let mut buffer = self.buffer.clone();
-                        run_serial_bp(
-                            &self.base,
-                            &self.vn_order,
-                            self.max_iter,
-                            &mut buffer,
-                            syndrome_batch.row(i),
-                        )
-                    })
-                    .collect()
-            })
-        } else {
-            py.allow_threads(|| {
-                (0..batch_size)
-                    .map(|i| {
-                        run_serial_bp(
-                            &self.base,
-                            &self.vn_order,
-                            self.max_iter,
-                            &mut self.buffer,
-                            syndrome_batch.row(i),
-                        )
-                    })
-                    .collect()
-            })
-        };
-
-        for (i, (ehat, converged, num_iter)) in results.into_iter().enumerate() {
-            ehat_batch.row_mut(i).assign(&ehat);
-            converged_mask[i] = converged;
-            decoding_iters[i] = num_iter as i64;
-        }
-
+        let synd = syndrome_batch.as_array();
+        let (ehat_batch, converged_mask, decoding_iters) =
+            py.allow_threads(|| self.run_batch(synd, parallel));
         Ok((
             PyArray2::from_owned_array(py, ehat_batch),
             PyArray1::from_owned_array(py, converged_mask),
