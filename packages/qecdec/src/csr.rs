@@ -62,8 +62,8 @@ impl<T> Csr<T> {
 }
 
 impl<T: Clone + Default> Csr<T> {
-    /// Allocate a zero-initialized CSR with the given per-row lengths.
-    pub(crate) fn zeros(row_lens: &[usize]) -> Self {
+    /// Allocate a CSR with the given per-row lengths, each entry initialized to `T::default()`.
+    pub(crate) fn with_default(row_lens: &[usize]) -> Self {
         let mut offsets = Vec::with_capacity(row_lens.len() + 1);
         offsets.push(0);
         let mut acc = 0;

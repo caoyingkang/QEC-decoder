@@ -110,8 +110,8 @@ impl BPBuffer {
             .map(|j| base.var_nbrs.row_len(j))
             .collect();
         Self {
-            chk_inmsg: Csr::zeros(&chk_lens),
-            var_inmsg: Csr::zeros(&var_lens),
+            chk_inmsg: Csr::with_default(&chk_lens),
+            var_inmsg: Csr::with_default(&var_lens),
         }
     }
 }
