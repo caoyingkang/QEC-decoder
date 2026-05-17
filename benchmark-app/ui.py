@@ -1,10 +1,9 @@
-"""Shared Streamlit UI components used by all benchmark pages."""
+"""Streamlit UI components for the benchmark app."""
 
 from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
-import torch
 import streamlit as st
 from omegaconf import OmegaConf
 
@@ -34,8 +33,6 @@ from constants import (
     DEFAULT_ENS_SERIAL_BP_SEED,
     DEFAULT_PYTORCH_MAX_ITER,
     DEFAULT_P_LIST,
-    DEFAULT_SHOTS_CAP,
-    DEFAULT_ERRORS_CAP,
     ALL_CODE_NOISE_PAIRS,
     CODE_NOISE_PAIR_TO_D_ROUNDS_BASIS_TRIPLES,
 )
@@ -280,33 +277,6 @@ def render_p_list_selection() -> list[float]:
     return p_list
 
 
-def render_sidebar_collector_selection_common() -> tuple[int, int, str]:
-    """Render the Monte Carlo collector parameters selection sidebar.
-
-    Return `shots_cap`, `errors_cap`, `device`.
-    """
-    with st.sidebar:
-        shots_cap = st.number_input(
-            "Shots cap",
-            value=DEFAULT_SHOTS_CAP,
-            min_value=1,
-            help="Stop Monte Carlo sampling after taking this many shots.",
-        )
-        errors_cap = st.number_input(
-            "Logical errors cap",
-            value=DEFAULT_ERRORS_CAP,
-            min_value=1,
-            help="Stop Monte Carlo sampling after having seen this many logical errors.",
-        )
-        device = st.selectbox(
-            "Device for PyTorch",
-            options=["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"],
-            index=0,
-            help="Device to run PyTorch decoders on. (Baseline decoders are always run on CPU.)",
-        )
-    return shots_cap, errors_cap, device
-
-
 def render_qec_selection() -> QECParams:
     """Render QEC parameter selection."""
     st.subheader("Select QEC parameters")
@@ -346,8 +316,6 @@ def render_qec_selection() -> QECParams:
 def render_torchdecoder_selection(
     run_dirs: list[Path],
     qec_params: QECParams,
-    *,
-    allow_relaybp_mode: bool = True,
 ) -> tuple[list[Path], dict[str, Any]]:
     """Render torch decoder tables with row selection and individual config expanders,
     as well as a shared configuration panel for the PyTorch decoder(s).
@@ -357,10 +325,6 @@ def render_torchdecoder_selection(
     ``qec_params`` is used to namespace widget keys so that changing the
     upstream QEC selection resets row selections instead of carrying over
     stale indices from a previous table.
-
-    ``allow_relaybp_mode`` gates the "Run as RelayBP" toggle. Pages whose
-    runners don't implement the RelayBP CPU-swap (e.g. the sinter page)
-    must pass ``False`` to hide it.
     """
     qec_key = (
         f"{qec_params.code}_{qec_params.noise_model}"
@@ -427,9 +391,7 @@ def render_torchdecoder_selection(
             "When device is CPU and the selected model is LearnedDMemBP, "
             "inference runs via the equivalent Rust DMemBPDecoder for speed."
         )
-        relaybp_mode_pending = allow_relaybp_mode and st.session_state.get(
-            "td_relaybp_mode", False
-        )
+        relaybp_mode_pending = st.session_state.get("td_relaybp_mode", False)
         col1, col2, col3 = st.columns(3)
         with col1:
             which_prior = st.selectbox(
@@ -455,20 +417,17 @@ def render_torchdecoder_selection(
                     "budget becomes pre_iter + num_relays * max_iter_per_relay."
                 ),
             )
-        if not allow_relaybp_mode:
-            relaybp_mode = False
-        else:
-            with col3:
-                relaybp_mode = st.checkbox(
-                    "Run as RelayBP",
-                    value=False,
-                    key="td_relaybp_mode",
-                    help=(
-                        "If on, the CPU swap builds a Rust RelayBPDecoder using "
-                        "the checkpoint's gamma vector as gamma0 instead of "
-                        "running DMemBP. Requires device=CPU and LearnedDMemBP."
-                    ),
-                )
+        with col3:
+            relaybp_mode = st.checkbox(
+                "Run as RelayBP",
+                value=False,
+                key="td_relaybp_mode",
+                help=(
+                    "If on, the CPU swap builds a Rust RelayBPDecoder using "
+                    "the checkpoint's gamma vector as gamma0 instead of "
+                    "running DMemBP. Requires device=CPU and LearnedDMemBP."
+                ),
+            )
 
         relaybp_params: dict[str, Any] = {}
         if relaybp_mode:

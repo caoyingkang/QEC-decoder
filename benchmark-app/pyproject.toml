@@ -14,7 +14,6 @@ dependencies = [
     "rich",
     "pandas",
     "stim",
-    "sinter",
     "torch",
     "streamlit",
     "plotly",

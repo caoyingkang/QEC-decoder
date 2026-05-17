@@ -15,7 +15,6 @@ from pathlib import Path
 
 import numpy as np
 from matplotlib.axes import Axes
-import sinter
 
 # Add benchmark-app to the path so we can import bench modules
 BENCHMARK_APP_DIR = Path("__file__").resolve().parent.parent
@@ -23,6 +22,37 @@ if str(BENCHMARK_APP_DIR) not in sys.path:
     sys.path.insert(0, str(BENCHMARK_APP_DIR))
 
 from bench.custom_bench.stats import BenchmarkStats
+
+
+def shot_error_rate_to_piece_error_rate(
+    shot_error_rate: float,
+    *,
+    pieces: float,
+    values: float = 1,
+) -> float:
+    """Convert shot error rate to per-piece (per-round) error rate.
+
+    Mirrors ``sinter.shot_error_rate_to_piece_error_rate`` for the float case.
+    See: https://github.com/quantumlib/Stim/blob/main/glue/sample/src/sinter/_probability_util.py
+    """
+    if not (0 <= shot_error_rate <= 1):
+        raise ValueError(f"need 0 <= shot_error_rate={shot_error_rate} <= 1")
+    if pieces <= 0:
+        raise ValueError("need pieces > 0")
+    if pieces == 1:
+        return shot_error_rate
+    if values != 1:
+        p = 1 - (1 - shot_error_rate) ** (1 / values)
+        p = shot_error_rate_to_piece_error_rate(p, pieces=pieces)
+        return 1 - (1 - p) ** values
+    if shot_error_rate > 0.5:
+        return 1 - shot_error_rate_to_piece_error_rate(1 - shot_error_rate, pieces=pieces)
+    randomize_rate = 2 * shot_error_rate
+    round_randomize_rate = 1 - (1 - randomize_rate) ** (1 / pieces)
+    round_error_rate = round_randomize_rate / 2
+    if round_error_rate == 0:
+        return shot_error_rate / pieces
+    return round_error_rate
 
 LABEL_FONTSIZE = 20
 TITLE_FONTSIZE = 22
@@ -116,7 +146,7 @@ def _budget_curve(
         if y_metric == "fr_per_shot":
             y[idx] = fr
         elif y_metric == "fr_per_round":
-            y[idx] = sinter.shot_error_rate_to_piece_error_rate(fr, pieces=rounds)
+            y[idx] = shot_error_rate_to_piece_error_rate(fr, pieces=rounds)
         else:
             raise ValueError(f"unknown y_metric: {y_metric!r}")
 
