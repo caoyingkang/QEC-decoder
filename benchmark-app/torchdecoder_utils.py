@@ -6,8 +6,12 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf, DictConfig
 
-from utils import is_unique
-from bench.params import QECParams
+from qecbench import QECParams
+
+
+def _is_unique(items: list) -> bool:
+    """Check if a list contains unique elements."""
+    return len(set(items)) == len(items)
 
 
 def load_config_from_run_dir(run_dir: Path) -> DictConfig:
@@ -71,7 +75,7 @@ def discover_run_dirs(torch_runs_root: Path, qec_params: QECParams) -> list[Path
     all_run_dirs = [
         p.parent.parent for p in torch_runs_root.rglob("checkpoints/best_model.ckpt")
     ]
-    if not is_unique(all_run_dirs):
+    if not _is_unique(all_run_dirs):
         raise Exception("Duplicate run_dirs found.")
 
     run_dirs: list[Path] = []

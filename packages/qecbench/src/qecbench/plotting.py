@@ -1,4 +1,9 @@
-"""Plotting utilities for custom benchmark results."""
+"""Plotting utilities for custom benchmark results.
+
+All functions return ``matplotlib.figure.Figure`` or
+``plotly.graph_objects.Figure`` objects — they never display or save. Callers
+(notebook cells, the Streamlit app, headless reports) decide how to render.
+"""
 
 from collections import defaultdict
 from typing import Callable, Literal
@@ -9,27 +14,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 
-from ..constants import ALL_BASELINE_DECODERS
-from ..params import QECParams
+from .constants import ALL_BASELINE_DECODERS
+from .params import QECParams
 from .stats import BenchmarkStats
 
 
 def _wilson_ci(p_hat: float, n: int, *, z: float = 1.96) -> tuple[float, float]:
-    """Compute the Wilson score confidence interval for a binomial distribution.
+    """Wilson score confidence interval for a binomial distribution.
 
-    Parameters
-    ----------
-    p_hat : float
-        Observed fraction of successes.
-    n : int
-        Number of trials.
-    z : float
-        Number of standard deviations for the interval (default 1.96 for ~95% confidence level).
-
-    Returns
-    -------
-    tuple[float, float]
-        Lower and upper bounds of the confidence interval.
+    ``z=1.96`` corresponds to a ~95% confidence level.
     """
     if n == 0:
         return (0.0, 1.0)
@@ -57,18 +50,7 @@ def _plot_rate_vs_per(
     ylabel: str,
     rate_scale_fn: Callable[[BenchmarkStats], float] | None = None,
 ) -> matplotlib.figure.Figure:
-    """Generic rate-vs-PER log-log plot with Wilson CI error bars.
-
-    Parameters
-    ----------
-    rate_fn : Callable[[BenchmarkStats], float]
-        Extracts the per-shot binomial rate from a ``BenchmarkStats``.
-    ylabel : str
-        Label for the y-axis.
-    rate_scale_fn : Callable[[BenchmarkStats], float] or None
-        If provided, both the rate and CI bounds are divided by
-        ``rate_scale_fn(s)`` (e.g. for per-round scaling).
-    """
+    """Generic rate-vs-PER log-log plot with Wilson CI error bars."""
     groups: defaultdict[str, list[BenchmarkStats]] = defaultdict(list)
     for s in stats:
         groups[s.metadata.decoder_name].append(s)

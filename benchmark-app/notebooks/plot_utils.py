@@ -8,20 +8,13 @@ data-bound styling (axis labels, scales, legend, grid, ticks).
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
 from typing import Iterable, Optional, Literal
-from pathlib import Path
 
 import numpy as np
 from matplotlib.axes import Axes
 
-# Add benchmark-app to the path so we can import bench modules
-BENCHMARK_APP_DIR = Path("__file__").resolve().parent.parent
-if str(BENCHMARK_APP_DIR) not in sys.path:
-    sys.path.insert(0, str(BENCHMARK_APP_DIR))
-
-from bench.custom_bench.stats import BenchmarkStats
+from qecbench import BenchmarkStats
 
 
 def shot_error_rate_to_piece_error_rate(

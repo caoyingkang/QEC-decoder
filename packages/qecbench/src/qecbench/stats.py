@@ -10,7 +10,7 @@ from typing import Any, Optional, NamedTuple
 
 import numpy as np
 
-from ..types import Int1DArray, Bool1DArray
+from .types import Int1DArray, Bool1DArray
 
 
 class TaskMetadata(NamedTuple):

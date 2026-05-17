@@ -1,3 +1,5 @@
+"""Baseline decoder name lists shared by qecbench callers and plotting code."""
+
 BASELINE_DECODERS_GRAPHLIKE = [
     "BP",
     "MemBP",

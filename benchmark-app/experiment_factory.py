@@ -7,7 +7,8 @@ from qecdec.experiments import (
 )
 from qecdec.experiments.base import Experiment
 
-from bench.params import QECParams
+from qecbench import QECParams
+
 from constants import CIRCUITS_ROOT
 
 

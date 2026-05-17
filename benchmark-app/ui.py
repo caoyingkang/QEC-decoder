@@ -7,13 +7,13 @@ import pandas as pd
 import streamlit as st
 from omegaconf import OmegaConf
 
-from bench.constants import (
+from qecbench import (
     BASELINE_DECODERS_GRAPHLIKE,
     BASELINE_DECODERS_HYPERGRAPH,
     DEFAULT_BASELINE_DECODERS_GRAPHLIKE,
     DEFAULT_BASELINE_DECODERS_HYPERGRAPH,
+    QECParams,
 )
-from bench.params import QECParams
 from constants import (
     CIRCUITS_ROOT,
     DEFAULT_BP_MAX_ITER,
@@ -39,7 +39,6 @@ from constants import (
 from torchdecoder_utils import (
     group_run_dirs_by_decoder_model_name,
     extract_pytorch_decoder_run_id,
-    extract_pytorch_decoder_name,
     load_config_from_run_dir,
     flatten_config,
     get_differing_keys,
@@ -548,16 +547,14 @@ def validate_stim_files(
 
 
 def render_missing_data_warning_and_benchmark_button(
-    pending_run_dirs: list[Path],
+    pending_torchdecoder_names: list[str],
     pending_baseline_decoders: list[str],
 ) -> bool:
     """Show a warning for missing data and a 'Run benchmark' button.
 
     Return True if the button was clicked.
     """
-    pending_list = [
-        extract_pytorch_decoder_name(r) for r in pending_run_dirs
-    ] + pending_baseline_decoders
+    pending_list = pending_torchdecoder_names + pending_baseline_decoders
     pending_list_str = "\n\n".join(f"• {d}" for d in pending_list)
     st.warning(
         "The following decoders have missing or incomplete benchmark data:\n\n"

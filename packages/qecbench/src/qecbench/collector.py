@@ -23,9 +23,9 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from .decoder import BenchmarkDecoder
+from .decoders import BenchmarkDecoder
 from .stats import BenchmarkStats, TaskMetadata
-from ..types import Bit2DArray
+from .types import Bit2DArray
 
 
 def _info(message: str) -> None:

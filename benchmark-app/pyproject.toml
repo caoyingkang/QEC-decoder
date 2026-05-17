@@ -5,6 +5,7 @@ description = "Streamlit UI for benchmarking trained PyTorch QEC decoders."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "qecbench",
     "qecdec",
     "torchdecoder_core",
     "numpy==2.2.*",
@@ -23,5 +24,6 @@ dependencies = [
 package = false
 
 [tool.uv.sources]
+qecbench = { workspace = true }
 qecdec = { workspace = true }
 torchdecoder_core = { workspace = true }

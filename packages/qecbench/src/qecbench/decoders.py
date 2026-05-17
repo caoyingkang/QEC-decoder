@@ -1,4 +1,15 @@
-"""Abstract base class for decoders used by the Monte Carlo benchmark tool."""
+"""Decoder adapters used by the Monte Carlo collector.
+
+Each :class:`BenchmarkDecoder` exposes a single ``decode(syndromes)`` method
+that returns predicted observables, a per-shot syndrome-match mask, and (for
+iterative decoders) a per-shot iteration count. The two concrete adapters
+bridge to:
+
+- :class:`qecdec.decoders.Decoder` (MWPM, BP, MemBP, RelayBP, BPOSD, …) via
+  :class:`QecdecBenchmarkDecoder`;
+- :class:`torchdecoder_core.models.DecoderModel` (learned BP variants) via
+  :class:`PyTorchBenchmarkDecoder`.
+"""
 
 from abc import ABC, abstractmethod
 from typing import Literal, Optional, NamedTuple
@@ -10,7 +21,7 @@ from qecdec.decoders import IterativeDecoder
 from torchdecoder_core.models import DecoderModel
 from torchdecoder_core.utils.tensor_utils import matmul_GF2
 
-from ..types import Bool1DArray, Bit2DArray, Int1DArray
+from .types import Bool1DArray, Bit2DArray, Int1DArray
 
 
 class DecodeResult(NamedTuple):
@@ -76,15 +87,9 @@ class PyTorchBenchmarkDecoder(BenchmarkDecoder):
         self.model = model
         self.device = device
 
-        # Move model to device.
         self.model.to(device)
-        # Set model to evaluation mode.
         self.model.eval()
 
-        # Compile model.
-        # self.model.compile()
-
-        # Store helper tensors on device.
         self._chkmat = torch.tensor(model.pcm, dtype=torch.float32, device=device)
         self._obsmat = torch.tensor(obsmat, dtype=torch.float32, device=device)
 

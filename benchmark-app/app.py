@@ -12,17 +12,24 @@ from pathlib import Path
 import streamlit as st
 import torch
 
-from bench.custom_bench.collector_params import CollectorParams
-from bench.custom_bench.plotting import (
-    plot_ler_vs_per,
-    plot_fr_vs_per,
-    plot_smr_vs_per,
+from qecbench import (
+    BenchTaskParams,
+    CollectorParams,
+    QECParams,
+    StatsSource,
+    TorchDecoderTask,
+    build_baseline_sources,
+    get_torchdecoder_csv_path,
+    load_and_filter_stats,
     plot_avg_iters_vs_per,
+    plot_fr_vs_per,
     plot_iters_distribution,
+    plot_ler_vs_per,
+    plot_smr_vs_per,
+    run_custom_benchmark,
 )
-from bench.custom_bench.run import run_custom_benchmark
-from bench.custom_bench.stats_io import load_and_merge_stats
-from bench.params import BenchTaskParams, QECParams
+from qecdec.experiments import Experiment
+
 from constants import (
     BASELINES_CSV_DIR,
     DEFAULT_BATCH_SIZE,
@@ -32,8 +39,12 @@ from constants import (
 )
 from experiment_factory import create_experiment
 from plotting import render_plot, render_plotly
-from qecdec.experiments import Experiment
-from torchdecoder_utils import discover_run_dirs
+from torchdecoder_utils import (
+    discover_run_dirs,
+    extract_pytorch_decoder_name,
+    get_ckpt_path,
+    load_model_config_from_run_dir,
+)
 from ui import (
     render_baselines_selection,
     render_missing_data_warning_and_benchmark_button,
@@ -120,15 +131,28 @@ def _render_sidebar_collector_selection() -> CollectorParams:
     )
 
 
+def _build_torchdecoder_tasks(run_dirs: list[Path]) -> list[TorchDecoderTask]:
+    """Resolve each Lightning run dir into a TorchDecoderTask qecbench can run."""
+    return [
+        TorchDecoderTask(
+            decoder_name=extract_pytorch_decoder_name(run_dir),
+            model_cfg=load_model_config_from_run_dir(run_dir),
+            ckpt_path=get_ckpt_path(run_dir),
+            csv_path=get_torchdecoder_csv_path(run_dir),
+        )
+        for run_dir in run_dirs
+    ]
+
+
 def _run_all_benchmarks(
     stop_event: threading.Event,
     exc_queue: queue.Queue,
     pending_baseline_decoders: list[str],
-    pending_run_dirs: list[Path],
+    pending_torchdecoder_tasks: list[TorchDecoderTask],
     qec_params: QECParams,
     benchtask_params: BenchTaskParams,
     collector_params: CollectorParams,
-    experiments: dict[float, Experiment] | None = None,
+    experiments: dict[float, Experiment],
 ) -> None:
     """Run all pending benchmark tasks. Exit early if `stop_event` is set.
     Put any exception that occurs into `exc_queue`."""
@@ -137,10 +161,10 @@ def _run_all_benchmarks(
             qec_params=qec_params,
             benchtask_params=benchtask_params,
             collector_params=collector_params,
+            experiments=experiments,
             baseline_csv_dir=BASELINES_CSV_DIR,
             baseline_decoders=pending_baseline_decoders,
-            torchdecoder_run_dirs=pending_run_dirs,
-            experiments=experiments,
+            torchdecoder_tasks=pending_torchdecoder_tasks,
             stop_event=stop_event,
         )
     except Exception as e:
@@ -169,7 +193,7 @@ def _stop_monitor(
 @st.dialog("Running Benchmark", dismissible=False)
 def _benchmark_progress_modal(
     pending_baseline_decoders: list[str],
-    pending_run_dirs: list[Path],
+    pending_torchdecoder_tasks: list[TorchDecoderTask],
     *,
     qec_params: QECParams,
     benchtask_params: BenchTaskParams,
@@ -199,7 +223,7 @@ def _benchmark_progress_modal(
             stop_event,
             exc_queue,
             pending_baseline_decoders,
-            pending_run_dirs,
+            pending_torchdecoder_tasks,
             qec_params,
             benchtask_params,
             collector_params,
@@ -245,23 +269,44 @@ benchtask_params = BenchTaskParams(
     torchdecoder_shared_params=torchdecoder_shared_params,
 )
 
-stats, pending_run_dirs, pending_baseline_decoders = load_and_merge_stats(
-    selected_run_dirs,
-    selected_baseline_decoders,
+torchdecoder_tasks = _build_torchdecoder_tasks(selected_run_dirs)
+
+torchdecoder_sources = [
+    StatsSource(
+        display_name=task.decoder_name,
+        csv_path=task.csv_path,
+        expected_decoder_params=benchtask_params.torchdecoder_shared_params,
+    )
+    for task in torchdecoder_tasks
+]
+baseline_sources = build_baseline_sources(
     BASELINES_CSV_DIR,
-    benchtask_params=benchtask_params,
-    collector_params=collector_params,
     qec_params=qec_params,
+    benchtask_params=benchtask_params,
+    baseline_decoders=selected_baseline_decoders,
 )
 
-if len(pending_run_dirs) > 0 or len(pending_baseline_decoders) > 0:
+stats, pending_display_names = load_and_filter_stats(
+    torchdecoder_sources + baseline_sources,
+    p_list=benchtask_params.p_list,
+    collector_params=collector_params,
+)
+pending_torchdecoder_tasks = [
+    t for t in torchdecoder_tasks if t.decoder_name in pending_display_names
+]
+pending_baseline_decoders = [
+    d for d in selected_baseline_decoders if d in pending_display_names
+]
+
+if len(pending_torchdecoder_tasks) > 0 or len(pending_baseline_decoders) > 0:
     clicked = render_missing_data_warning_and_benchmark_button(
-        pending_run_dirs, pending_baseline_decoders
+        [t.decoder_name for t in pending_torchdecoder_tasks],
+        pending_baseline_decoders,
     )
     if clicked:
         _benchmark_progress_modal(
             pending_baseline_decoders,
-            pending_run_dirs,
+            pending_torchdecoder_tasks,
             qec_params=qec_params,
             benchtask_params=benchtask_params,
             collector_params=collector_params,

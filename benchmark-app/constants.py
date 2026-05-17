@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from bench.params import QECParams
+from qecbench import QECParams
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BENCHMARK_APP_ROOT = REPO_ROOT / "benchmark-app"

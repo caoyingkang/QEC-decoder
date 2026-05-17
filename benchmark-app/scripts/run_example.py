@@ -10,24 +10,20 @@ For long-running jobs on a remote server, run inside `tmux` or detach with
     nohup uv run python benchmark-app/scripts/run_example.py > run.log 2>&1 &
 
 Edit the parameters below to match your experiment. CSV outputs are appended
-under `benchmark-app/baselines-results/{code}_{noise_model}/...` and existing
+under ``benchmark-app/baselines-results/{code}_{noise_model}/...`` and existing
 runs are resumed in place if you re-run after Ctrl-C.
 """
 
 import os
-import sys
 from pathlib import Path
 
-# Make the top-level `bench`, `constants`, `experiment_factory`, and
-# `torchdecoder_utils` modules importable. These live at `benchmark-app/`
-# (not inside an installable package), so we prepend it to `sys.path`.
-# This makes the script work from any CWD; copy this preamble when you
-# write your own runner script.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from bench.custom_bench.collector_params import CollectorParams  # noqa: E402
-from bench.custom_bench.run import run_custom_benchmark  # noqa: E402
-from bench.params import BenchTaskParams, QECParams  # noqa: E402
+from qecbench import (
+    BenchTaskParams,
+    CollectorParams,
+    QECParams,
+    run_custom_benchmark,
+)
+from qecdec.experiments import RotatedSurfaceCode_Memory
 
 
 qec_params = QECParams(
@@ -55,12 +51,25 @@ collector_params = CollectorParams(
     num_parallel_workers=max(1, (os.cpu_count() or 1) - 1),
 )
 
+BASELINE_CSV_DIR = Path(__file__).resolve().parent.parent / "baselines-results"
+
 
 if __name__ == "__main__":
+    experiments = {
+        p: RotatedSurfaceCode_Memory(
+            d=qec_params.d,
+            rounds=qec_params.rounds,
+            basis=qec_params.basis,
+            data_qubit_error_rate=p,
+            meas_error_rate=p,
+        )
+        for p in benchtask_params.p_list
+    }
     run_custom_benchmark(
         qec_params=qec_params,
         benchtask_params=benchtask_params,
         collector_params=collector_params,
+        experiments=experiments,
+        baseline_csv_dir=BASELINE_CSV_DIR,
         baseline_decoders=list(benchtask_params.baseline_decoder_params.keys()),
-        torchdecoder_run_dirs=[],
     )
