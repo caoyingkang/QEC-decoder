@@ -3,16 +3,16 @@
 import numpy as np
 
 from qecdec.decoders import (
-    ALL_DECODERS,
-    ITERATIVE_DECODERS,
+    DECODERS_REGISTRY,
+    ITERATIVE_DECODERS_REGISTRY,
     SerialBPDecoder,
     create_decoder,
 )
 
 
 def test_factory_registration(rsc_d5_data):
-    assert "SerialBP" in ALL_DECODERS
-    assert "SerialBP" in ITERATIVE_DECODERS
+    assert "SerialBP" in DECODERS_REGISTRY
+    assert "SerialBP" in ITERATIVE_DECODERS_REGISTRY
     dec = create_decoder(
         "SerialBP", pcm=rsc_d5_data["pcm"], prior=rsc_d5_data["prior"], max_iter=20
     )

@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from qecdec.decoders import (
-    ALL_DECODERS,
-    ITERATIVE_DECODERS,
+    DECODERS_REGISTRY,
+    ITERATIVE_DECODERS_REGISTRY,
     DMemBPDecoder,
     RelayBPDecoder,
     create_decoder,
@@ -26,8 +26,8 @@ def _kwargs(num_vars: int, **overrides):
 
 
 def test_factory_registration(rsc_d5_data):
-    assert "RelayBP" in ALL_DECODERS
-    assert "RelayBP" in ITERATIVE_DECODERS
+    assert "RelayBP" in DECODERS_REGISTRY
+    assert "RelayBP" in ITERATIVE_DECODERS_REGISTRY
     dec = create_decoder(
         "RelayBP",
         pcm=rsc_d5_data["pcm"],

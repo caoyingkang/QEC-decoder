@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 from qecdec.decoders import (
-    ALL_DECODERS,
-    ITERATIVE_DECODERS,
+    DECODERS_REGISTRY,
+    ITERATIVE_DECODERS_REGISTRY,
     EnsSerialBPDecoder,
     SerialBPDecoder,
     create_decoder,
@@ -15,8 +15,8 @@ from qecdec.decoders import (
 
 
 def test_factory_registration(rsc_d5_data):
-    assert "EnsSerialBP" in ALL_DECODERS
-    assert "EnsSerialBP" in ITERATIVE_DECODERS
+    assert "EnsSerialBP" in DECODERS_REGISTRY
+    assert "EnsSerialBP" in ITERATIVE_DECODERS_REGISTRY
     dec = create_decoder(
         "EnsSerialBP",
         pcm=rsc_d5_data["pcm"],

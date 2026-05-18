@@ -3,8 +3,8 @@
 import numpy as np
 
 from qecdec.decoders import (
-    ALL_DECODERS,
-    ITERATIVE_DECODERS,
+    DECODERS_REGISTRY,
+    ITERATIVE_DECODERS_REGISTRY,
     BPDecoder,
     DMemBPDecoder,
     MemBPDecoder,
@@ -13,8 +13,8 @@ from qecdec.decoders import (
 
 
 def test_factory_registration(rsc_d5_data):
-    assert "MemBP" in ALL_DECODERS
-    assert "MemBP" in ITERATIVE_DECODERS
+    assert "MemBP" in DECODERS_REGISTRY
+    assert "MemBP" in ITERATIVE_DECODERS_REGISTRY
     dec = create_decoder(
         "MemBP",
         pcm=rsc_d5_data["pcm"],
