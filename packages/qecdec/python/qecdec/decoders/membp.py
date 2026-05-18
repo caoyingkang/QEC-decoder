@@ -13,7 +13,7 @@ from ..types import (
 )
 
 
-class MemBPDecoder(IterativeDecoder):
+class MemBPDecoder(IterativeDecoder, registry_name="MemBP"):
     """Min-sum BP decoder with memory coefficient."""
 
     def __init__(

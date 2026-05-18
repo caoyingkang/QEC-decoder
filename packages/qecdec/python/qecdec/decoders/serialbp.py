@@ -13,7 +13,7 @@ from ..types import (
 )
 
 
-class SerialBPDecoder(IterativeDecoder):
+class SerialBPDecoder(IterativeDecoder, registry_name="SerialBP"):
     """Belief Propagation decoder with serial message-passing schedule and
     min-sum CN update rule.
     """

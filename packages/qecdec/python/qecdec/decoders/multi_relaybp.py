@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 
@@ -13,7 +13,7 @@ from ..types import (
 )
 
 
-class MultiRelayBPDecoder(IterativeDecoder):
+class MultiRelayBPDecoder(IterativeDecoder, registry_name="MultiRelayBP"):
     """Multi-chain RelayBP decoder: Run `num_chains` parallel RelayBP chains sharing a
     deterministic first stage, then forking into independent random-relay sequences.
 
@@ -24,6 +24,10 @@ class MultiRelayBPDecoder(IterativeDecoder):
     with ties broken by lowest chain index. If no chain converged, output the estimated
     error pattern in the final iteration of the first chain.
     """
+
+    @classmethod
+    def max_iter_from_params(cls, params: dict[str, Any]) -> int:
+        return params["pre_iter"] + params["num_relays"] * params["max_iter_per_relay"]
 
     def __init__(
         self,
@@ -50,7 +54,13 @@ class MultiRelayBPDecoder(IterativeDecoder):
             DMemBP stage; thereafter they run independent random-relay sequences in
             parallel.
         """
-        max_iter = pre_iter + num_relays * max_iter_per_relay
+        max_iter = self.max_iter_from_params(
+            {
+                "pre_iter": pre_iter,
+                "num_relays": num_relays,
+                "max_iter_per_relay": max_iter_per_relay,
+            }
+        )
         super().__init__(max_iter, pcm, prior)
 
         if isinstance(gamma0, (float, int)):

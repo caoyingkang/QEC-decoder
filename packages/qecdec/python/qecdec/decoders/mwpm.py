@@ -11,7 +11,7 @@ from ..types import (
 )
 
 
-class MWPMDecoder(Decoder):
+class MWPMDecoder(Decoder, registry_name="MWPM"):
     """Minimum Weight Perfect Matching decoder. This class is a wrapper for the pymatching library."""
 
     def __init__(self, pcm: Bit2DArray, prior: Optional[Float1DArray] = None):

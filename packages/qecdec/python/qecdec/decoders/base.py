@@ -1,18 +1,25 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Any
+from typing import Any, ClassVar, Optional
 from functools import cached_property
 
 import numpy as np
 
-from ..types import (
-    Bit1DArray,
-    Bit2DArray,
-    Float1DArray,
-)
+from ..types import Bit1DArray, Bit2DArray, Float1DArray
 
 
 class Decoder(ABC):
     """Abstract base class for decoders."""
+
+    registry: ClassVar[dict[str, type["Decoder"]]] = {}
+
+    def __init_subclass__(cls, registry_name: Optional[str] = None) -> None:
+        # Only register subclasses that set `registry_name`.
+        if registry_name is not None:
+            if registry_name in Decoder.registry:
+                raise ValueError(
+                    f"Decoder registry_name {registry_name!r} is already assigned."
+                )
+            Decoder.registry[registry_name] = cls
 
     def __init__(self, pcm: Bit2DArray, prior: Optional[Float1DArray] = None):
         """
@@ -151,6 +158,19 @@ class Decoder(ABC):
 class IterativeDecoder(Decoder):
     """Abstract base class for iterative decoders."""
 
+    registry: ClassVar[dict[str, type["IterativeDecoder"]]] = {}
+
+    def __init_subclass__(cls, registry_name: Optional[str] = None) -> None:
+        super().__init_subclass__(registry_name)
+
+        # Only register subclasses that set `registry_name`.
+        if registry_name is not None:
+            if registry_name in IterativeDecoder.registry:
+                raise ValueError(
+                    f"IterativeDecoder registry_name {registry_name!r} is already assigned."
+                )
+            IterativeDecoder.registry[registry_name] = cls
+
     def __init__(
         self,
         max_iter: int,
@@ -177,3 +197,21 @@ class IterativeDecoder(Decoder):
 
         assert max_iter > 0
         self.max_iter = max_iter
+
+    @classmethod
+    def max_iter_from_params(cls, params: dict[str, Any]) -> int:
+        """Resolve the max iteration count from a decoder-params dict.
+
+        The default looks up ``params["max_iter"]``. Subclasses whose iteration
+        budget is composed from multiple params (e.g. relay-style decoders with
+        ``pre_iter`` and ``num_relays * max_iter_per_relay``) should override
+        this and call it from their ``__init__``.
+        """
+        return params["max_iter"]
+
+
+# Module-level aliases for the class-attribute registries. These point to the
+# same underlying objects, so updates from `__init_subclass__` flow through to
+# `from qecdec.decoders import DECODERS_REGISTRY, ITERATIVE_DECODERS_REGISTRY` callers.
+DECODERS_REGISTRY = Decoder.registry
+ITERATIVE_DECODERS_REGISTRY = IterativeDecoder.registry

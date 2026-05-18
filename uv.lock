@@ -3712,7 +3712,6 @@ dependencies = [
     { name = "ldpc" },
     { name = "numpy" },
     { name = "pymatching" },
-    { name = "relay-bp" },
     { name = "sinter" },
     { name = "stim" },
 ]
@@ -3739,7 +3738,6 @@ requires-dist = [
     { name = "ldpc" },
     { name = "numpy", specifier = "==2.2.*" },
     { name = "pymatching" },
-    { name = "relay-bp" },
     { name = "sinter" },
     { name = "stim" },
 ]
@@ -3771,20 +3769,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/22/f5/df4e9027acead3ecc63e50fe1e36aca1523e1719559c499951bb4b53188f/referencing-0.37.0.tar.gz", hash = "sha256:44aefc3142c5b842538163acb373e24cce6632bd54bdb01b21ad5863489f50d8", size = 78036, upload-time = "2025-10-13T15:30:48.871Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2c/58/ca301544e1fa93ed4f80d724bf5b194f6e4b945841c5bfd555878eea9fcb/referencing-0.37.0-py3-none-any.whl", hash = "sha256:381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231", size = 26766, upload-time = "2025-10-13T15:30:47.625Z" },
-]
-
-[[package]]
-name = "relay-bp"
-version = "0.2.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/4c/5b/067f52bda268d6800e012a7f03a3e501f7ce13a4519a3d474456f3b71d26/relay_bp-0.2.1.tar.gz", hash = "sha256:977c9c111a326455c5d3c29aa7f350c4f4a11f21a4e1684a915e7691b62cc38a", size = 144551, upload-time = "2026-02-17T16:08:34.757Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f4/00/2fc7babb25aea4a5aa22b1f15fb6d1f9e340648ab99b69bd8e87dc92e1fd/relay_bp-0.2.1-cp311-cp311-manylinux_2_34_x86_64.whl", hash = "sha256:9fd9817b5858bde331751102cd9b3b371386b9e5c2d7d99b178cc89f38d02d29", size = 750192, upload-time = "2026-02-17T16:08:32.218Z" },
 ]
 
 [[package]]
@@ -4639,6 +4623,7 @@ source = { editable = "packages/torchdecoder-core" }
 dependencies = [
     { name = "numpy" },
     { name = "omegaconf" },
+    { name = "qecdec" },
     { name = "torch" },
     { name = "torchmetrics" },
 ]
@@ -4647,6 +4632,7 @@ dependencies = [
 requires-dist = [
     { name = "numpy" },
     { name = "omegaconf" },
+    { name = "qecdec", editable = "packages/qecdec" },
     { name = "torch" },
     { name = "torchmetrics" },
 ]

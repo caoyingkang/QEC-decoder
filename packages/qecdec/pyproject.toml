@@ -8,14 +8,7 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dynamic = ["version"]
-dependencies = [
-    "numpy==2.2.*",
-    "stim",
-    "sinter",
-    "pymatching",
-    "relay-bp",
-    "ldpc",
-]
+dependencies = ["numpy==2.2.*", "stim", "sinter", "pymatching", "ldpc"]
 
 [dependency-groups]
 test = ["pytest"]

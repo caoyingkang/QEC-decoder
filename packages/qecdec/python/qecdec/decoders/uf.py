@@ -8,7 +8,7 @@ from ..types import (
 from ..qecdec import UnionFindDecoderRust
 
 
-class UnionFindDecoder(Decoder):
+class UnionFindDecoder(Decoder, registry_name="UnionFind"):
     """Union-Find decoder."""
 
     def __init__(self, pcm: np.ndarray):

@@ -1,6 +1,11 @@
 """Module for decoders."""
 
-from .base import Decoder, IterativeDecoder
+from .base import (
+    Decoder,
+    IterativeDecoder,
+    DECODERS_REGISTRY,
+    ITERATIVE_DECODERS_REGISTRY,
+)
 from .bp import BPDecoder
 from .membp import MemBPDecoder
 from .dmembp import DMemBPDecoder
@@ -11,18 +16,14 @@ from .bposd import BPOSDDecoder
 from .mwpm import MWPMDecoder
 from .relaybp import RelayBPDecoder
 from .multi_relaybp import MultiRelayBPDecoder
-from .deprecated_relaybp import Deprecated_RelayBPDecoder
 from .uf import UnionFindDecoder
-from .factory import (
-    DECODER_NAME_TO_CLASS,
-    ALL_DECODERS,
-    ITERATIVE_DECODERS,
-    create_decoder,
-)
+from .factory import create_decoder
 
 __all__ = [
     "Decoder",
     "IterativeDecoder",
+    "DECODERS_REGISTRY",
+    "ITERATIVE_DECODERS_REGISTRY",
     "BPDecoder",
     "MemBPDecoder",
     "DMemBPDecoder",
@@ -33,10 +34,6 @@ __all__ = [
     "MWPMDecoder",
     "RelayBPDecoder",
     "MultiRelayBPDecoder",
-    "Deprecated_RelayBPDecoder",
     "UnionFindDecoder",
-    "DECODER_NAME_TO_CLASS",
-    "ALL_DECODERS",
-    "ITERATIVE_DECODERS",
     "create_decoder",
 ]

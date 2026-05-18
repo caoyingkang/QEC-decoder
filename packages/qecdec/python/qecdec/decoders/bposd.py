@@ -11,7 +11,7 @@ from ..types import (
 )
 
 
-class BPOSDDecoder(Decoder):
+class BPOSDDecoder(Decoder, registry_name="BPOSD"):
     """(Min-sum)BP+OSD decoder. This class is a wrapper for the ldpc library."""
 
     def __init__(

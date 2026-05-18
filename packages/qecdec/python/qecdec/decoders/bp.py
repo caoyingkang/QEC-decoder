@@ -12,7 +12,7 @@ from ..types import (
 )
 
 
-class BPDecoder(IterativeDecoder):
+class BPDecoder(IterativeDecoder, registry_name="BP"):
     """Belief Propagation decoder (min-sum variant)."""
 
     def __init__(

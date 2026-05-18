@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 
@@ -13,8 +13,12 @@ from ..types import (
 )
 
 
-class RelayBPDecoder(IterativeDecoder):
+class RelayBPDecoder(IterativeDecoder, registry_name="RelayBP"):
     """RelayBP decoder."""
+
+    @classmethod
+    def max_iter_from_params(cls, params: dict[str, Any]) -> int:
+        return params["pre_iter"] + params["num_relays"] * params["max_iter_per_relay"]
 
     def __init__(
         self,
@@ -54,7 +58,13 @@ class RelayBPDecoder(IterativeDecoder):
             is the candidate with the smallest LLR weight. Must satisfy
             ``1 <= stop_nconv <= num_relays + 1``.
         """
-        max_iter = pre_iter + num_relays * max_iter_per_relay
+        max_iter = self.max_iter_from_params(
+            {
+                "pre_iter": pre_iter,
+                "num_relays": num_relays,
+                "max_iter_per_relay": max_iter_per_relay,
+            }
+        )
         super().__init__(max_iter, pcm, prior)
 
         if isinstance(gamma0, (float, int)):

@@ -14,7 +14,7 @@ from ..types import (
 )
 
 
-class EnsSerialBPDecoder(IterativeDecoder):
+class EnsSerialBPDecoder(IterativeDecoder, registry_name="EnsSerialBP"):
     """Ensemble of serial-schedule BP decoders with random `vn_order` permutations.
 
     For each syndrome, the ensemble runs an iteration-synchronous loop: at each

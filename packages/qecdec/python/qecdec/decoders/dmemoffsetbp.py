@@ -11,7 +11,7 @@ from ..types import (
 )
 
 
-class DMemOffsetBPDecoder(IterativeDecoder):
+class DMemOffsetBPDecoder(IterativeDecoder, registry_name="DMemOffsetBP"):
     """Disordered-memory, offset-normalized min-sum BP decoder."""
 
     def __init__(
