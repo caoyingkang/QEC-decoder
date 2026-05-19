@@ -39,7 +39,7 @@ class TorchModelDecoder(IterativeDecoder):
                 )
             TorchModelDecoder.registry[registry_name] = cls
 
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs):
         if cls is TorchModelDecoder:
             raise TypeError("Base class 'TorchModelDecoder' cannot be instantiated")
         return super().__new__(cls)
