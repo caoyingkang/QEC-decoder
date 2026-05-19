@@ -4628,6 +4628,11 @@ dependencies = [
     { name = "torchmetrics" },
 ]
 
+[package.dev-dependencies]
+test = [
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "numpy" },
@@ -4636,6 +4641,9 @@ requires-dist = [
     { name = "torch" },
     { name = "torchmetrics" },
 ]
+
+[package.metadata.requires-dev]
+test = [{ name = "pytest" }]
 
 [[package]]
 name = "torchmetrics"
