@@ -25,7 +25,7 @@ from rich.progress import (
 
 from qecdec.types import Bit2DArray
 
-from .decoders import BenchmarkDecoder
+from .decoder_wrapper import BenchmarkDecoder
 from .stats import BenchmarkStats, TaskMetadata
 
 
@@ -61,7 +61,11 @@ def _run_serial_collect(
     verbose: bool,
     th_stop_event: Optional[threading.Event] = None,
 ) -> BenchmarkStats:
-    """Single-process MC collection loop."""
+    """Single-process MC collection loop.
+
+    If ``th_stop_event`` is provided, the collection loop checks this event every
+    batch and exits early when it is set.
+    """
     sampler = dem.compile_sampler()
     stats = BenchmarkStats(metadata=metadata)
 
@@ -81,10 +85,9 @@ def _run_serial_collect(
             if th_stop_event is not None and th_stop_event.is_set():
                 break
             syndromes, observables = _sample(sampler, batch_size)
-            result = decoder.decode(syndromes)
-            obser_correct_mask = np.all(result.obser_pred == observables, axis=1)
+            result = decoder.decode(syndromes, observables)
             stats.update(
-                obser_correct_mask,
+                result.obser_correct_mask,
                 result.synd_match_mask,
                 result.decoding_iters,
             )
@@ -139,10 +142,9 @@ def _worker_loop(
         sampler = dem.compile_sampler(seed=seed)
         while not mp_stop_event.is_set():
             syndromes, observables = _sample(sampler, batch_size)
-            result = decoder.decode(syndromes)
-            obser_correct_mask = np.all(result.obser_pred == observables, axis=1)
+            result = decoder.decode(syndromes, observables)
             stats.update(
-                obser_correct_mask,
+                result.obser_correct_mask,
                 result.synd_match_mask,
                 result.decoding_iters,
             )
@@ -166,7 +168,11 @@ def _run_parallel_collect(
     verbose: bool,
     th_stop_event: Optional[threading.Event] = None,
 ) -> BenchmarkStats:
-    """Multi-processing MC collection loop."""
+    """Multi-processing MC collection loop.
+
+    If ``th_stop_event`` is provided, the collection loop checks this event every
+    poll interval and exits early when it is set.
+    """
     if num_workers <= 0:
         raise ValueError(f"num_workers must be positive, but got {num_workers}.")
     if poll_interval_sec <= 0:
@@ -283,14 +289,14 @@ def _run_parallel_collect(
 def collect_stats(
     dem: stim.DetectorErrorModel,
     decoder: BenchmarkDecoder,
-    metadata: TaskMetadata,
+    taskmetadata: TaskMetadata,
     *,
     batch_size: int,
     shots_cap: int,
     errors_cap: int,
     num_parallel_workers: int,
     poll_interval_sec: float = 1.0,
-    csv_path: Path | str | None = None,
+    csv_path: Optional[Path | str] = None,
     verbose: bool = True,
     th_stop_event: Optional[threading.Event] = None,
 ) -> BenchmarkStats:
@@ -300,35 +306,26 @@ def collect_stats(
     ----------
     dem : stim.DetectorErrorModel
         The detector error model to sample from.
-
-    decoder : BenchmarkDecoder
-        (Wrapped) decoder to evaluate.
-
-    metadata : TaskMetadata
+    decoder : Decoder
+        Decoder to evaluate.
+    taskmetadata : TaskMetadata
         Metadata identifying this benchmark task.
-
     batch_size : int
         Number of shots in one batch.
-
     shots_cap, errors_cap : int
         The benchmark is considered complete when either the total number of shots
-        reaches `shots_cap`, or the number of shots with incorrect observable
-        predictions reaches `errors_cap`.
-
+        reaches ``shots_cap``, or the number of shots with incorrect observable
+        predictions reaches ``errors_cap``.
     num_parallel_workers : int
         Number of parallel worker processes (0 = serial, >0 = multiprocessing).
-
     poll_interval_sec : float
         In multiprocessing mode, how often in seconds the main process polls the workers
         to check global completion of the benchmark task. Ignored in serial mode.
-
     csv_path : Path or str or None
         If specified, resume from and save results to this CSV file. If the file does not
         exist, it (and its parent directories) will be created on save.
-
     verbose : bool
         Whether to print progress to stdout.
-
     th_stop_event : threading.Event or None
         If provided, the collection loop checks this event every batch (serial mode) or
         every poll interval (parallel mode) and exits early when it is set.
@@ -337,12 +334,11 @@ def collect_stats(
     -------
     BenchmarkStats
     """
-    csv_path = Path(csv_path) if csv_path is not None else None
-
     # --- Resume check ---------------------------------------------------------
+    csv_path = Path(csv_path) if csv_path is not None else None
     if csv_path is not None:
         csv_stats_list = BenchmarkStats.load_csv(csv_path)
-        prev_stats = BenchmarkStats.find_by_metadata(csv_stats_list, metadata)
+        prev_stats = BenchmarkStats.find_by_metadata(csv_stats_list, taskmetadata)
     else:
         prev_stats = None
 
@@ -350,7 +346,7 @@ def collect_stats(
         if prev_stats.is_complete(shots_cap, errors_cap):
             if verbose:
                 _info("Task already complete.")
-                rprint(metadata)
+                rprint(taskmetadata)
             return prev_stats
         else:
             resuming = True
@@ -358,12 +354,12 @@ def collect_stats(
             errors_cap = errors_cap - prev_stats.obser_errors
             if verbose:
                 _info("Resume from incomplete task.")
-                rprint(metadata)
+                rprint(taskmetadata)
     else:
         resuming = False
         if verbose:
             _info("Start new task.")
-            rprint(metadata)
+            rprint(taskmetadata)
 
     # --- Run MC loop ----------------------------------------------------------
     if verbose:
@@ -373,7 +369,7 @@ def collect_stats(
         stats = _run_serial_collect(
             dem,
             decoder,
-            metadata,
+            taskmetadata,
             batch_size=batch_size,
             shots_cap=shots_cap,
             errors_cap=errors_cap,
@@ -384,7 +380,7 @@ def collect_stats(
         stats = _run_parallel_collect(
             dem,
             decoder,
-            metadata,
+            taskmetadata,
             batch_size=batch_size,
             shots_cap=shots_cap,
             errors_cap=errors_cap,
