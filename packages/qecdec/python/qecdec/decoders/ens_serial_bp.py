@@ -135,7 +135,7 @@ class EnsSerialBPDecoder(IterativeDecoder, registry_name="EnsSerialBP"):
         return self._decoder.decode_detailed(syndrome)
 
     def decode_batch_detailed(
-        self, syndrome_batch: Bit2DArray
+        self, syndrome_batch: Bit2DArray, **kwargs
     ) -> tuple[Bit2DArray, Bool1DArray, Int1DArray]:
         """Decode a batch of syndrome vectors with detailed diagnostics.
 
