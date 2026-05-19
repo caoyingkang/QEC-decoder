@@ -3,13 +3,10 @@ name = "torchdecoder-core"
 version = "0.1.0"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [
-    "qecdec",
-    "torch",
-    "torchmetrics",
-    "numpy",
-    "omegaconf",
-]
+dependencies = ["qecdec", "torch", "torchmetrics", "numpy", "omegaconf"]
+
+[dependency-groups]
+test = ["pytest"]
 
 [build-system]
 requires = ["hatchling"]

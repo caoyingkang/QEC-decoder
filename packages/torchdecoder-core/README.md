@@ -19,6 +19,15 @@ This package does not contain dataset builders or training/testing scripts; see 
 | **`src/torchdecoder_core/dataset/`** | Dataset classes. |
 | **`src/torchdecoder_core/utils/`** | Helper modules and utility functions. |
 
+## Running tests
+
+The test suite under `tests/` uses [pytest](https://pytest.org). From the repository root, install the `test` dependency group and run the suite:
+
+```bash
+uv sync --group test
+uv run pytest packages/torchdecoder-core/tests -v
+```
+
 ## Definitions of decoding metrics
 
 - **Convergence rate** — fraction of attempts where the decoder converged (i.e., the estimated error satisfied the syndrome).
