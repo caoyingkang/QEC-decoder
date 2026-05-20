@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 import json
 from pathlib import Path
 from typing import Optional
@@ -10,9 +10,16 @@ from frozendict import frozendict
 import numpy as np
 from qecdec.types import Int1DArray, Bool1DArray
 
-from .metadata import TaskMetadata, _SCHEMA_VERSION
+from .metadata import TaskMetadata
 
-_METADATA_COLUMNS = [f.name for f in fields(TaskMetadata)]
+_METADATA_COLUMNS = [
+    "circuit_name",
+    "circuit_params",
+    "decoder_name",
+    "decoder_params",
+    "decoder_label",
+    "SCHEMA_VERSION",
+]
 _COUNTER_COLUMNS = ["shots", "obser_correct", "synd_matches", "success"]
 _HIST_COLUMNS = ["iters_hist_on_converged", "iters_hist_on_success"]
 _ALL_COLUMNS = _METADATA_COLUMNS + _COUNTER_COLUMNS + _HIST_COLUMNS
@@ -297,10 +304,10 @@ class TaskStats:
             reader = csv.DictReader(f)
             for row in reader:
                 schema_version = int(row["schema_version"])
-                if schema_version != _SCHEMA_VERSION:
+                if schema_version != TaskMetadata.SCHEMA_VERSION:
                     raise ValueError(
                         f"CSV at {path} has entries with schema_version={schema_version}; "
-                        f"this build expects {_SCHEMA_VERSION}. Please migrate the file."
+                        f"this build expects {TaskMetadata.SCHEMA_VERSION}. Please migrate the file."
                     )
                 metadata = TaskMetadata(
                     circuit_name=row["circuit_name"],

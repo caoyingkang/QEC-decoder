@@ -3,12 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cached_property
 import json
-from typing import Any
+from typing import Any, ClassVar
 
 from frozendict import frozendict
 from qecdec.decoders import DECODERS_REGISTRY, ITERATIVE_DECODERS_REGISTRY
-
-_SCHEMA_VERSION = 1  # used to track changes of TaskMetadata fields
 
 
 @dataclass(frozen=True, eq=True)
@@ -30,16 +28,17 @@ class TaskMetadata:
         A different string from ``decoder_name`` is useful when there can be
         multiple instances associated with a common decoder name (e.g. different
         PyTorch checkpoints for ``"LearnedDMemBP"``).
-    schema_version : int
-        On-disk schema version.
     """
 
+    # Class attribute (shared across all instances)
+    SCHEMA_VERSION: ClassVar[int] = 1  # used to track changes of TaskMetadata fields
+
+    # Instance attributes (fields)
     circuit_name: str
     circuit_params: frozendict[str, Any]
     decoder_name: str
     decoder_params: frozendict[str, Any]
     decoder_label: str = None
-    schema_version: int = _SCHEMA_VERSION
 
     def __post_init__(self) -> None:
         if self.decoder_name not in DECODERS_REGISTRY:
@@ -72,9 +71,11 @@ class TaskMetadata:
     def to_csv_rowdict(self) -> dict[str, str | int]:
         """Convert to a dict that can be written to a CSV file as a row.
 
-        ``circuit_params`` and ``decoder_params`` are serialized as JSON string
-        with ``sort_keys=True``, so equal params produce equal strings regardless
-        of key insertion order.
+        ``circuit_params`` and ``decoder_params`` are serialized as JSON strings
+        with ``sort_keys=True``, so equal params produce equal strings regardless of
+        key insertion order.
+
+        The class-attribute ``SCHEMA_VERSION`` is also included in the returned dict.
         """
         return {
             "circuit_name": self.circuit_name,
@@ -82,5 +83,5 @@ class TaskMetadata:
             "decoder_name": self.decoder_name,
             "decoder_params": json.dumps(self.decoder_params, sort_keys=True),
             "decoder_label": self.decoder_label,
-            "schema_version": self.schema_version,
+            "SCHEMA_VERSION": self.SCHEMA_VERSION,
         }
