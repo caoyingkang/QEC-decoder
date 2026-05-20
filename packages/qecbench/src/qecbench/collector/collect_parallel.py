@@ -56,8 +56,8 @@ def _worker_loop(
     mp_stop_event: multiprocessing.synchronize.Event,
     result_queue: multiprocessing.Queue,
 ) -> None:
-    """Worker loop: publish cumulative stats to shared arrays `shots_arr` and
-    `errors_arr`; exit when `mp_stop_event` is set."""
+    """Worker loop: publish cumulative stats to shared arrays ``shots_arr`` and
+    ``errors_arr``; exit when ``mp_stop_event`` is set."""
     stats = BenchmarkStats(metadata=metadata)
     try:
         sampler = dem.compile_sampler(seed=seed)
@@ -77,21 +77,24 @@ def _worker_loop(
 
 
 def _run_parallel_collect(
+    *,
     dem: stim.DetectorErrorModel,
     decoder: BenchmarkDecoder,
     metadata: TaskMetadata,
-    *,
     batch_size: int,
     shots_cap: int,
     errors_cap: int,
     num_workers: int,
     poll_interval_sec: float,
     verbose: bool,
-    th_stop_event: Optional[threading.Event] = None,
+    th_stop_event: Optional[threading.Event],
 ) -> BenchmarkStats:
-    """Multi-processing MC collection loop.
+    """Multiprocessing MC collection loop.
 
-    If ``th_stop_event`` is provided, the collection loop checks this event every
+    The main process polls the worker processes every ``poll_interval_sec``
+    seconds to check global completion status.
+
+    If ``th_stop_event`` is provided, the main process checks this event every
     poll interval and exits early when it is set.
     """
     if num_workers <= 0:

@@ -19,10 +19,10 @@ from .utils import _sample
 
 
 def _run_serial_collect(
+    *,
     dem: stim.DetectorErrorModel,
     decoder: BenchmarkDecoder,
     metadata: TaskMetadata,
-    *,
     batch_size: int,
     shots_cap: int,
     errors_cap: int,

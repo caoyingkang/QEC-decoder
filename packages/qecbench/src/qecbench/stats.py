@@ -19,7 +19,7 @@ SCHEMA_VERSION = 1
 
 @dataclass(frozen=True)
 class TaskMetadata:
-    """Immutable metadata identifying a benchmark task.
+    """Immutable dataclass identifying a benchmark task.
 
     Attributes
     ----------
