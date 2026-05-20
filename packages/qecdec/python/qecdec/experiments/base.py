@@ -39,7 +39,7 @@ class ErrorMechanism:
         circuit would be at most 2.
         """
         if not isinstance(other, ErrorMechanism):
-            raise TypeError(f"Cannot compare {type(self)} with {type(other)}")
+            return NotImplemented
         return self.dets == other.dets
 
     def __lt__(self, other) -> bool:
