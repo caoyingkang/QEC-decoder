@@ -14,11 +14,11 @@ no hardcoded data-file locations. Callers pass in pre-built
 ```python
 from qecbench import (
     # parameters
-    QECParams, BenchTaskParams, CollectorParams, TorchDecoderTask,
+    BenchTaskParams, CollectorParams, TorchDecoderTask,
     # stats
-    TaskMetadata, BenchmarkStats,
+    TaskMetadata, TaskStats,
     # decoders
-    BenchmarkDecoder, QecdecBenchmarkDecoder, PyTorchBenchmarkDecoder, DecodeResult,
+    BenchmarkDecoder, DecodeResult,
     # collection + orchestration
     collect_stats,
     run_custom_benchmark, run_baseline_benchmark, run_torchdecoder_benchmark,

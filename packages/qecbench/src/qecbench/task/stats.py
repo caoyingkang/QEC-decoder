@@ -1,106 +1,25 @@
-"""BenchmarkStats dataclass for accumulating Monte Carlo benchmark results."""
-
 from __future__ import annotations
 
 import csv
-import json
 from dataclasses import dataclass, fields
+import json
 from pathlib import Path
-from typing import Any, Optional
-from functools import cached_property
+from typing import Optional
 
+from frozendict import frozendict
 import numpy as np
-from qecdec.decoders import DECODERS_REGISTRY, ITERATIVE_DECODERS_REGISTRY
 from qecdec.types import Int1DArray, Bool1DArray
 
+from .metadata import TaskMetadata, _SCHEMA_VERSION
 
-SCHEMA_VERSION = 1
-
-
-@dataclass(frozen=True)
-class TaskMetadata:
-    """Immutable dataclass identifying a benchmark task.
-
-    Attributes
-    ----------
-    circuit_name : str
-        Circuit name.
-    circuit_params : dict[str, Any]
-        Circuit-specific parameters (JSON-serializable).
-    p : float
-        Physical error rate.
-    decoder_name : str
-        Decoder name.
-    decoder_params : dict[str, Any]
-        Decoder-specific parameters (JSON-serializable). Empty dict for
-        parameterless decoders.
-    decoder_label : str or None
-        Display string for plots and CSVs. ``None`` falls back to ``decoder_name``.
-        A different string from ``decoder_name`` is useful when there can be
-        multiple instances associated with a common decoder name (e.g. different
-        PyTorch checkpoints for ``"LearnedDMemBP"``).
-    schema_version : int
-        Schema version used to track changes of the dataclass fields.
-    """
-
-    circuit_name: str
-    circuit_params: dict[str, Any]
-    p: float
-    decoder_name: str
-    decoder_params: dict[str, Any]
-    decoder_label: Optional[str] = None
-    schema_version: int = SCHEMA_VERSION
-
-    def __post_init__(self) -> None:
-        if self.decoder_name not in DECODERS_REGISTRY:
-            raise ValueError(f"Invalid decoder name: {self.decoder_name!r}")
-
-        # If decoder_label is not specified, use decoder_name.
-        if self.decoder_label is None:
-            object.__setattr__(self, "decoder_label", self.decoder_name)
-
-    def _canonical_tuple(self) -> tuple:
-        return (
-            self.circuit_name,
-            json.dumps(self.circuit_params, sort_keys=True),
-            self.p,
-            self.decoder_name,
-            json.dumps(self.decoder_params, sort_keys=True),
-            self.decoder_label,
-            self.schema_version,
-        )
-
-    def __eq__(self, other) -> bool:
-        if not isinstance(other, TaskMetadata):
-            return NotImplemented
-        return self._canonical_tuple() == other._canonical_tuple()
-
-    @cached_property
-    def is_iterative(self) -> bool:
-        """True if the decoder is iterative."""
-        return self.decoder_name in ITERATIVE_DECODERS_REGISTRY
-
-    @cached_property
-    def max_iter(self) -> int:
-        """Max number of iterations, resolved from ``decoder_params``.
-
-        Raise ``ValueError`` for non-iterative decoders.
-        """
-        if not self.is_iterative:
-            raise ValueError("Non-iterative decoder has no max_iter.")
-        return ITERATIVE_DECODERS_REGISTRY[self.decoder_name].max_iter_from_params(
-            self.decoder_params
-        )
-
-
-METADATA_COLUMNS = [f.name for f in fields(TaskMetadata)]
-COUNTER_COLUMNS = ["shots", "obser_correct", "synd_matches", "success"]
-HIST_COLUMNS = ["iters_hist_on_converged", "iters_hist_on_success"]
-ALL_COLUMNS = METADATA_COLUMNS + COUNTER_COLUMNS + HIST_COLUMNS
+_METADATA_COLUMNS = [f.name for f in fields(TaskMetadata)]
+_COUNTER_COLUMNS = ["shots", "obser_correct", "synd_matches", "success"]
+_HIST_COLUMNS = ["iters_hist_on_converged", "iters_hist_on_success"]
+_ALL_COLUMNS = _METADATA_COLUMNS + _COUNTER_COLUMNS + _HIST_COLUMNS
 
 
 @dataclass(eq=False)
-class BenchmarkStats:
+class TaskStats:
     """Monte Carlo benchmark statistics for one task.
 
     Attributes
@@ -211,10 +130,8 @@ class BenchmarkStats:
         ----------
         obser_correct_mask : Bool1DArray
             Boolean mask, shape=(batch_size,). True when the predicted observables are correct for that shot.
-
         synd_match_mask : Bool1DArray
             Boolean mask, shape=(batch_size,). True when the predicted error pattern satisfies the syndrome for that shot.
-
         decoding_iters : Int1DArray or None
             Number of iterations the decoder runs for each shot, shape=(batch_size,). 0 means the syndrome for that shot
             was all-zero (no decoding at all). ``None`` for non-iterative decoders.
@@ -233,10 +150,10 @@ class BenchmarkStats:
                 decoding_iters[success_mask], minlength=self.metadata.max_iter + 1
             )
 
-    def merge(self, other: BenchmarkStats) -> None:
-        """Merge another ``BenchmarkStats`` into this one in-place."""
+    def merge(self, other: TaskStats) -> None:
+        """Merge another ``TaskStats`` into this one in-place."""
         if self.metadata != other.metadata:
-            raise ValueError("Cannot merge BenchmarkStats with different metadata.")
+            raise ValueError("Cannot merge TaskStats with different metadata.")
 
         self.shots += other.shots
         self.obser_correct += other.obser_correct
@@ -326,53 +243,44 @@ class BenchmarkStats:
 
     # -- CSV I/O ---------------------------------------------------------------
 
-    @staticmethod
-    def save_csv(stats_list: list[BenchmarkStats], path: Path | str) -> None:
-        """
-        Write a list of ``BenchmarkStats`` to a CSV file at ``path``, one row for each
-        ``BenchmarkStats`` and one column for each element in ``ALL_COLUMNS``.
-        If a file already exists at ``path``, it will be overwritten.
+    def to_csv_rowdict(self) -> dict[str, str | int]:
+        """Convert to a dict that can be written to a CSV file as a row."""
+        return {
+            **self.metadata.to_csv_rowdict(),
+            "shots": self.shots,
+            "obser_correct": self.obser_correct,
+            "synd_matches": self.synd_matches,
+            "success": self.success,
+            "iters_hist_on_converged": (
+                json.dumps(self.iters_hist_on_converged.tolist())
+                if self.iters_hist_on_converged is not None
+                else ""
+            ),
+            "iters_hist_on_success": (
+                json.dumps(self.iters_hist_on_success.tolist())
+                if self.iters_hist_on_success is not None
+                else ""
+            ),
+        }
 
-        ``metadata.circuit_params`` and ``metadata.decoder_params`` are serialized as
-        JSON with ``sort_keys=True``, so equal dicts produce equal strings regardless
-        of key insertion order.
+    @staticmethod
+    def save_csv(stats_list: list[TaskStats], path: Path | str) -> None:
+        """
+        Write a list of ``TaskStats`` to a CSV file at ``path``, one row for each
+        ``TaskStats`` and one column for each element in ``_ALL_COLUMNS``.
+        If a file already exists at ``path``, it will be overwritten.
         """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=ALL_COLUMNS)
+            writer = csv.DictWriter(f, fieldnames=_ALL_COLUMNS)
             writer.writeheader()
-            for s in stats_list:
-                m = s.metadata
-                row = {
-                    "circuit_name": m.circuit_name,
-                    "circuit_params": json.dumps(m.circuit_params, sort_keys=True),
-                    "p": m.p,
-                    "decoder_name": m.decoder_name,
-                    "decoder_params": json.dumps(m.decoder_params, sort_keys=True),
-                    "decoder_label": m.decoder_label,
-                    "schema_version": m.schema_version,
-                    "shots": s.shots,
-                    "obser_correct": s.obser_correct,
-                    "synd_matches": s.synd_matches,
-                    "success": s.success,
-                    "iters_hist_on_converged": (
-                        json.dumps(s.iters_hist_on_converged.tolist())
-                        if m.is_iterative
-                        else ""
-                    ),
-                    "iters_hist_on_success": (
-                        json.dumps(s.iters_hist_on_success.tolist())
-                        if m.is_iterative
-                        else ""
-                    ),
-                }
-                writer.writerow(row)
+            writer.writerows(s.to_csv_rowdict() for s in stats_list)
 
     @staticmethod
-    def load_csv(path: Path) -> list[BenchmarkStats]:
+    def load_csv(path: Path) -> list[TaskStats]:
         """
-        Load a list of ``BenchmarkStats`` from a CSV file at ``path``, one for each row.
+        Load a list of ``TaskStats`` from a CSV file at ``path``, one for each row.
         If the file does not exist, return an empty list.
 
         Raise ``ValueError`` on schema mismatch (CSVs from older schema versions
@@ -381,39 +289,38 @@ class BenchmarkStats:
         if not path.exists():
             return []
 
-        def _intarray_or_none(v: str) -> np.ndarray | None:
-            return np.array(json.loads(v), dtype=np.int64) if v != "" else None
+        def _intarray_or_none(v: str) -> Int1DArray | None:
+            return np.array(json.loads(v), dtype=np.int64) if v else None
 
-        stats_list: list[BenchmarkStats] = []
+        stats_list: list[TaskStats] = []
         with open(path, "r", newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 schema_version = int(row["schema_version"])
-                if schema_version != SCHEMA_VERSION:
+                if schema_version != _SCHEMA_VERSION:
                     raise ValueError(
                         f"CSV at {path} has entries with schema_version={schema_version}; "
-                        f"this build expects {SCHEMA_VERSION}. Please migrate the file."
+                        f"this build expects {_SCHEMA_VERSION}. Please migrate the file."
                     )
                 metadata = TaskMetadata(
                     circuit_name=row["circuit_name"],
-                    circuit_params=json.loads(row["circuit_params"]),
-                    p=float(row["p"]),
+                    circuit_params=frozendict(json.loads(row["circuit_params"])),
                     decoder_name=row["decoder_name"],
-                    decoder_params=json.loads(row["decoder_params"]),
+                    decoder_params=frozendict(json.loads(row["decoder_params"])),
                     decoder_label=row["decoder_label"],
                 )
                 stats_list.append(
-                    BenchmarkStats(
+                    TaskStats(
                         metadata=metadata,
                         shots=int(row["shots"]),
                         obser_correct=int(row["obser_correct"]),
                         synd_matches=int(row["synd_matches"]),
                         success=int(row["success"]),
                         iters_hist_on_converged=_intarray_or_none(
-                            row.get("iters_hist_on_converged", "")
+                            row["iters_hist_on_converged"]
                         ),
                         iters_hist_on_success=_intarray_or_none(
-                            row.get("iters_hist_on_success", "")
+                            row["iters_hist_on_success"]
                         ),
                     )
                 )
@@ -423,11 +330,11 @@ class BenchmarkStats:
 
     @staticmethod
     def find_by_metadata(
-        stats_list: list[BenchmarkStats],
+        stats_list: list[TaskStats],
         metadata: TaskMetadata,
-    ) -> BenchmarkStats | None:
+    ) -> TaskStats | None:
         """
-        Find the ``BenchmarkStats`` in ``stats_list`` that matches the given ``metadata``,
+        Find the ``TaskStats`` in ``stats_list`` that matches the given ``metadata``,
         assuming that at most one can be found. Return ``None`` if not found.
         """
         for s in stats_list:
@@ -437,8 +344,8 @@ class BenchmarkStats:
 
     @staticmethod
     def upsert(
-        stats_list: list[BenchmarkStats],
-        new_stats: BenchmarkStats,
+        stats_list: list[TaskStats],
+        new_stats: TaskStats,
     ) -> None:
         """
         Replace the entry in ``stats_list`` with ``new_stats`` that has the same metadata

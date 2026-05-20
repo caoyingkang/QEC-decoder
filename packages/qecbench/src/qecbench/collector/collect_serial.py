@@ -14,7 +14,7 @@ from rich.progress import (
 import stim
 
 from ..decoder_wrapper import BenchmarkDecoder
-from ..stats import BenchmarkStats, TaskMetadata
+from ..task import TaskMetadata, TaskStats
 from .utils import _sample
 
 
@@ -28,14 +28,14 @@ def _run_serial_collect(
     errors_cap: int,
     verbose: bool,
     th_stop_event: Optional[threading.Event] = None,
-) -> BenchmarkStats:
+) -> TaskStats:
     """Single-process MC collection loop.
 
     If ``th_stop_event`` is provided, the collection loop checks this event every
     batch and exits early when it is set.
     """
     sampler = dem.compile_sampler()
-    stats = BenchmarkStats(metadata=metadata)
+    stats = TaskStats(metadata=metadata)
 
     with Progress(
         TextColumn("{task.description}", justify="left"),

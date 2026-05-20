@@ -20,7 +20,7 @@ import stim
 
 
 from ..decoder_wrapper import BenchmarkDecoder
-from ..stats import BenchmarkStats, TaskMetadata
+from ..task import TaskMetadata, TaskStats
 from .utils import _info, _sample
 
 
@@ -58,7 +58,7 @@ def _worker_loop(
 ) -> None:
     """Worker loop: publish cumulative stats to shared arrays ``shots_arr`` and
     ``errors_arr``; exit when ``mp_stop_event`` is set."""
-    stats = BenchmarkStats(metadata=metadata)
+    stats = TaskStats(metadata=metadata)
     try:
         sampler = dem.compile_sampler(seed=seed)
         while not mp_stop_event.is_set():
@@ -88,7 +88,7 @@ def _run_parallel_collect(
     poll_interval_sec: float,
     verbose: bool,
     th_stop_event: Optional[threading.Event],
-) -> BenchmarkStats:
+) -> TaskStats:
     """Multiprocessing MC collection loop.
 
     The main process polls the worker processes every ``poll_interval_sec``
@@ -179,7 +179,7 @@ def _run_parallel_collect(
         # Workers cannot exit until their queued data is flushed to the pipe,
         # and the pipe buffer is finite. If we join() first, the main process
         # waits for workers to exit while workers wait for the pipe to be read.
-        worker_stats: list[BenchmarkStats] = []
+        worker_stats: list[TaskStats] = []
         for _ in range(num_workers):
             try:
                 worker_stats.append(result_queue.get(timeout=60))
@@ -204,7 +204,7 @@ def _run_parallel_collect(
         )
 
     # --- Aggregate final stats -------------------------------------------
-    stats = BenchmarkStats(metadata=metadata)
+    stats = TaskStats(metadata=metadata)
     for ws in worker_stats:
         stats.merge(ws)
     return stats

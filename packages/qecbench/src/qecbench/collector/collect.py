@@ -9,7 +9,7 @@ from rich import print as rprint
 import stim
 
 from ..decoder_wrapper import BenchmarkDecoder
-from ..stats import BenchmarkStats, TaskMetadata
+from ..task import TaskMetadata, TaskStats
 from .collect_parallel import _run_parallel_collect
 from .collect_serial import _run_serial_collect
 from .params import CollectorParams
@@ -24,7 +24,7 @@ def _collect_stats(
     collector_params: CollectorParams,
     verbose: bool,
     th_stop_event: Optional[threading.Event] = None,
-) -> BenchmarkStats:
+) -> TaskStats:
     """Collect Monte Carlo benchmark statistics for a single task.
 
     Parameters
@@ -46,7 +46,7 @@ def _collect_stats(
 
     Returns
     -------
-    BenchmarkStats
+    TaskStats
     """
     csv_path = collector_params.csv_path
     shots_cap = collector_params.shots_cap
@@ -54,8 +54,8 @@ def _collect_stats(
 
     # --- Resume check ---------------------------------------------------------
     if csv_path is not None:
-        csv_stats_list = BenchmarkStats.load_csv(csv_path)
-        prev_stats = BenchmarkStats.find_by_metadata(csv_stats_list, taskmetadata)
+        csv_stats_list = TaskStats.load_csv(csv_path)
+        prev_stats = TaskStats.find_by_metadata(csv_stats_list, taskmetadata)
     else:
         prev_stats = None
 
@@ -127,7 +127,7 @@ def _collect_stats(
 
     # --- Save -----------------------------------------------------------------
     if csv_path is not None:
-        BenchmarkStats.upsert(csv_stats_list, stats)
-        BenchmarkStats.save_csv(csv_stats_list, csv_path)
+        TaskStats.upsert(csv_stats_list, stats)
+        TaskStats.save_csv(csv_stats_list, csv_path)
 
     return stats
