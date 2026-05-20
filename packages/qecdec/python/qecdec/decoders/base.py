@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Optional
+from collections.abc import Mapping
 from functools import cached_property
+from typing import Any, ClassVar, Optional
 
 import numpy as np
 
@@ -199,7 +200,7 @@ class IterativeDecoder(Decoder):
         self.max_iter = max_iter
 
     @classmethod
-    def max_iter_from_params(cls, params: dict[str, Any]) -> int:
+    def max_iter_from_params(cls, params: Mapping[str, Any]) -> int:
         """Resolve the max iteration count from a decoder-params dict.
 
         The default looks up ``params["max_iter"]``. Subclasses whose iteration
