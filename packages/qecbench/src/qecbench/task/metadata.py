@@ -70,6 +70,12 @@ class TaskMetadata:
         if self.decoder_label is None:
             object.__setattr__(self, "decoder_label", self.decoder_name)
 
+        # Convert dict to frozendict
+        if isinstance(self.circuit_params, dict):
+            object.__setattr__(self, "circuit_params", frozendict(self.circuit_params))
+        if isinstance(self.decoder_params, dict):
+            object.__setattr__(self, "decoder_params", frozendict(self.decoder_params))
+
     @cached_property
     def is_iterative(self) -> bool:
         """True if the decoder is iterative."""

@@ -2,7 +2,7 @@ import csv
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from frozendict import frozendict
 import numpy as np
@@ -331,7 +331,7 @@ class TaskStats:
     def find_by_metadata(
         stats_list: list["TaskStats"],
         metadata: TaskMetadata,
-    ) -> "TaskStats" | None:
+    ) -> Union["TaskStats", None]:
         """
         Find the ``TaskStats`` in ``stats_list`` that matches the given ``metadata``,
         assuming that at most one can be found. Return ``None`` if not found.
