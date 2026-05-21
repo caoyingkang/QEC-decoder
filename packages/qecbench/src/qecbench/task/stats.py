@@ -10,16 +10,9 @@ from frozendict import frozendict
 import numpy as np
 from qecdec.types import Int1DArray, Bool1DArray
 
-from .metadata import TaskMetadata
+from .metadata import TaskMetadata, _METADATA_COLUMNS
 
-_METADATA_COLUMNS = [
-    "circuit_name",
-    "circuit_params",
-    "decoder_name",
-    "decoder_params",
-    "decoder_label",
-    "SCHEMA_VERSION",
-]
+
 _COUNTER_COLUMNS = ["shots", "obser_correct", "synd_matches", "success"]
 _HIST_COLUMNS = ["iters_hist_on_converged", "iters_hist_on_success"]
 _ALL_COLUMNS = _METADATA_COLUMNS + _COUNTER_COLUMNS + _HIST_COLUMNS
@@ -250,7 +243,7 @@ class TaskStats:
 
     # -- CSV I/O ---------------------------------------------------------------
 
-    def to_csv_rowdict(self) -> dict[str, str | int]:
+    def to_csv_rowdict(self) -> dict[str, str | int | float]:
         """Convert to a dict that can be written to a CSV file as a row."""
         return {
             **self.metadata.to_csv_rowdict(),
@@ -312,6 +305,7 @@ class TaskStats:
                 metadata = TaskMetadata(
                     circuit_name=row["circuit_name"],
                     circuit_params=frozendict(json.loads(row["circuit_params"])),
+                    error_rate=float(row["error_rate"]),
                     decoder_name=row["decoder_name"],
                     decoder_params=frozendict(json.loads(row["decoder_params"])),
                     decoder_label=row["decoder_label"],

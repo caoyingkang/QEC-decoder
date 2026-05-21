@@ -7,6 +7,18 @@ from typing import Any, ClassVar
 
 from frozendict import frozendict
 from qecdec.decoders import DECODERS_REGISTRY, ITERATIVE_DECODERS_REGISTRY
+from qecdec.circuits import CIRCUITS_REGISTRY
+
+
+_METADATA_COLUMNS = [
+    "circuit_name",
+    "circuit_params",
+    "error_rate",
+    "decoder_name",
+    "decoder_params",
+    "decoder_label",
+    "SCHEMA_VERSION",
+]
 
 
 @dataclass(frozen=True, eq=True)
@@ -19,6 +31,8 @@ class TaskMetadata:
         Circuit name.
     circuit_params : frozendict[str, Any]
         Circuit-specific parameters (JSON-serializable).
+    error_rate : float
+        Physical error rate.
     decoder_name : str
         Decoder name.
     decoder_params : frozendict[str, Any]
@@ -36,11 +50,18 @@ class TaskMetadata:
     # Instance attributes (fields)
     circuit_name: str
     circuit_params: frozendict[str, Any]
+    error_rate: float
     decoder_name: str
     decoder_params: frozendict[str, Any]
     decoder_label: str = None
 
     def __post_init__(self) -> None:
+        if self.circuit_name not in CIRCUITS_REGISTRY:
+            raise ValueError(
+                f"Invalid circuit name: {self.circuit_name!r}. "
+                f"Available options: {list(CIRCUITS_REGISTRY.keys())}"
+            )
+
         if self.decoder_name not in DECODERS_REGISTRY:
             raise ValueError(
                 f"Invalid decoder name: {self.decoder_name!r}. "
@@ -68,7 +89,7 @@ class TaskMetadata:
             self.decoder_params
         )
 
-    def to_csv_rowdict(self) -> dict[str, str | int]:
+    def to_csv_rowdict(self) -> dict[str, str | int | float]:
         """Convert to a dict that can be written to a CSV file as a row.
 
         ``circuit_params`` and ``decoder_params`` are serialized as JSON strings
@@ -80,6 +101,7 @@ class TaskMetadata:
         return {
             "circuit_name": self.circuit_name,
             "circuit_params": json.dumps(self.circuit_params, sort_keys=True),
+            "error_rate": self.error_rate,
             "decoder_name": self.decoder_name,
             "decoder_params": json.dumps(self.decoder_params, sort_keys=True),
             "decoder_label": self.decoder_label,
