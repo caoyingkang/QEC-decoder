@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import csv
 from dataclasses import dataclass
 import json
@@ -150,7 +148,7 @@ class TaskStats:
                 decoding_iters[success_mask], minlength=self.metadata.max_iter + 1
             )
 
-    def merge(self, other: TaskStats) -> None:
+    def merge(self, other: "TaskStats") -> None:
         """Merge another ``TaskStats`` into this one in-place."""
         if self.metadata != other.metadata:
             raise ValueError("Cannot merge TaskStats with different metadata.")
@@ -264,7 +262,7 @@ class TaskStats:
         }
 
     @staticmethod
-    def save_csv(stats_list: list[TaskStats], path: Path | str) -> None:
+    def save_csv(stats_list: list["TaskStats"], path: Path | str) -> None:
         """
         Write a list of ``TaskStats`` to a CSV file at ``path``, one row for each
         ``TaskStats`` and one column for each element in ``_ALL_COLUMNS``.
@@ -278,7 +276,7 @@ class TaskStats:
             writer.writerows(s.to_csv_rowdict() for s in stats_list)
 
     @staticmethod
-    def load_csv(path: Path) -> list[TaskStats]:
+    def load_csv(path: Path) -> list["TaskStats"]:
         """
         Load a list of ``TaskStats`` from a CSV file at ``path``, one for each row.
         If the file does not exist, return an empty list.
@@ -331,9 +329,9 @@ class TaskStats:
 
     @staticmethod
     def find_by_metadata(
-        stats_list: list[TaskStats],
+        stats_list: list["TaskStats"],
         metadata: TaskMetadata,
-    ) -> TaskStats | None:
+    ) -> "TaskStats" | None:
         """
         Find the ``TaskStats`` in ``stats_list`` that matches the given ``metadata``,
         assuming that at most one can be found. Return ``None`` if not found.
@@ -345,8 +343,8 @@ class TaskStats:
 
     @staticmethod
     def upsert(
-        stats_list: list[TaskStats],
-        new_stats: TaskStats,
+        stats_list: list["TaskStats"],
+        new_stats: "TaskStats",
     ) -> None:
         """
         Replace the entry in ``stats_list`` with ``new_stats`` that has the same metadata

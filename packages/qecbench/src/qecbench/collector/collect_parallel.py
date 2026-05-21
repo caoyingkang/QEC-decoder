@@ -9,17 +9,17 @@ from typing import Optional
 import numpy as np
 from rich.console import Console
 from rich.progress import (
-    Progress,
-    TextColumn,
     BarColumn,
     MofNCompleteColumn,
-    TimeRemainingColumn,
+    Progress,
+    TextColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
 )
 import stim
 
 
-from ..decoder_wrapper import BenchmarkDecoder
+from ..decoder_wrapper import _BenchmarkDecoder
 from ..task import TaskMetadata, TaskStats
 from ..utils import _info, _sample
 
@@ -46,7 +46,7 @@ def _read_global_totals(
 def _worker_loop(
     worker_id: int,
     dem: stim.DetectorErrorModel,
-    decoder: BenchmarkDecoder,
+    decoder: _BenchmarkDecoder,
     metadata: TaskMetadata,
     batch_size: int,
     seed: int,
@@ -79,7 +79,7 @@ def _worker_loop(
 def _collect_stats_parallel(
     *,
     dem: stim.DetectorErrorModel,
-    decoder: BenchmarkDecoder,
+    decoder: _BenchmarkDecoder,
     metadata: TaskMetadata,
     batch_size: int,
     shots_cap: int,

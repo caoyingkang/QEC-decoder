@@ -4,16 +4,16 @@ from typing import Optional
 
 from rich.console import Console
 from rich.progress import (
-    Progress,
-    TextColumn,
     BarColumn,
     MofNCompleteColumn,
-    TimeRemainingColumn,
+    Progress,
+    TextColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
 )
 import stim
 
-from ..decoder_wrapper import BenchmarkDecoder
+from ..decoder_wrapper import _BenchmarkDecoder
 from ..task import TaskMetadata, TaskStats
 from ..utils import _sample
 
@@ -21,7 +21,7 @@ from ..utils import _sample
 def _collect_stats_serial(
     *,
     dem: stim.DetectorErrorModel,
-    decoder: BenchmarkDecoder,
+    decoder: _BenchmarkDecoder,
     metadata: TaskMetadata,
     batch_size: int,
     shots_cap: int,

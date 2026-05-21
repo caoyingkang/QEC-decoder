@@ -9,7 +9,7 @@ from qecdec.decoders import create_decoder
 from rich import print as rprint
 
 from .collector import CollectorParams, _collect_stats_parallel, _collect_stats_serial
-from .decoder_wrapper import BenchmarkDecoder
+from .decoder_wrapper import _BenchmarkDecoder
 from .task import TaskMetadata, TaskStats
 from .utils import _info
 
@@ -77,13 +77,13 @@ def run_benchmark(
         task_metadata.error_rate,
         **task_metadata.circuit_params,
     )
-    decoder = create_decoder(
+    qec_decoder = create_decoder(
         task_metadata.decoder_name,
         circuit.chkmat,
         circuit.prior,
         **task_metadata.decoder_params,
     )
-    benchmark_decoder = BenchmarkDecoder(decoder, circuit.obsmat)
+    benchmark_decoder = _BenchmarkDecoder(qec_decoder, circuit.obsmat)
 
     # --- Run MC loop ----------------------------------------------------------
     if verbose:
