@@ -7,10 +7,8 @@ import stim
 from .base import QECCircuit
 
 
-class RotatedSurfaceCode_Circuit(
-    QECCircuit, registry_name="RotatedSurfaceCode_Circuit"
-):
-    """Memory circuit for the rotated surface code."""
+class RotatedSurfaceCode_Phenom(QECCircuit, registry_name="RotatedSurfaceCode_Phenom"):
+    """Memory circuit for the rotated surface code under phenomenological noise."""
 
     def __init__(
         self,
@@ -19,10 +17,7 @@ class RotatedSurfaceCode_Circuit(
         rounds: int,
         basis: Literal["X", "Z"],
         data_qubit_error_rate: float,
-        prep_error_rate: float,
         meas_error_rate: float,
-        gate1_error_rate: float,
-        gate2_error_rate: float,
     ):
         """
         Parameters
@@ -37,14 +32,8 @@ class RotatedSurfaceCode_Circuit(
                 measurement outcomes to correct Pauli Z (resp. X) errors.
             data_qubit_error_rate : float
                 Error rate of data qubits before each round of stabilizer measurement.
-            prep_error_rate : float
-                Error rate of state preparation.
             meas_error_rate : float
                 Error rate of measurement.
-            gate1_error_rate : float
-                Error rate of single-qubit gates.
-            gate2_error_rate : float
-                Error rate of two-qubit gates.
         """
         if d % 2 == 0:
             raise ValueError("Distance d must be an odd number")
@@ -59,10 +48,7 @@ class RotatedSurfaceCode_Circuit(
         self.rounds = rounds
         self.basis = basis
         self.data_qubit_error_rate = data_qubit_error_rate
-        self.prep_error_rate = prep_error_rate
         self.meas_error_rate = meas_error_rate
-        self.gate1_error_rate = gate1_error_rate
-        self.gate2_error_rate = gate2_error_rate
 
         self.w = 2 * d + 1  # width of the grid holding the qubits
         self.num_dq = d * d  # number of data qubits
@@ -113,19 +99,16 @@ class RotatedSurfaceCode_Circuit(
         rounds: int,
         basis: Literal["X", "Z"],
         error_rate: float,
-    ) -> RotatedSurfaceCode_Circuit:
+    ) -> RotatedSurfaceCode_Phenom:
         """Alternative constructor with all fault locations having the
         same error rate.
         """
-        return RotatedSurfaceCode_Circuit(
+        return RotatedSurfaceCode_Phenom(
             d=d,
             rounds=rounds,
             basis=basis,
             data_qubit_error_rate=error_rate,
-            prep_error_rate=error_rate,
             meas_error_rate=error_rate,
-            gate1_error_rate=error_rate,
-            gate2_error_rate=error_rate,
         )
 
     def _build_circuit(self) -> stim.Circuit:
@@ -135,11 +118,9 @@ class RotatedSurfaceCode_Circuit(
         circuit_SE = stim.Circuit()
         # Prepare all measure qubits in the |0> state.
         circuit_SE.append("R", self.mq_inds)
-        circuit_SE.append("X_ERROR", self.mq_inds, self.prep_error_rate)
         circuit_SE.append("TICK")
         # Apply Hadamard gates to X-type measure qubits.
         circuit_SE.append("H", self.xmq_inds)
-        circuit_SE.append("DEPOLARIZE1", self.xmq_inds, self.gate1_error_rate)
         circuit_SE.append("TICK")
         # Apply CNOT gates in the 1st layer.
         cnot_indices = []
@@ -150,7 +131,6 @@ class RotatedSurfaceCode_Circuit(
             if x < self.w - 1 and y < self.w - 1:
                 cnot_indices += [self._coo2ind(x + 1, y + 1), self._coo2ind(x, y)]
         circuit_SE.append("CNOT", cnot_indices)
-        circuit_SE.append("DEPOLARIZE2", cnot_indices, self.gate2_error_rate)
         circuit_SE.append("TICK")
         # Apply CNOT gates in the 2nd layer.
         cnot_indices = []
@@ -161,7 +141,6 @@ class RotatedSurfaceCode_Circuit(
             if x < self.w - 1 and y > 0:
                 cnot_indices += [self._coo2ind(x + 1, y - 1), self._coo2ind(x, y)]
         circuit_SE.append("CNOT", cnot_indices)
-        circuit_SE.append("DEPOLARIZE2", cnot_indices, self.gate2_error_rate)
         circuit_SE.append("TICK")
         # Apply CNOT gates in the 3rd layer.
         cnot_indices = []
@@ -172,7 +151,6 @@ class RotatedSurfaceCode_Circuit(
             if x > 0 and y < self.w - 1:
                 cnot_indices += [self._coo2ind(x - 1, y + 1), self._coo2ind(x, y)]
         circuit_SE.append("CNOT", cnot_indices)
-        circuit_SE.append("DEPOLARIZE2", cnot_indices, self.gate2_error_rate)
         circuit_SE.append("TICK")
         # Apply CNOT gates in the 4th layer.
         cnot_indices = []
@@ -183,11 +161,9 @@ class RotatedSurfaceCode_Circuit(
             if x > 0 and y > 0:
                 cnot_indices += [self._coo2ind(x - 1, y - 1), self._coo2ind(x, y)]
         circuit_SE.append("CNOT", cnot_indices)
-        circuit_SE.append("DEPOLARIZE2", cnot_indices, self.gate2_error_rate)
         circuit_SE.append("TICK")
         # Apply Hadamard gates to X-type measure qubits.
         circuit_SE.append("H", self.xmq_inds)
-        circuit_SE.append("DEPOLARIZE1", self.xmq_inds, self.gate1_error_rate)
         circuit_SE.append("TICK")
         # Readout all measure qubits.
         circuit_SE.append("X_ERROR", self.mq_inds, self.meas_error_rate)
@@ -203,14 +179,10 @@ class RotatedSurfaceCode_Circuit(
             circuit_first_round.append("QUBIT_COORDS", i, self._ind2coo(i))
         # Prepare all data qubits in the |0> state.
         circuit_first_round.append("R", self.dq_inds)
-        circuit_first_round.append("X_ERROR", self.dq_inds, self.prep_error_rate)
         circuit_first_round.append("TICK")
         # If basis='X', apply Hadamard gates to all data qubits.
         if self.basis == "X":
             circuit_first_round.append("H", self.dq_inds)
-            circuit_first_round.append(
-                "DEPOLARIZE1", self.dq_inds, self.gate1_error_rate
-            )
             circuit_first_round.append("TICK")
         # Data qubits suffer from noise.
         circuit_first_round.append(
@@ -263,9 +235,6 @@ class RotatedSurfaceCode_Circuit(
         # If basis='X', apply Hadamard gates to all data qubits.
         if self.basis == "X":
             circuit_final_measurement.append("H", self.dq_inds)
-            circuit_final_measurement.append(
-                "DEPOLARIZE1", self.dq_inds, self.gate1_error_rate
-            )
             circuit_final_measurement.append("TICK")
         # Measure all data qubits.
         circuit_final_measurement.append("X_ERROR", self.dq_inds, self.meas_error_rate)

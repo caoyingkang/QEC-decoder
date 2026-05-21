@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Optional
 
 import stim
@@ -52,6 +54,26 @@ class RepetitionCode_Circuit(QECCircuit, registry_name="RepetitionCode_Circuit")
 
         circuit = self._build_circuit()
         super().__init__(circuit)
+
+    @classmethod
+    def with_uniform_error_rate(
+        self,
+        *,
+        d: int,
+        rounds: int,
+        error_rate: float,
+    ) -> RepetitionCode_Circuit:
+        """Alternative constructor with all fault locations having the
+        same error rate.
+        """
+        return RepetitionCode_Circuit(
+            d=d,
+            rounds=rounds,
+            data_qubit_error_rate=error_rate,
+            prep_error_rate=error_rate,
+            meas_error_rate=error_rate,
+            cnot_error_rate=error_rate,
+        )
 
     def _build_circuit(self) -> stim.Circuit:
         # ------------------------------------------------------------------------------------------------

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Iterable, Literal
@@ -90,6 +92,28 @@ class HexColorCode_Superdense(QECCircuit, registry_name="HexColorCode_Superdense
 
         circuit = self._build_circuit()
         super().__init__(circuit)
+
+    @classmethod
+    def with_uniform_error_rate(
+        self,
+        *,
+        d: int,
+        rounds: int,
+        basis: Literal["X", "Y", "Z"],
+        error_rate: float,
+    ) -> HexColorCode_Superdense:
+        """Alternative constructor with all fault locations having the
+        same error rate.
+        """
+        return HexColorCode_Superdense(
+            d=d,
+            rounds=rounds,
+            basis=basis,
+            prep_error_rate=error_rate,
+            meas_error_rate=error_rate,
+            gate1_error_rate=error_rate,
+            gate2_error_rate=error_rate,
+        )
 
     @cached_property
     def num_data_qubits(self) -> int:

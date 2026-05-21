@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Iterable, Literal
@@ -78,6 +80,26 @@ class HexColorCode_Phenom(QECCircuit, registry_name="HexColorCode_Phenom"):
 
         circuit = self._build_circuit()
         super().__init__(circuit)
+
+    @classmethod
+    def with_uniform_error_rate(
+        self,
+        *,
+        d: int,
+        rounds: int,
+        basis: Literal["X", "Y", "Z"],
+        error_rate: float,
+    ) -> HexColorCode_Phenom:
+        """Alternative constructor with all fault locations having the
+        same error rate.
+        """
+        return HexColorCode_Phenom(
+            d=d,
+            rounds=rounds,
+            basis=basis,
+            depolarizing_error_rate=error_rate,
+            meas_error_rate=error_rate,
+        )
 
     @cached_property
     def num_qubits(self) -> int:
