@@ -9,7 +9,7 @@ def create_decoder(name: str, **kwargs) -> Decoder:
     """Create a decoder by name. Only the kwargs that are present in the constructor's
     signature will be passed to the constructor.
 
-    Check out `qecdec.decoders.DECODERS_REGISTRY` for all available decoder names and
+    Check out ``qecdec.decoders.DECODERS_REGISTRY`` for all available decoder names and
     the corresponding return classes.
     """
     cls = DECODERS_REGISTRY.get(name)

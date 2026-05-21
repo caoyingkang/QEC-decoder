@@ -1,13 +1,14 @@
 from typing import Literal, Optional
-from functools import cached_property
 
 import stim
 
-from .base import Experiment
+from .base import QECCircuit
 
 
-class RotatedSurfaceCode_Memory(Experiment):
-    """Memory experiment for the rotated surface code."""
+class RotatedSurfaceCode_Circuit(
+    QECCircuit, registry_name="RotatedSurfaceCode_Circuit"
+):
+    """Memory circuit for the rotated surface code."""
 
     def __init__(
         self,
@@ -26,38 +27,37 @@ class RotatedSurfaceCode_Memory(Experiment):
         ----------
             d : int
                 Code distance.
-
             rounds : int
-                Number of rounds of stabilizer measurement.
-
+                Number of rounds of stabilizer measurement. Must be at least 2.
             basis : Literal['X', 'Z']
-                Basis of logical state preparation and measurement. If basis='X' (resp. 'Z'), then
-                we will use X-type (resp. Z-type) stabilizer measurement outcomes to correct Pauli
-                Z (resp. X) errors.
-
+                Basis of logical state preparation and measurement. If basis='X'
+                (resp. 'Z'), then we will use X-type (resp. Z-type) stabilizer
+                measurement outcomes to correct Pauli Z (resp. X) errors.
             data_qubit_error_rate : float or None
-                Error rate of data qubits before each round of stabilizer measurement. If None, no data qubit error is included.
-
+                Error rate of data qubits before each round of stabilizer
+                measurement. If None, no data qubit error is included.
             prep_error_rate : float or None
-                Error rate of state preparation. If None, no state preparation error is included.
-
+                Error rate of state preparation. If None, no state preparation
+                error is included.
             meas_error_rate : float or None
-                Error rate of measurement. If None, no measurement error is included.
-
+                Error rate of measurement. If None, no measurement error is
+                included.
             gate1_error_rate : float or None
-                Error rate of single-qubit gates. If None, no single-qubit gate error is included.
-
+                Error rate of single-qubit gates. If None, no single-qubit gate
+                error is included.
             gate2_error_rate : float or None
-                Error rate of two-qubit gates. If None, no two-qubit gate error is included.
+                Error rate of two-qubit gates. If None, no two-qubit gate error
+                is included.
         """
         if d % 2 == 0:
             raise ValueError("Distance d must be an odd number")
         if d < 3:
             raise ValueError("Distance d must be at least 3")
+        if rounds < 2:
+            raise ValueError("rounds must be at least 2")
         if basis not in ["X", "Z"]:
             raise ValueError("Basis must be 'X' or 'Z'")
 
-        super().__init__()
         self.d = d
         self.rounds = rounds
         self.basis = basis
@@ -105,8 +105,10 @@ class RotatedSurfaceCode_Memory(Experiment):
         self.zmq_inds = sorted(self._coo2ind(*coo) for coo in self.zmq_coos)
         self.mq_inds = sorted(self.xmq_inds + self.zmq_inds)
 
-    @cached_property
-    def circuit(self) -> stim.Circuit:
+        circuit = self._build_circuit()
+        super().__init__(circuit)
+
+    def _build_circuit(self) -> stim.Circuit:
         # ------------------------------------------------------------------------------------------------
         # Build syndrome extraction circuit.
         # ------------------------------------------------------------------------------------------------

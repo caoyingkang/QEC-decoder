@@ -1,12 +1,10 @@
-from __future__ import annotations
-
 from pathlib import Path
-from typing import Optional
+from typing import Literal
 
 import numpy as np
 import stim
 
-from .base import Experiment
+from .base import QECCircuit
 
 
 def _detect_data_qubits(circuit: stim.Circuit) -> list[int]:
@@ -110,38 +108,31 @@ def _filter_detectors_by_basis(
     return filtered_circuit
 
 
-class StimFileExperiment(Experiment):
-    """An experiment loaded from a stim circuit."""
+class GrossCode_Circuit(QECCircuit, registry_name="GrossCode_Circuit"):
+    """Memory circuit for the gross code."""
 
-    def __init__(self, circuit: stim.Circuit):
-        self._circuit = circuit
-
-    @property
-    def circuit(self) -> stim.Circuit:
-        """Stim circuit for the experiment."""
-        return self._circuit
-
-    @classmethod
-    def load_from_file(
-        cls,
-        path: str | Path,
-        detector_basis: Optional[str] = None,
-    ) -> StimFileExperiment:
-        """Load a StimFileExperiment from a .stim file.
-
-        Parameters
-        ----------
-        path : str | Path
-            Path to the .stim file.
-        detector_basis : Optional[str]
-            Basis to filter detectors by. If None, all detectors are included.
-
-        Returns
-        -------
-        StimFileExperiment
-            The experiment loaded from the file.
+    def __init__(
+        self,
+        *,
+        lookup_dir: str | Path,
+        rounds: int,
+        basis: Literal["X", "Z"],
+        error_rate: float,
+        filter_detectors: bool = True,
+    ):
         """
+        Load circuit at ``lookup_dir/d=12_rounds=<rounds>_basis=<basis>/error_rate=<error_rate>.stim``.
+        If ``filter_detectors`` is True, filter out any off-basis detectors.
+        """
+        path = (
+            Path(lookup_dir)
+            / f"d=12_rounds={rounds}_basis={basis}"
+            / f"error_rate={error_rate}.stim"
+        )
+        if not path.exists():
+            raise FileNotFoundError(f"File {path} does not exist.")
+
         circuit = stim.Circuit.from_file(path)
-        if detector_basis is not None:
-            circuit = _filter_detectors_by_basis(circuit, detector_basis)
-        return cls(circuit)
+        if filter_detectors:
+            circuit = _filter_detectors_by_basis(circuit, basis)
+        super().__init__(circuit)

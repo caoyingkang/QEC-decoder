@@ -41,7 +41,7 @@ class TorchModelDecoder(IterativeDecoder):
 
     def __new__(cls, *args, **kwargs):
         if cls is TorchModelDecoder:
-            raise TypeError("Base class 'TorchModelDecoder' cannot be instantiated")
+            raise TypeError(f"Abstract class {cls.__name__} cannot be instantiated")
         return super().__new__(cls)
 
     def __init__(

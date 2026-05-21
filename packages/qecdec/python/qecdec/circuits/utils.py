@@ -4,11 +4,11 @@ import stim
 from ..types import Float2DArray
 
 
-def extract_error_mechanisms_from_dem(
+def _extract_error_mechanisms_from_dem(
     dem: stim.DetectorErrorModel,
 ) -> dict[tuple[tuple[int, ...], tuple[int, ...]], float]:
     """
-    Extract error mechanisms from a stim.DetectorErrorModel object. Each error mechanism is identified by its effect,
+    Extract error mechanisms from a ``stim.DetectorErrorModel``. Each error mechanism is identified by its effect,
     which includes the set of detectors and the set of observables that are flipped. Error mechanisms with identical
     effect will be combined into one.
 
@@ -60,11 +60,11 @@ def extract_error_mechanisms_from_dem(
     return eff2prob
 
 
-def extract_detector_coords_from_dem(dem: stim.DetectorErrorModel) -> Float2DArray:
+def _extract_detector_coords_from_dem(dem: stim.DetectorErrorModel) -> Float2DArray:
     """
-    Extract detector coordinates from a stim.DetectorErrorModel object. The output
-    is a numpy array that has num_detectors rows, with the i-th row being the vector
-    of coordinates of the i-th detector.
+    Extract detector coordinates from a ``stim.DetectorErrorModel``. The output is a
+    numpy array that has num_detectors rows, with the i-th row being the vector of
+    coordinates of the i-th detector.
     """
     coords: list[list[float]] = [None] * dem.num_detectors
 
@@ -87,4 +87,4 @@ def extract_detector_coords_from_dem(dem: stim.DetectorErrorModel) -> Float2DArr
     ):
         raise ValueError("Detector coordinates have different lengths.")
 
-    return np.array(coords)
+    return np.array(coords, dtype=np.float64)

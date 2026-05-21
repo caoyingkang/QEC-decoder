@@ -1,11 +1,9 @@
+from . import circuits
 from . import decoders
-from . import experiments
-from . import slwin
 from . import sinter_utils
 
 __all__ = [
+    "circuits",
     "decoders",
-    "experiments",
-    "slwin",
     "sinter_utils",
 ]

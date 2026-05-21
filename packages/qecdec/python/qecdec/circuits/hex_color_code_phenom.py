@@ -1,14 +1,10 @@
-"""Memory experiment for the hexagonal (6.6.6 tiling) color code under
-phenomenological noise model.
-"""
-
-from typing import Literal, Iterable
-from functools import cached_property
 from dataclasses import dataclass
+from functools import cached_property
+from typing import Iterable, Literal
 
 import stim
 
-from .base import Experiment
+from .base import QECCircuit
 
 
 _HEX_OFFSETS: tuple[complex, ...] = (0, 1 + 1j, 2 + 1j, 3, 2 - 1j, 1 - 1j)
@@ -35,9 +31,8 @@ class _Tile:
     color: int
 
 
-class HexColorCode_Phenom_Memory(Experiment):
-    """
-    Memory experiment for the hexagonal (6.6.6 tiling) color code under
+class HexColorCode_Phenom(QECCircuit, registry_name="HexColorCode_Phenom"):
+    """Memory circuit for the hexagonal (6.6.6 tiling) color code under
     phenomenological noise model.
     """
 
@@ -75,12 +70,14 @@ class HexColorCode_Phenom_Memory(Experiment):
         if basis not in ("X", "Y", "Z"):
             raise ValueError("basis must be 'X', 'Y', or 'Z'")
 
-        super().__init__()
         self.d = d
         self.rounds = rounds
         self.basis = basis
         self.depolarizing_error_rate = depolarizing_error_rate
         self.meas_error_rate = meas_error_rate
+
+        circuit = self._build_circuit()
+        super().__init__(circuit)
 
     @cached_property
     def num_qubits(self) -> int:
@@ -93,7 +90,7 @@ class HexColorCode_Phenom_Memory(Experiment):
         return 3 * (self.d - 1) * (self.d + 1) // 4
 
     @cached_property
-    def tiles(self) -> list[_Tile]:
+    def _tiles(self) -> list[_Tile]:
         """List of tiles of the color code patch."""
         width = 2 * self.d - 1  # width of the grid holding the data qubits
 
@@ -132,7 +129,7 @@ class HexColorCode_Phenom_Memory(Experiment):
     @cached_property
     def sites(self) -> set[complex]:
         """Set of sites of (data) qubits in the color code patch."""
-        sites = set(q for t in self.tiles for q in t.sites)
+        sites = set(q for t in self._tiles for q in t.sites)
         assert len(sites) == self.num_qubits
         return sites
 
@@ -146,8 +143,7 @@ class HexColorCode_Phenom_Memory(Experiment):
         """Dictionary mapping sites of qubits to their indices."""
         return {q: i for i, q in enumerate(self.sites_sorted)}
 
-    @cached_property
-    def circuit(self) -> stim.Circuit:
+    def _build_circuit(self) -> stim.Circuit:
         circuit = stim.Circuit()
 
         # Specify the coordinates of all data qubits.
@@ -193,7 +189,7 @@ class HexColorCode_Phenom_Memory(Experiment):
     ) -> stim.Circuit:
         circuit = stim.Circuit()
         for stab_basis in ("X", "Z"):
-            for tile in self.tiles:
+            for tile in self._tiles:
                 circuit.append(
                     "MPP",
                     self._mpp_targets(tile.sites, stab_basis),
@@ -202,7 +198,7 @@ class HexColorCode_Phenom_Memory(Experiment):
         if record_detectors:
             offset = 0
             for stab_basis in ("X", "Z"):
-                for tile in self.tiles:
+                for tile in self._tiles:
                     center = sum(tile.sites) / len(tile.sites)
                     circuit.append(
                         "DETECTOR",

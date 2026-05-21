@@ -1,14 +1,10 @@
-"""Memory experiment for the hexagonal (6.6.6 tiling) color code with "superdense"
-syndrome extraction circuit.
-"""
-
-from typing import Iterable, Literal
-from functools import cached_property
 from dataclasses import dataclass
+from functools import cached_property
+from typing import Iterable, Literal
 
 import stim
 
-from .base import Experiment
+from .base import QECCircuit
 
 
 _HEX_OFFSETS: tuple[complex, ...] = (0, 1 + 1j, 2 + 1j, 3, 2 - 1j, 1 - 1j)
@@ -41,8 +37,8 @@ class _Tile:
     color: int
 
 
-class HexColorCode_Superdense_Memory(Experiment):
-    """Memory experiment for the hexagonal (6.6.6 tiling) color code with "superdense"
+class HexColorCode_Superdense(QECCircuit, registry_name="HexColorCode_Superdense"):
+    """Memory circuit for the hexagonal (6.6.6 tiling) color code with "superdense"
     syndrome extraction circuit.
     """
 
@@ -84,7 +80,6 @@ class HexColorCode_Superdense_Memory(Experiment):
         if basis not in ("X", "Z"):
             raise ValueError("basis must be 'X' or 'Z'")
 
-        super().__init__()
         self.d = d
         self.rounds = rounds
         self.basis = basis
@@ -93,9 +88,12 @@ class HexColorCode_Superdense_Memory(Experiment):
         self.gate1_error_rate = gate1_error_rate
         self.gate2_error_rate = gate2_error_rate
 
+        circuit = self._build_circuit()
+        super().__init__(circuit)
+
     @cached_property
     def num_data_qubits(self) -> int:
-        """Number of (data) qubits."""
+        """Number of data qubits."""
         return 3 * (self.d - 1) * (self.d + 1) // 4 + 1
 
     @cached_property
@@ -114,7 +112,7 @@ class HexColorCode_Superdense_Memory(Experiment):
         return self.num_xstabs + self.num_zstabs
 
     @cached_property
-    def tiles(self) -> list[_Tile]:
+    def _tiles(self) -> list[_Tile]:
         """List of tiles of the color code patch."""
         width = 2 * self.d - 1  # width of the grid holding the data qubits
 
@@ -155,7 +153,7 @@ class HexColorCode_Superdense_Memory(Experiment):
     @cached_property
     def dq_sites(self) -> set[complex]:
         """Set of sites of data qubits in the color code patch."""
-        dq_sites = set(q for t in self.tiles for q in t.dq_sites)
+        dq_sites = set(q for t in self._tiles for q in t.dq_sites)
         assert len(dq_sites) == self.num_data_qubits
         return dq_sites
 
@@ -167,13 +165,13 @@ class HexColorCode_Superdense_Memory(Experiment):
     @cached_property
     def dq_site2relind(self) -> dict[complex, int]:
         """Dictionary mapping sites of data qubits to their relative indices
-        in the list `dq_sites_sorted`."""
+        in the list ``dq_sites_sorted``."""
         return {q: i for i, q in enumerate(self.dq_sites_sorted)}
 
     @cached_property
     def xmq_sites(self) -> set[complex]:
         """Set of sites of X-type measurement qubits in the color code patch."""
-        xmq_sites = set(t.xmq_site for t in self.tiles)
+        xmq_sites = set(t.xmq_site for t in self._tiles)
         assert len(xmq_sites) == self.num_xstabs
         return xmq_sites
 
@@ -185,13 +183,13 @@ class HexColorCode_Superdense_Memory(Experiment):
     @cached_property
     def xmq_site2relind(self) -> dict[complex, int]:
         """Dictionary mapping sites of X-type measurement qubits to their relative indices
-        in the list `xmq_sites_sorted`."""
+        in the list ``xmq_sites_sorted``."""
         return {q: i for i, q in enumerate(self.xmq_sites_sorted)}
 
     @cached_property
     def zmq_sites(self) -> set[complex]:
         """Set of sites of Z-type measurement qubits in the color code patch."""
-        zmq_sites = set(t.zmq_site for t in self.tiles)
+        zmq_sites = set(t.zmq_site for t in self._tiles)
         assert len(zmq_sites) == self.num_zstabs
         return zmq_sites
 
@@ -203,7 +201,7 @@ class HexColorCode_Superdense_Memory(Experiment):
     @cached_property
     def zmq_site2relind(self) -> dict[complex, int]:
         """Dictionary mapping sites of Z-type measurement qubits to their relative indices
-        in the list `zmq_sites_sorted`."""
+        in the list ``zmq_sites_sorted``."""
         return {q: i for i, q in enumerate(self.zmq_sites_sorted)}
 
     @cached_property
@@ -218,7 +216,7 @@ class HexColorCode_Superdense_Memory(Experiment):
 
     @property
     def ind2site(self) -> list[complex]:
-        """Alternative name for `all_sites_sorted`. A list functioning as a mapping from
+        """Alternative name for ``all_sites_sorted``. A list functioning as a mapping from
         qubit indices to their sites."""
         return self.all_sites_sorted
 
@@ -252,11 +250,10 @@ class HexColorCode_Superdense_Memory(Experiment):
     def mq_ind2tile(self) -> dict[int, _Tile]:
         """Dictionary mapping indices of measurement qubits to their tiles."""
         return {
-            self.site2ind[q]: t for t in self.tiles for q in [t.xmq_site, t.zmq_site]
+            self.site2ind[q]: t for t in self._tiles for q in [t.xmq_site, t.zmq_site]
         }
 
-    @cached_property
-    def circuit(self) -> stim.Circuit:
+    def _build_circuit(self) -> stim.Circuit:
         circuit = stim.Circuit()
 
         # Specify the coordinates of all qubits.
@@ -335,7 +332,7 @@ class HexColorCode_Superdense_Memory(Experiment):
         self, circuit: stim.Circuit, *, which_round: Literal["first", "middle", "last"]
     ) -> None:
         if which_round == "first":
-            if self.basis == "X":  # X-basis memory experiment
+            if self.basis == "X":  # X-basis memory circuit
                 # Record X-type detectors only
                 for k, i in enumerate(self.xmq_inds):
                     site = self.ind2site[i]
@@ -344,7 +341,7 @@ class HexColorCode_Superdense_Memory(Experiment):
                         [stim.target_rec(-self.num_stabs + k)],
                         (site.real, site.imag, 0),
                     )
-            else:  # Z-basis memory experiment
+            else:  # Z-basis memory circuit
                 # Record Z-type detectors only
                 for k, i in enumerate(self.zmq_inds):
                     site = self.ind2site[i]

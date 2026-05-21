@@ -1,15 +1,12 @@
 from typing import Optional
-from functools import cached_property
 
-import numpy as np
 import stim
 
-from .base import Experiment
-from ..types import Bit2DArray
+from .base import QECCircuit
 
 
-class RepetitionCode_Memory(Experiment):
-    """Memory experiment for the repetition code."""
+class RepetitionCode_Circuit(QECCircuit, registry_name="RepetitionCode_Circuit"):
+    """Memory circuit for the repetition code."""
 
     def __init__(
         self,
@@ -26,24 +23,18 @@ class RepetitionCode_Memory(Experiment):
         ----------
             d : int
                 Code distance.
-
             rounds : int
                 Number of rounds of stabilizer measurement.
-
             data_qubit_error_rate : float or None
                 Error rate of data qubits before each round of stabilizer measurement.
                 If None, no data qubit error is included.
-
             prep_error_rate : float or None
                 Error rate of state preparation. If None, no state preparation error is included.
-
             meas_error_rate : float or None
                 Error rate of measurement. If None, no measurement error is included.
-
             cnot_error_rate : float or None
                 Error rate of CNOT gates. If None, no CNOT gate error is included.
         """
-        super().__init__()
         self.d = d
         self.rounds = rounds
         self.data_qubit_error_rate = data_qubit_error_rate
@@ -59,28 +50,10 @@ class RepetitionCode_Memory(Experiment):
         self.dq_inds = list(range(0, 2 * d, 2))  # 0, 2, 4, ..., 2d-2
         self.mq_inds = list(range(1, 2 * d - 1, 2))  # 1, 3, 5, ..., 2d-3
 
-    @cached_property
-    def H(self) -> Bit2DArray:
-        """
-        (Z-type) stabilizer matrix, shape=(#measure_qubits, #data_qubits), dtype=uint8 ∈ {0,1}.
-        """
-        H = np.zeros((self.num_mq, self.num_dq), dtype=np.uint8)
-        for i in range(self.num_mq):
-            H[i, i] = 1
-            H[i, i + 1] = 1
-        return H
+        circuit = self._build_circuit()
+        super().__init__(circuit)
 
-    @cached_property
-    def L(self) -> Bit2DArray:
-        """
-        (Z-type) logical operator matrix, shape=(#logical_qubits, #data_qubits), dtype=uint8 ∈ {0,1}.
-        """
-        L = np.zeros((self.k, self.num_dq), dtype=np.uint8)
-        L[0, 0] = 1
-        return L
-
-    @cached_property
-    def circuit(self) -> stim.Circuit:
+    def _build_circuit(self) -> stim.Circuit:
         # ------------------------------------------------------------------------------------------------
         # Build syndrome extraction circuit.
         # ------------------------------------------------------------------------------------------------
