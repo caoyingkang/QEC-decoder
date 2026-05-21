@@ -22,7 +22,7 @@ class Decoder(ABC):
                 )
             Decoder.registry[registry_name] = cls
 
-    def __init__(self, pcm: Bit2DArray, prior: Optional[Float1DArray] = None):
+    def __init__(self, pcm: Bit2DArray, prior: Float1DArray):
         """
         Parameters
         ----------
@@ -30,14 +30,14 @@ class Decoder(ABC):
             Parity-check matrix, shape=(num_chks, num_vars), uint8 ∈ {0,1}.
             Each row (check) must have at least two nonzero entries; each column
             (variable) must have at least one nonzero entry.
-
-        prior : ndarray or None
+        prior : ndarray
             Prior error probabilities, shape=(num_vars,), float64 ∈ (0,0.5).
-            If None, the decoder either assumes a uniform prior or does not
-            depend on the prior at all.
         """
         assert isinstance(pcm, np.ndarray) and pcm.ndim == 2
+        assert isinstance(prior, np.ndarray) and prior.ndim == 1
+        assert pcm.shape[1] == prior.shape[0]
         assert np.all((pcm == 0) | (pcm == 1))
+        assert np.all((prior > 0) & (prior < 0.5))
         if not np.all(pcm.sum(axis=1) >= 2):
             raise ValueError("Each row (check) must have at least two nonzero entries.")
         if not np.all(pcm.sum(axis=0) >= 1):
@@ -45,14 +45,7 @@ class Decoder(ABC):
                 "Each column (variable) must have at least one nonzero entry."
             )
         self.pcm = pcm
-
-        if prior is None:
-            self.prior = None
-        else:
-            assert isinstance(prior, np.ndarray) and prior.ndim == 1
-            assert pcm.shape[1] == prior.shape[0]
-            assert np.all(prior > 0) and np.all(prior < 0.5)
-            self.prior = prior
+        self.prior = prior
 
     @cached_property
     def num_chks(self) -> int:
@@ -128,7 +121,6 @@ class Decoder(ABC):
         ----------
         syndrome_batch : ndarray
             Syndrome vectors, shape=(batch_size, num_chks), dtype=uint8.
-
         parallel : bool
             Whether to use multithreaded decoding.
 
@@ -172,27 +164,18 @@ class IterativeDecoder(Decoder):
                 )
             IterativeDecoder.registry[registry_name] = cls
 
-    def __init__(
-        self,
-        max_iter: int,
-        pcm: Bit2DArray,
-        prior: Optional[Float1DArray] = None,
-    ):
+    def __init__(self, pcm: Bit2DArray, prior: Float1DArray, *, max_iter: int):
         """
         Parameters
         ----------
-        max_iter : int
-            Max number of iterations.
-
         pcm : ndarray
             Parity-check matrix, shape=(num_chks, num_vars), uint8 ∈ {0,1}.
             Each row (check) must have at least two nonzero entries; each column
             (variable) must have at least one nonzero entry.
-
-        prior : ndarray or None
+        prior : ndarray
             Prior error probabilities, shape=(num_vars,), float64 ∈ (0,0.5).
-            If None, the decoder either assumes a uniform prior or does not
-            depend on the prior at all.
+        max_iter : int
+            Max number of iterations.
         """
         super().__init__(pcm, prior)
 

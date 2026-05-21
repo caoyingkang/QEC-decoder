@@ -1,14 +1,14 @@
 import numpy as np
 
-from .base import IterativeDecoder
 from ..qecdec import DMemOffsetBPDecoderRust
 from ..types import (
-    Bool1DArray,
     Bit1DArray,
     Bit2DArray,
-    Int1DArray,
+    Bool1DArray,
     Float1DArray,
+    Int1DArray,
 )
+from .base import IterativeDecoder
 
 
 class DMemOffsetBPDecoder(IterativeDecoder, registry_name="DMemOffsetBP"):
@@ -47,7 +47,7 @@ class DMemOffsetBPDecoder(IterativeDecoder, registry_name="DMemOffsetBP"):
             `k`-th neighboring variable node. If a float is provided, the same value is used
             for all offset parameters. Default is 0.0, meaning no offset.
         """
-        super().__init__(max_iter, pcm, prior)
+        super().__init__(pcm, prior, max_iter=max_iter)
 
         assert isinstance(gamma, np.ndarray) and gamma.shape == (self.num_vars,)
         self.gamma = gamma

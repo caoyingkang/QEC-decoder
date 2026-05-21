@@ -17,8 +17,8 @@ def test_factory_registration(rsc_d5_data):
     assert "MemBP" in ITERATIVE_DECODERS_REGISTRY
     dec = create_decoder(
         "MemBP",
-        pcm=rsc_d5_data["pcm"],
-        prior=rsc_d5_data["prior"],
+        rsc_d5_data["pcm"],
+        rsc_d5_data["prior"],
         gamma=0.5,
         max_iter=20,
     )

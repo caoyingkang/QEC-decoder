@@ -2,38 +2,38 @@
 
 from .base import (
     Decoder,
-    IterativeDecoder,
     DECODERS_REGISTRY,
+    IterativeDecoder,
     ITERATIVE_DECODERS_REGISTRY,
 )
 from .bp import BPDecoder
-from .membp import MemBPDecoder
+from .bposd import BPOSDDecoder
 from .dmembp import DMemBPDecoder
 from .dmemoffsetbp import DMemOffsetBPDecoder
-from .serialbp import SerialBPDecoder
 from .ens_serial_bp import EnsSerialBPDecoder
-from .bposd import BPOSDDecoder
+from .factory import create_decoder
+from .membp import MemBPDecoder
+from .multi_relaybp import MultiRelayBPDecoder
 from .mwpm import MWPMDecoder
 from .relaybp import RelayBPDecoder
-from .multi_relaybp import MultiRelayBPDecoder
+from .serialbp import SerialBPDecoder
 from .uf import UnionFindDecoder
-from .factory import create_decoder
 
 __all__ = [
     "Decoder",
-    "IterativeDecoder",
     "DECODERS_REGISTRY",
+    "IterativeDecoder",
     "ITERATIVE_DECODERS_REGISTRY",
     "BPDecoder",
-    "MemBPDecoder",
+    "BPOSDDecoder",
     "DMemBPDecoder",
     "DMemOffsetBPDecoder",
-    "SerialBPDecoder",
     "EnsSerialBPDecoder",
-    "BPOSDDecoder",
+    "create_decoder",
+    "MemBPDecoder",
+    "MultiRelayBPDecoder",
     "MWPMDecoder",
     "RelayBPDecoder",
-    "MultiRelayBPDecoder",
+    "SerialBPDecoder",
     "UnionFindDecoder",
-    "create_decoder",
 ]

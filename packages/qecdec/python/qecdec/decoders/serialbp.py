@@ -2,15 +2,15 @@ from typing import Optional
 
 import numpy as np
 
-from .base import IterativeDecoder
 from ..qecdec import SerialBPDecoderRust
 from ..types import (
-    Bool1DArray,
     Bit1DArray,
     Bit2DArray,
-    Int1DArray,
+    Bool1DArray,
     Float1DArray,
+    Int1DArray,
 )
+from .base import IterativeDecoder
 
 
 class SerialBPDecoder(IterativeDecoder, registry_name="SerialBP"):
@@ -42,7 +42,7 @@ class SerialBPDecoder(IterativeDecoder, registry_name="SerialBP"):
             Permutation of variable nodes, shape=(num_vars,).
             If None, the natural order ``np.arange(num_vars)`` is used.
         """
-        super().__init__(max_iter, pcm, prior)
+        super().__init__(pcm, prior, max_iter=max_iter)
 
         if vn_order is None:
             self.vn_order = np.arange(self.num_vars, dtype=np.int64)

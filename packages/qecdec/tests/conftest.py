@@ -3,13 +3,13 @@
 import numpy as np
 import pytest
 
-from qecdec.experiments import RotatedSurfaceCode_Memory
+from qecdec.circuits import RotatedSurfaceCode_Phenom
 
 
 @pytest.fixture(scope="module")
 def rsc_d5():
     """Rotated surface-code memory experiment (d=5, 5 rounds, Z basis)."""
-    return RotatedSurfaceCode_Memory(
+    return RotatedSurfaceCode_Phenom(
         d=5,
         rounds=5,
         basis="Z",
@@ -19,9 +19,9 @@ def rsc_d5():
 
 
 @pytest.fixture(scope="module")
-def rsc_d5_data(rsc_d5):
+def rsc_d5_data(rsc_d5: RotatedSurfaceCode_Phenom):
     """64 sampled syndromes plus PCM / prior / shape metadata for the d=5 RSC."""
-    sampler = rsc_d5.dem.compile_sampler()
+    sampler = rsc_d5.stim_dem.compile_sampler()
     syndromes, _, _ = sampler.sample(64)
     return {
         "expmt": rsc_d5,

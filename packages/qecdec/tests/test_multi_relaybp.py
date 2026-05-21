@@ -31,8 +31,8 @@ def test_factory_registration(rsc_d5_data):
     assert "MultiRelayBP" in ITERATIVE_DECODERS_REGISTRY
     dec = create_decoder(
         "MultiRelayBP",
-        pcm=rsc_d5_data["pcm"],
-        prior=rsc_d5_data["prior"],
+        rsc_d5_data["pcm"],
+        rsc_d5_data["prior"],
         **_kwargs(rsc_d5_data["num_vars"]),
     )
     assert isinstance(dec, MultiRelayBPDecoder)

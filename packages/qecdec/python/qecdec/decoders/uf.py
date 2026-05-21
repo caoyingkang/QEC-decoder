@@ -1,17 +1,14 @@
 import numpy as np
 
-from .base import Decoder
-from ..types import (
-    Bit1DArray,
-    Bit2DArray,
-)
 from ..qecdec import UnionFindDecoderRust
+from ..types import Bit1DArray, Bit2DArray, Float1DArray
+from .base import Decoder
 
 
 class UnionFindDecoder(Decoder, registry_name="UnionFind"):
     """Union-Find decoder."""
 
-    def __init__(self, pcm: np.ndarray):
+    def __init__(self, pcm: Bit2DArray, prior: Float1DArray):
         """
         Parameters
         ----------
@@ -19,8 +16,15 @@ class UnionFindDecoder(Decoder, registry_name="UnionFind"):
             Parity-check matrix, shape=(num_chks, num_vars), uint8 ∈ {0,1}.
             Each row (check) must have at least two nonzero entries; each column
             (variable) must have at least one and at most two nonzero entries.
+        prior : ndarray
+            Prior error probabilities, shape=(num_vars,), float64 ∈ (0,0.5).
+
+        Notes
+        -----
+        Current implementation of the UnionFind decoder is unweighted, i.e.,
+        ``prior`` is merely a placeholder.
         """
-        super().__init__(pcm)
+        super().__init__(pcm, prior)
 
         if not np.all(self.pcm.sum(axis=0) <= 2):
             raise ValueError(

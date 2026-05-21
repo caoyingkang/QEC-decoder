@@ -2,7 +2,6 @@ from typing import Any, Optional, Union
 
 import numpy as np
 
-from .base import IterativeDecoder
 from ..qecdec import RelayBPDecoderRust
 from ..types import (
     Bit1DArray,
@@ -11,6 +10,7 @@ from ..types import (
     Float1DArray,
     Int1DArray,
 )
+from .base import IterativeDecoder
 
 
 class RelayBPDecoder(IterativeDecoder, registry_name="RelayBP"):
@@ -65,7 +65,7 @@ class RelayBPDecoder(IterativeDecoder, registry_name="RelayBP"):
                 "max_iter_per_relay": max_iter_per_relay,
             }
         )
-        super().__init__(max_iter, pcm, prior)
+        super().__init__(pcm, prior, max_iter=max_iter)
 
         if isinstance(gamma0, (float, int)):
             gamma0 = np.full(self.num_vars, gamma0)

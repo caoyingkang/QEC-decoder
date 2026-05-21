@@ -2,12 +2,15 @@
 
 import inspect
 
+from ..types import Bit2DArray, Float1DArray
 from .base import Decoder, DECODERS_REGISTRY
 
 
-def create_decoder(name: str, **kwargs) -> Decoder:
-    """Create a decoder by name. Only the kwargs that are present in the constructor's
-    signature will be passed to the constructor.
+def create_decoder(
+    name: str, pcm: Bit2DArray, prior: Float1DArray, **kwargs
+) -> Decoder:
+    """Create a decoder by name. Only the keyword-only arguments in the constructor
+    will be passed through.
 
     Check out ``qecdec.decoders.DECODERS_REGISTRY`` for all available decoder names and
     the corresponding return classes.
@@ -16,5 +19,10 @@ def create_decoder(name: str, **kwargs) -> Decoder:
     if cls is None:
         raise ValueError(f"Invalid decoder name: {name!r}")
     sig = inspect.signature(cls.__init__)
-    filtered_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
-    return cls(**filtered_kwargs)
+    whitelist = [
+        name
+        for name, param in sig.parameters.items()
+        if param.kind == inspect.Parameter.KEYWORD_ONLY
+    ]
+    filtered_kwargs = {k: v for k, v in kwargs.items() if k in whitelist}
+    return cls(pcm, prior, **filtered_kwargs)

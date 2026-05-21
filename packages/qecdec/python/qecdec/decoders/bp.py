@@ -1,15 +1,15 @@
 from typing import Optional
 
-from .base import IterativeDecoder
 from ..qecdec import BPDecoderRust
 from ..types import (
-    Bool1DArray,
     Bit1DArray,
     Bit2DArray,
-    Int1DArray,
+    Bool1DArray,
     Float1DArray,
     Float2DArray,
+    Int1DArray,
 )
+from .base import IterativeDecoder
 
 
 class BPDecoder(IterativeDecoder, registry_name="BP"):
@@ -37,7 +37,7 @@ class BPDecoder(IterativeDecoder, registry_name="BP"):
         norm : float or None
             Message normalization factor; `None` means no normalization.
         """
-        super().__init__(max_iter, pcm, prior)
+        super().__init__(pcm, prior, max_iter=max_iter)
         self.norm = norm
 
         self._decoder = self._build_decoder()

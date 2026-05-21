@@ -14,7 +14,7 @@ def test_factory_registration(rsc_d5_data):
     assert "SerialBP" in DECODERS_REGISTRY
     assert "SerialBP" in ITERATIVE_DECODERS_REGISTRY
     dec = create_decoder(
-        "SerialBP", pcm=rsc_d5_data["pcm"], prior=rsc_d5_data["prior"], max_iter=20
+        "SerialBP", rsc_d5_data["pcm"], rsc_d5_data["prior"], max_iter=20
     )
     assert isinstance(dec, SerialBPDecoder)
 

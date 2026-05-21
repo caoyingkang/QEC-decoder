@@ -2,15 +2,15 @@ from typing import Optional
 
 import numpy as np
 
-from .base import IterativeDecoder
 from ..qecdec import DMemBPDecoderRust
 from ..types import (
-    Bool1DArray,
     Bit1DArray,
     Bit2DArray,
-    Int1DArray,
+    Bool1DArray,
     Float1DArray,
+    Int1DArray,
 )
+from .base import IterativeDecoder
 
 
 class MemBPDecoder(IterativeDecoder, registry_name="MemBP"):
@@ -41,7 +41,7 @@ class MemBPDecoder(IterativeDecoder, registry_name="MemBP"):
         norm : float or None
             Message normalization factor; `None` means no normalization.
         """
-        super().__init__(max_iter, pcm, prior)
+        super().__init__(pcm, prior, max_iter=max_iter)
 
         self.gamma = float(gamma)
         self.norm = norm

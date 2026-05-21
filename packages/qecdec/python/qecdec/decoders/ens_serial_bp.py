@@ -2,16 +2,16 @@ from typing import Optional
 
 import numpy as np
 
-from .base import IterativeDecoder
 from ..qecdec import EnsSerialBPDecoderRust
 from ..types import (
-    Bool1DArray,
     Bit1DArray,
     Bit2DArray,
+    Bool1DArray,
+    Float1DArray,
     Int1DArray,
     Int2DArray,
-    Float1DArray,
 )
+from .base import IterativeDecoder
 
 
 class EnsSerialBPDecoder(IterativeDecoder, registry_name="EnsSerialBP"):
@@ -55,7 +55,7 @@ class EnsSerialBPDecoder(IterativeDecoder, registry_name="EnsSerialBP"):
             Seed for the numpy RNG used to generate the per-member `vn_order`
             permutations. None means non-reproducible (fresh entropy each run).
         """
-        super().__init__(max_iter, pcm, prior)
+        super().__init__(pcm, prior, max_iter=max_iter)
         if ensemble_size < 1:
             raise ValueError("ensemble_size must be >= 1")
         if not (1 <= topk <= ensemble_size):

@@ -19,8 +19,8 @@ def test_factory_registration(rsc_d5_data):
     assert "EnsSerialBP" in ITERATIVE_DECODERS_REGISTRY
     dec = create_decoder(
         "EnsSerialBP",
-        pcm=rsc_d5_data["pcm"],
-        prior=rsc_d5_data["prior"],
+        rsc_d5_data["pcm"],
+        rsc_d5_data["prior"],
         max_iter=20,
         ensemble_size=4,
         topk=2,

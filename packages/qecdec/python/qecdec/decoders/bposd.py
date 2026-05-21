@@ -1,14 +1,10 @@
 from typing import Literal
 
-import numpy as np
 import ldpc
+import numpy as np
 
+from ..types import Bit1DArray, Bit2DArray, Float1DArray
 from .base import Decoder
-from ..types import (
-    Bit1DArray,
-    Bit2DArray,
-    Float1DArray,
-)
 
 
 class BPOSDDecoder(Decoder, registry_name="BPOSD"):
@@ -30,17 +26,13 @@ class BPOSDDecoder(Decoder, registry_name="BPOSD"):
             Parity-check matrix, shape=(num_chks, num_vars), uint8 ∈ {0,1}.
             Each row (check) must have at least two nonzero entries; each column
             (variable) must have at least one nonzero entry.
-
         prior : ndarray
             Prior error probabilities, shape=(num_vars,), float64 ∈ (0,0.5).
-
         max_bp_iter : int
             Max number of BP iterations.
-
         osd_method : Literal["OSD_0", "OSD_E", "OSD_CS"]
             OSD method: "OSD_0" for zero-order OSD, "OSD_E" for exhaustive OSD,
             "OSD_CS" for combination-sweep OSD.
-
         osd_order : int
             OSD order.
         """

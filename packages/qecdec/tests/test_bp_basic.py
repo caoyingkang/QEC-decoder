@@ -13,9 +13,7 @@ from qecdec.decoders import (
 def test_factory_registration(rsc_d5_data):
     assert "BP" in DECODERS_REGISTRY
     assert "BP" in ITERATIVE_DECODERS_REGISTRY
-    dec = create_decoder(
-        "BP", pcm=rsc_d5_data["pcm"], prior=rsc_d5_data["prior"], max_iter=20
-    )
+    dec = create_decoder("BP", rsc_d5_data["pcm"], rsc_d5_data["prior"], max_iter=20)
     assert isinstance(dec, BPDecoder)
 
 
