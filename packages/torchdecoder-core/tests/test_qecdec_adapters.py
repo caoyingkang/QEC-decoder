@@ -10,7 +10,7 @@ from qecdec.decoders import (
     ITERATIVE_DECODERS_REGISTRY,
     create_decoder,
 )
-from qecdec.experiments import RepetitionCode_Memory
+from qecdec.circuits import RepetitionCode_Circuit
 from torchdecoder_core.models import LearnedDMemBP, MultiDMemBP
 from torchdecoder_core.qecdec_adapters import (
     TorchModelDecoder,
@@ -34,7 +34,7 @@ def _save_fake_lightning_ckpt(model: nn.Module, path: Path) -> None:
 
 @pytest.fixture(scope="module")
 def pcm_prior() -> tuple[np.ndarray, np.ndarray]:
-    expmt = RepetitionCode_Memory(
+    expmt = RepetitionCode_Circuit(
         d=5,
         rounds=5,
         data_qubit_error_rate=0.01,
@@ -159,8 +159,8 @@ def test_factory_registration(setup, pcm_prior):
     pcm, prior = pcm_prior
     dec = create_decoder(
         name,
-        pcm=pcm,
-        prior=prior,
+        pcm,
+        prior,
         max_iter=NUM_ITERS,
         model_cfg=setup["model_cfg"],
         ckpt_path=setup["ckpt_path"],

@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from qecdec.experiments import RepetitionCode_Memory
+from qecdec.circuits import RepetitionCode_Circuit
 from torchdecoder_core.models import (
     DecoderModel,
     InferenceResult,
@@ -19,7 +19,7 @@ SEED = 42
 
 @pytest.fixture(scope="module")
 def pcm_prior() -> tuple[np.ndarray, np.ndarray]:
-    expmt = RepetitionCode_Memory(
+    expmt = RepetitionCode_Circuit(
         d=5,
         rounds=5,
         data_qubit_error_rate=0.01,

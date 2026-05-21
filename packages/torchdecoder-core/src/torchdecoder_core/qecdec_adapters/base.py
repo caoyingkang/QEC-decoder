@@ -46,9 +46,9 @@ class TorchModelDecoder(IterativeDecoder):
 
     def __init__(
         self,
-        *,
         pcm: Bit2DArray,
         prior: Float1DArray,
+        *,
         max_iter: int,
         model_cfg: DictConfig | dict[str, Any],
         ckpt_path: Path | str,
