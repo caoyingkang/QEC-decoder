@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from functools import cached_property
 from typing import ClassVar, Optional
 
@@ -9,7 +10,7 @@ from .errmech import ErrorMechanism
 from .utils import _extract_detector_coords_from_dem, _extract_error_mechanisms_from_dem
 
 
-class QECCircuit:
+class QECCircuit(ABC):
     """Abstract base class for QEC circuits.
 
     Wraps a ``stim.Circuit`` and provides helpful properties including
@@ -34,6 +35,18 @@ class QECCircuit:
 
     def __init__(self, circuit: stim.Circuit) -> None:
         self.stim_circuit = circuit
+
+    @classmethod
+    @abstractmethod
+    def with_uniform_error_rate(
+        cls,
+        error_rate: float,
+        **kwargs,
+    ) -> "QECCircuit":
+        """Alternative constructor with all fault locations having the
+        same error rate.
+        """
+        ...
 
     @property
     def num_detectors(self) -> int:

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Iterable, Literal
@@ -83,16 +81,13 @@ class HexColorCode_Phenom(QECCircuit, registry_name="HexColorCode_Phenom"):
 
     @classmethod
     def with_uniform_error_rate(
-        self,
+        cls,
+        error_rate: float,
         *,
         d: int,
         rounds: int,
         basis: Literal["X", "Y", "Z"],
-        error_rate: float,
-    ) -> HexColorCode_Phenom:
-        """Alternative constructor with all fault locations having the
-        same error rate.
-        """
+    ) -> "HexColorCode_Phenom":
         return HexColorCode_Phenom(
             d=d,
             rounds=rounds,

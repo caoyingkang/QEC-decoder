@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Optional
 
 import stim
@@ -57,15 +55,12 @@ class RepetitionCode_Circuit(QECCircuit, registry_name="RepetitionCode_Circuit")
 
     @classmethod
     def with_uniform_error_rate(
-        self,
+        cls,
+        error_rate: float,
         *,
         d: int,
         rounds: int,
-        error_rate: float,
-    ) -> RepetitionCode_Circuit:
-        """Alternative constructor with all fault locations having the
-        same error rate.
-        """
+    ) -> "RepetitionCode_Circuit":
         return RepetitionCode_Circuit(
             d=d,
             rounds=rounds,

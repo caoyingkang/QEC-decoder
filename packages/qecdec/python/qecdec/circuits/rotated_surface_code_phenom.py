@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Literal
 
 import stim
@@ -93,16 +91,13 @@ class RotatedSurfaceCode_Phenom(QECCircuit, registry_name="RotatedSurfaceCode_Ph
 
     @classmethod
     def with_uniform_error_rate(
-        self,
+        cls,
+        error_rate: float,
         *,
         d: int,
         rounds: int,
         basis: Literal["X", "Z"],
-        error_rate: float,
-    ) -> RotatedSurfaceCode_Phenom:
-        """Alternative constructor with all fault locations having the
-        same error rate.
-        """
+    ) -> "RotatedSurfaceCode_Phenom":
         return RotatedSurfaceCode_Phenom(
             d=d,
             rounds=rounds,

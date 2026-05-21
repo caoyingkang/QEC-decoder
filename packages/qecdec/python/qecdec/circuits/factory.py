@@ -18,3 +18,25 @@ def create_circuit(name: str, **kwargs) -> QECCircuit:
     sig = inspect.signature(cls.__init__)
     filtered_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
     return cls(**filtered_kwargs)
+
+
+def create_circuit_with_uniform_error_rate(
+    name: str, error_rate: float, **kwargs
+) -> QECCircuit:
+    """Create a QEC circuit by name with uniform error rate. Only the keyword-only
+    arguments in the classmethod ``with_uniform_error_rate`` will be passed through.
+
+    Check out ``qecdec.circuits.CIRCUITS_REGISTRY`` for all available circuit names and
+    the corresponding return classes.
+    """
+    cls = CIRCUITS_REGISTRY.get(name)
+    if cls is None:
+        raise ValueError(f"Invalid circuit name: {name!r}")
+    sig = inspect.signature(cls.with_uniform_error_rate)
+    whitelist = [
+        name
+        for name, param in sig.parameters.items()
+        if param.kind == inspect.Parameter.KEYWORD_ONLY
+    ]
+    filtered_kwargs = {k: v for k, v in kwargs.items() if k in whitelist}
+    return cls.with_uniform_error_rate(error_rate, **filtered_kwargs)

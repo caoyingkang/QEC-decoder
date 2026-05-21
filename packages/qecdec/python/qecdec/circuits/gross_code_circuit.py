@@ -136,3 +136,21 @@ class GrossCode_Circuit(QECCircuit, registry_name="GrossCode_Circuit"):
         if filter_detectors:
             circuit = _filter_detectors_by_basis(circuit, basis)
         super().__init__(circuit)
+
+    @classmethod
+    def with_uniform_error_rate(
+        cls,
+        error_rate: float,
+        *,
+        lookup_dir: str | Path,
+        rounds: int,
+        basis: Literal["X", "Z"],
+        filter_detectors: bool = True,
+    ) -> "GrossCode_Circuit":
+        return GrossCode_Circuit(
+            lookup_dir=lookup_dir,
+            rounds=rounds,
+            basis=basis,
+            error_rate=error_rate,
+            filter_detectors=filter_detectors,
+        )

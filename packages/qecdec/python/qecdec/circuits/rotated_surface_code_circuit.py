@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Literal
 
 import stim
@@ -107,16 +105,13 @@ class RotatedSurfaceCode_Circuit(
 
     @classmethod
     def with_uniform_error_rate(
-        self,
+        cls,
+        error_rate: float,
         *,
         d: int,
         rounds: int,
         basis: Literal["X", "Z"],
-        error_rate: float,
-    ) -> RotatedSurfaceCode_Circuit:
-        """Alternative constructor with all fault locations having the
-        same error rate.
-        """
+    ) -> "RotatedSurfaceCode_Circuit":
         return RotatedSurfaceCode_Circuit(
             d=d,
             rounds=rounds,
