@@ -21,7 +21,7 @@ import stim
 
 from ..decoder_wrapper import BenchmarkDecoder
 from ..task import TaskMetadata, TaskStats
-from .utils import _info, _sample
+from ..utils import _info, _sample
 
 
 def _read_global_totals(
@@ -76,7 +76,7 @@ def _worker_loop(
         result_queue.put(stats)
 
 
-def _run_parallel_collect(
+def _collect_stats_parallel(
     *,
     dem: stim.DetectorErrorModel,
     decoder: BenchmarkDecoder,

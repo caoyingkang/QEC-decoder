@@ -15,10 +15,10 @@ import stim
 
 from ..decoder_wrapper import BenchmarkDecoder
 from ..task import TaskMetadata, TaskStats
-from .utils import _sample
+from ..utils import _sample
 
 
-def _run_serial_collect(
+def _collect_stats_serial(
     *,
     dem: stim.DetectorErrorModel,
     decoder: BenchmarkDecoder,
