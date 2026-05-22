@@ -96,11 +96,11 @@ if __name__ == "__main__":
         task_metadata.decoder_name,
     )
 
-    from rich import print as rprint
+    # from rich import print as rprint
 
-    rprint("collector_params:\n", collector_params)
-    rprint("task_metadata:\n", task_metadata)
-    rprint("csv_path:\n", csv_path)
+    # rprint("collector_params:\n", collector_params)
+    # rprint("task_metadata:\n", task_metadata)
+    # rprint("csv_path:\n", csv_path)
 
     if st.button("Run benchmark", type="primary"):
         benchmark_running_modal(task_metadata, collector_params, csv_path)
