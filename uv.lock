@@ -3721,6 +3721,11 @@ dependencies = [
     { name = "torchdecoder-core" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "frozendict" },
@@ -3735,6 +3740,9 @@ requires-dist = [
     { name = "torch" },
     { name = "torchdecoder-core", editable = "packages/torchdecoder-core" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest" }]
 
 [[package]]
 name = "qecdec"

@@ -20,3 +20,6 @@ package = true
 
 [tool.uv.sources]
 qecdec = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

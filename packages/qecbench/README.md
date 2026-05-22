@@ -9,6 +9,15 @@ scripts, and CI as well.
 no hardcoded data-file locations. Callers pass in pre-built
 `qecdec.experiments.Experiment` objects and explicit checkpoint / CSV paths.
 
+## Running tests
+
+The test suite under `tests/` uses [pytest](https://pytest.org). From the repository root, install the `test` dependency group and run the suite:
+
+```bash
+uv sync --group test
+uv run pytest packages/qecbench/tests -v
+```
+
 ## Public API
 
 ```python

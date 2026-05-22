@@ -18,6 +18,9 @@ dependencies = [
     "frozendict",
 ]
 
+[dependency-groups]
+dev = ["pytest"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -31,3 +34,6 @@ package = true
 [tool.uv.sources]
 qecdec = { workspace = true }
 torchdecoder-core = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
