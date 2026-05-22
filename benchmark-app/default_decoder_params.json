@@ -1,0 +1,142 @@
+{
+    "GrossCode_Circuit": {
+        "rounds=12,basis=Z": {
+            "BP": {
+                "max_iter": 50
+            },
+            "MemBP": {
+                "gamma": 0.2,
+                "max_iter": 50
+            },
+            "MultiRelayBP": {
+                "gamma0": 0.2,
+                "gamma_dist_interval": [
+                    -0.19806670996164882,
+                    0.6200937872049607
+                ],
+                "num_chains": 4,
+                "num_relays": 4,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
+            },
+            "RelayBP": {
+                "gamma0": 0.2,
+                "gamma_dist_interval": [
+                    -0.19806670996164882,
+                    0.6200937872049607
+                ],
+                "num_relays": 16,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
+            }
+        }
+    },
+    "RotatedSurfaceCode_Phenom": {
+        "d=11,rounds=11,basis=Z": {
+            "BP": {
+                "max_iter": 50
+            },
+            "MemBP": {
+                "gamma": 0.55,
+                "max_iter": 50
+            },
+            "MultiRelayBP": {
+                "gamma0": 0.55,
+                "gamma_dist_interval": [
+                    -0.2249502476717961,
+                    0.7537800632074495
+                ],
+                "num_chains": 4,
+                "num_relays": 4,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
+            },
+            "MWPM": {},
+            "RelayBP": {
+                "gamma0": 0.55,
+                "gamma_dist_interval": [
+                    -0.2249502476717961,
+                    0.7537800632074495
+                ],
+                "num_relays": 16,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
+            },
+            "UnionFind": {}
+        }
+    },
+    "RotatedSurfaceCode_Circuit": {
+        "d=11,rounds=11,basis=Z": {
+            "BP": {
+                "max_iter": 50
+            },
+            "MemBP": {
+                "gamma": 0.55,
+                "max_iter": 50
+            },
+            "MultiRelayBP": {
+                "gamma0": 0.55,
+                "gamma_dist_interval": [
+                    -0.2526669073577039,
+                    0.9575754453501071
+                ],
+                "num_chains": 4,
+                "num_relays": 4,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
+            },
+            "MWPM": {},
+            "RelayBP": {
+                "gamma0": 0.55,
+                "gamma_dist_interval": [
+                    -0.2526669073577039,
+                    0.9575754453501071
+                ],
+                "num_relays": 16,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
+            },
+            "UnionFind": {}
+        }
+    },
+    "HexColorCode_Phenom": {
+        "d=11,rounds=11,basis=Z": {
+            "BP": {
+                "max_iter": 50
+            },
+            "MemBP": {
+                "gamma": 0.55,
+                "max_iter": 50
+            },
+            "MultiRelayBP": {
+                "gamma0": 0.55,
+                "gamma_dist_interval": [
+                    -0.21295457674166532,
+                    0.697918233656232
+                ],
+                "num_chains": 4,
+                "num_relays": 4,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
+            },
+            "RelayBP": {
+                "gamma0": 0.55,
+                "gamma_dist_interval": [
+                    -0.21295457674166532,
+                    0.697918233656232
+                ],
+                "num_relays": 16,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
+            }
+        }
+    }
+}
