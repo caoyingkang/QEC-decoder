@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal, Optional
 
 import numpy as np
 import stim
@@ -108,25 +108,33 @@ def _filter_detectors_by_basis(
     return filtered_circuit
 
 
-class GrossCode_Circuit(QECCircuit, registry_name="GrossCode_Circuit"):
-    """Memory circuit for the gross code."""
+class BB_144_12_12_Circuit(QECCircuit, registry_name="BB_144_12_12_Circuit"):
+    """Memory circuit for the gross code (i.e., a BB code with parameters [[144,12,12]])."""
+
+    load_dir: ClassVar[Optional[Path]] = None
 
     def __init__(
         self,
         *,
-        lookup_dir: str | Path,
-        rounds: int,
         basis: Literal["X", "Z"],
+        rounds: int,
         error_rate: float,
         filter_detectors: bool = True,
     ):
         """
-        Load circuit at ``lookup_dir/d=12_rounds=<rounds>_basis=<basis>/error_rate=<error_rate>.stim``.
+        Load circuit at ``load_dir/basis=<basis>_rounds=<rounds>/error_rate=<error_rate>.stim``.
         If ``filter_detectors`` is True, filter out any off-basis detectors.
+
+        User should set the class-attribute ``load_dir`` before instantiating this class.
         """
+        if BB_144_12_12_Circuit.load_dir is None:
+            raise RuntimeError(
+                "Please set `BB_144_12_12_Circuit.load_dir` before instantiating this class"
+            )
+
         path = (
-            Path(lookup_dir)
-            / f"d=12_rounds={rounds}_basis={basis}"
+            Path(BB_144_12_12_Circuit.load_dir)
+            / f"basis={basis}_rounds={rounds}"
             / f"error_rate={error_rate}.stim"
         )
         if not path.exists():
@@ -142,15 +150,13 @@ class GrossCode_Circuit(QECCircuit, registry_name="GrossCode_Circuit"):
         cls,
         error_rate: float,
         *,
-        lookup_dir: str | Path,
-        rounds: int,
         basis: Literal["X", "Z"],
+        rounds: int,
         filter_detectors: bool = True,
-    ) -> "GrossCode_Circuit":
-        return GrossCode_Circuit(
-            lookup_dir=lookup_dir,
-            rounds=rounds,
+    ) -> "BB_144_12_12_Circuit":
+        return BB_144_12_12_Circuit(
             basis=basis,
+            rounds=rounds,
             error_rate=error_rate,
             filter_detectors=filter_detectors,
         )

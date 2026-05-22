@@ -5,12 +5,16 @@ Run with: `uv run streamlit run benchmark-app/app.py` (from repo root)
 
 from pathlib import Path
 from qecbench import CollectorParams, TaskMetadata, run_benchmark
+import qecdec
 import queue
 import streamlit as st
 import threading
 
+from constants import CIRCUITS_ROOT
 from ui import render_sidebar_collector_selection, render_task_selection
 from utils import get_csv_path
+
+qecdec.circuits.BB_144_12_12_Circuit.load_dir = CIRCUITS_ROOT / "BB_144_12_12_Circuit"
 
 
 def thread_target(

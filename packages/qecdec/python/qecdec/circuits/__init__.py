@@ -2,7 +2,7 @@
 
 from .base import CIRCUITS_REGISTRY, QECCircuit
 from .factory import create_circuit, create_circuit_with_uniform_error_rate
-from .gross_code_circuit import GrossCode_Circuit
+from .gross_code_circuit import BB_144_12_12_Circuit
 from .hex_color_code_phenom import HexColorCode_Phenom
 from .repetition_code_circuit import RepetitionCode_Circuit
 from .rotated_surface_code_circuit import RotatedSurfaceCode_Circuit
@@ -13,7 +13,7 @@ __all__ = [
     "QECCircuit",
     "create_circuit",
     "create_circuit_with_uniform_error_rate",
-    "GrossCode_Circuit",
+    "BB_144_12_12_Circuit",
     "HexColorCode_Phenom",
     "RepetitionCode_Circuit",
     "RotatedSurfaceCode_Circuit",
