@@ -3,168 +3,31 @@ Streamlit app for Monte Carlo benchmarking of QEC decoders.
 Run with: `uv run streamlit run benchmark-app/app.py` (from repo root)
 """
 
-import logging
-import os
-import queue
-import threading
 from pathlib import Path
-
+from qecbench import CollectorParams, TaskMetadata, run_benchmark
+import queue
 import streamlit as st
-import torch
+import threading
 
-from qecbench import (
-    BenchTaskParams,
-    CollectorParams,
-    QECParams,
-    StatsSource,
-    TorchDecoderTask,
-    build_baseline_sources,
-    get_torchdecoder_csv_path,
-    load_and_filter_stats,
-    plot_avg_iters_vs_per,
-    plot_fr_vs_per,
-    plot_iters_distribution,
-    plot_ler_vs_per,
-    plot_smr_vs_per,
-    run_custom_benchmark,
-)
-from qecdec.experiments import Experiment
-
-from constants import (
-    BASELINES_CSV_DIR,
-    DEFAULT_BATCH_SIZE,
-    DEFAULT_ERRORS_CAP,
-    DEFAULT_SHOTS_CAP,
-    TORCH_RUNS_ROOT,
-)
-from experiment_factory import create_experiment
-from plotting import render_plot, render_plotly
-from torchdecoder_utils import (
-    discover_run_dirs,
-    extract_pytorch_decoder_name,
-    get_ckpt_path,
-    load_model_config_from_run_dir,
-)
-from ui import (
-    render_baselines_selection,
-    render_missing_data_warning_and_benchmark_button,
-    render_p_list_selection,
-    render_qec_selection,
-    render_torchdecoder_selection,
-    stop_if_no_decoders_selected,
-    validate_stim_files,
-)
-
-# Suppress noisy warnings from multiprocessing workers that don't run under `streamlit run`.
-logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(
-    logging.ERROR
-)
+from ui import render_sidebar_collector_selection, render_task_selection
+from utils import get_csv_path
 
 
-class _SuppressBareRunWarning(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        return "to view a Streamlit app on a browser" not in record.getMessage()
-
-
-logging.getLogger("streamlit").addFilter(_SuppressBareRunWarning())
-
-st.set_page_config(page_title="Decoder Benchmark", layout="wide", page_icon="📈")
-st.title("Monte Carlo Benchmark")
-
-
-def _render_sidebar_collector_selection() -> CollectorParams:
-    """Render the Monte Carlo collector parameters sidebar.
-
-    Return the selected Monte Carlo collector parameters.
-    """
-    with st.sidebar:
-        st.subheader("Select Monte Carlo collector parameters")
-        batch_size = st.number_input(
-            "Batch size",
-            value=DEFAULT_BATCH_SIZE,
-            min_value=1,
-            help="Number of shots to process in each batch.",
-        )
-        shots_cap = st.number_input(
-            "Shots cap",
-            value=DEFAULT_SHOTS_CAP,
-            min_value=1,
-            help="Stop Monte Carlo sampling after taking this many shots.",
-        )
-        errors_cap = st.number_input(
-            "Logical errors cap",
-            value=DEFAULT_ERRORS_CAP,
-            min_value=1,
-            help="Stop Monte Carlo sampling after having seen this many logical errors.",
-        )
-        device = st.selectbox(
-            "Device for PyTorch",
-            options=["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"],
-            index=0,
-            help="Device to run PyTorch decoders on. (Baseline decoders are always run on CPU.)",
-        )
-        multiprocessing_mode = st.checkbox(
-            "Use multiprocessing",
-            value=(device == "cpu"),
-            help="If checked, run the Monte Carlo collection with multiprocessing.",
-        )
-        if multiprocessing_mode:
-            num_parallel_workers = st.number_input(
-                "Number of parallel workers",
-                value=max(1, (os.cpu_count() or 1) - 1),
-                min_value=1,
-                help="Number of parallel worker processes.",
-            )
-            if device == "cuda":
-                st.warning(
-                    "It is not recommended to run Python's multiprocessing on CUDA."
-                )
-        else:
-            num_parallel_workers = 0
-
-    return CollectorParams(
-        batch_size=batch_size,
-        shots_cap=shots_cap,
-        errors_cap=errors_cap,
-        device=device,
-        num_parallel_workers=num_parallel_workers,
-    )
-
-
-def _build_torchdecoder_tasks(run_dirs: list[Path]) -> list[TorchDecoderTask]:
-    """Resolve each Lightning run dir into a TorchDecoderTask qecbench can run."""
-    return [
-        TorchDecoderTask(
-            decoder_name=extract_pytorch_decoder_name(run_dir),
-            model_cfg=load_model_config_from_run_dir(run_dir),
-            ckpt_path=get_ckpt_path(run_dir),
-            csv_path=get_torchdecoder_csv_path(run_dir),
-        )
-        for run_dir in run_dirs
-    ]
-
-
-def _run_all_benchmarks(
+def thread_target(
+    task_metadata: TaskMetadata,
+    collector_params: CollectorParams,
+    csv_path: Path,
     stop_event: threading.Event,
     exc_queue: queue.Queue,
-    pending_baseline_decoders: list[str],
-    pending_torchdecoder_tasks: list[TorchDecoderTask],
-    qec_params: QECParams,
-    benchtask_params: BenchTaskParams,
-    collector_params: CollectorParams,
-    experiments: dict[float, Experiment],
 ) -> None:
-    """Run all pending benchmark tasks. Exit early if `stop_event` is set.
-    Put any exception that occurs into `exc_queue`."""
+    """Run benchmark task. Exit early if `stop_event` is set.
+    Put any exception that occurs into `exc_queue`.
+    """
     try:
-        run_custom_benchmark(
-            qec_params=qec_params,
-            benchtask_params=benchtask_params,
-            collector_params=collector_params,
-            experiments=experiments,
-            baseline_csv_dir=BASELINES_CSV_DIR,
-            baseline_decoders=pending_baseline_decoders,
-            torchdecoder_tasks=pending_torchdecoder_tasks,
+        run_benchmark(
+            task_metadata,
+            collector_params,
+            csv_path=csv_path,
             stop_event=stop_event,
         )
     except Exception as e:
@@ -172,7 +35,7 @@ def _run_all_benchmarks(
 
 
 @st.fragment(run_every=2)
-def _stop_monitor(
+def monitor(
     thread: threading.Thread,
     stop_event: threading.Event,
     exc_queue: queue.Queue,
@@ -191,14 +54,8 @@ def _stop_monitor(
 
 
 @st.dialog("Running Benchmark", dismissible=False)
-def _benchmark_progress_modal(
-    pending_baseline_decoders: list[str],
-    pending_torchdecoder_tasks: list[TorchDecoderTask],
-    *,
-    qec_params: QECParams,
-    benchtask_params: BenchTaskParams,
-    collector_params: CollectorParams,
-    load_circuit_from_file: bool,
+def benchmark_running_modal(
+    task_metadata: TaskMetadata, collector_params: CollectorParams, csv_path: Path
 ) -> None:
     """Modal dialog shown while a benchmark is in progress.
 
@@ -206,188 +63,41 @@ def _benchmark_progress_modal(
     the dialog is by clicking the "Stop benchmark" button or waiting for the
     benchmark to finish.
     """
-    experiments = {
-        p: create_experiment(
-            qec_params,
-            p,
-            load_circuit_from_file=load_circuit_from_file,
-        )
-        for p in benchtask_params.p_list
-    }
-
     stop_event = threading.Event()
     exc_queue = queue.Queue()
     thread = threading.Thread(
-        target=_run_all_benchmarks,
+        target=thread_target,
         args=(
+            task_metadata,
+            collector_params,
+            csv_path,
             stop_event,
             exc_queue,
-            pending_baseline_decoders,
-            pending_torchdecoder_tasks,
-            qec_params,
-            benchtask_params,
-            collector_params,
-            experiments,
         ),
         daemon=True,
     )
     thread.start()
-    _stop_monitor(thread, stop_event, exc_queue)
+    monitor(thread, stop_event, exc_queue)
 
 
-# -- Page layout ---------------------------------------------------------------
+if __name__ == "__main__":
+    st.set_page_config(page_title="Decoder Benchmark", layout="wide", page_icon="📈")
+    st.title("Monte Carlo Benchmark")
 
-p_list = render_p_list_selection()
-collector_params = _render_sidebar_collector_selection()
-
-qec_params = render_qec_selection()
-load_circuit_from_file = qec_params.code.startswith("BB_") or (
-    qec_params.code == "HexColorCode" and qec_params.noise_model == "Superdense"
-)
-if load_circuit_from_file:
-    validate_stim_files(qec_params, p_list)
-
-selected_baseline_decoders, baseline_decoder_params = render_baselines_selection(
-    qec_params
-)
-
-run_dirs = discover_run_dirs(TORCH_RUNS_ROOT, qec_params)
-
-if len(run_dirs) > 0:
-    selected_run_dirs, torchdecoder_shared_params = render_torchdecoder_selection(
-        run_dirs, qec_params
+    collector_params = render_sidebar_collector_selection()
+    task_metadata = render_task_selection()
+    csv_path = get_csv_path(
+        task_metadata.circuit_name,
+        task_metadata.circuit_params,
+        task_metadata.decoder_name,
     )
-else:
-    selected_run_dirs = []
-    torchdecoder_shared_params = {}
 
-stop_if_no_decoders_selected(selected_run_dirs, selected_baseline_decoders)
+    from rich import print as rprint
 
-benchtask_params = BenchTaskParams(
-    p_list=p_list,
-    baseline_decoder_params=baseline_decoder_params,
-    torchdecoder_shared_params=torchdecoder_shared_params,
-)
+    rprint("collector_params:\n", collector_params)
+    rprint("task_metadata:\n", task_metadata)
+    rprint("csv_path:\n", csv_path)
 
-torchdecoder_tasks = _build_torchdecoder_tasks(selected_run_dirs)
-
-torchdecoder_sources = [
-    StatsSource(
-        display_name=task.decoder_name,
-        csv_path=task.csv_path,
-        expected_decoder_params=benchtask_params.torchdecoder_shared_params,
-    )
-    for task in torchdecoder_tasks
-]
-baseline_sources = build_baseline_sources(
-    BASELINES_CSV_DIR,
-    qec_params=qec_params,
-    benchtask_params=benchtask_params,
-    baseline_decoders=selected_baseline_decoders,
-)
-
-stats, pending_display_names = load_and_filter_stats(
-    torchdecoder_sources + baseline_sources,
-    p_list=benchtask_params.p_list,
-    collector_params=collector_params,
-)
-pending_torchdecoder_tasks = [
-    t for t in torchdecoder_tasks if t.decoder_name in pending_display_names
-]
-pending_baseline_decoders = [
-    d for d in selected_baseline_decoders if d in pending_display_names
-]
-
-if len(pending_torchdecoder_tasks) > 0 or len(pending_baseline_decoders) > 0:
-    clicked = render_missing_data_warning_and_benchmark_button(
-        [t.decoder_name for t in pending_torchdecoder_tasks],
-        pending_baseline_decoders,
-    )
-    if clicked:
-        _benchmark_progress_modal(
-            pending_baseline_decoders,
-            pending_torchdecoder_tasks,
-            qec_params=qec_params,
-            benchtask_params=benchtask_params,
-            collector_params=collector_params,
-            load_circuit_from_file=load_circuit_from_file,
-        )
+    if st.button("Run benchmark", type="primary"):
+        benchmark_running_modal(task_metadata, collector_params, csv_path)
     st.stop()
-
-# Data is complete -- plot
-st.subheader("Benchmark Results")
-tabs = st.tabs(["FR", "LER", "SMR", "Iters (Avg)", "Iters (Dist)"])
-
-iterative_stats = [s for s in stats if s.metadata.is_iterative]
-
-with tabs[0]:
-    st.markdown("##### Failure Rate (FR) vs Physical Error Rate (PER)")
-    fr_mode = st.radio(
-        "FR calculation method",
-        options=["per shot", "per round"],
-        horizontal=True,
-        key="fr_mode",
-    )
-    fig = plot_fr_vs_per(stats, qec_params=qec_params, mode=fr_mode)
-    render_plot(fig, filename="benchmark_FR_vs_PER.png")
-
-with tabs[1]:
-    st.markdown("##### Logical Error Rate (LER) vs Physical Error Rate (PER)")
-    ler_mode = st.radio(
-        "LER calculation method",
-        options=["per shot", "per round"],
-        horizontal=True,
-        key="ler_mode",
-    )
-    fig = plot_ler_vs_per(stats, qec_params=qec_params, mode=ler_mode)
-    render_plot(fig, filename="benchmark_LER_vs_PER.png")
-
-with tabs[2]:
-    st.markdown("##### Syndrome Mismatch Rate (SMR) vs Physical Error Rate (PER)")
-
-    filtered_stats = [s for s in stats if s.synd_mismatches > 0]
-
-    if len(filtered_stats) == 0:
-        st.warning("No syndrome mismatches found for the selected decoders.")
-    else:
-        smr_mode = st.radio(
-            "SMR calculation method",
-            options=["per shot", "per round"],
-            horizontal=True,
-            key="smr_mode",
-        )
-        fig = plot_smr_vs_per(filtered_stats, qec_params=qec_params, mode=smr_mode)
-        render_plot(fig, filename="benchmark_SMR_vs_PER.png")
-
-with tabs[3]:
-    st.markdown("##### Average Iterations vs Physical Error Rate (PER)")
-    if len(iterative_stats) == 0:
-        st.warning("No iterative decoders selected.")
-    else:
-        avg_over = st.radio(
-            "Average over",
-            options=["all shots", "converged shots", "successful shots"],
-            horizontal=True,
-            key="avg_over",
-        )
-        fig = plot_avg_iters_vs_per(
-            iterative_stats, qec_params=qec_params, avg_over=avg_over
-        )
-        render_plot(fig, filename="benchmark_AvgIters_vs_PER.png")
-
-with tabs[4]:
-    st.markdown("##### Iterations Distributions")
-    if len(iterative_stats) == 0:
-        st.warning("No iterative decoders selected.")
-    else:
-        dist_over = st.radio(
-            "Distribution over",
-            options=["all shots", "converged shots", "successful shots"],
-            horizontal=True,
-            key="iter_dist_over",
-        )
-        for p in benchtask_params.p_list:
-            fig = plot_iters_distribution(
-                iterative_stats, p=p, qec_params=qec_params, dist_over=dist_over
-            )
-            render_plotly(fig)

@@ -1,8 +1,16 @@
 {
-    "GrossCode_Circuit": {
-        "rounds=12,basis=Z": {
+    "GrossCode_Circuit": [
+        {
+            "circuit_params": {
+                "rounds": 12,
+                "basis": "Z"
+            },
             "BP": {
                 "max_iter": 50
+            },
+            "BPOSD": {
+                "max_bp_iter": 50,
+                "osd_order": 10
             },
             "MemBP": {
                 "gamma": 0.2,
@@ -32,9 +40,14 @@
                 "stop_nconv": 1
             }
         }
-    },
-    "RotatedSurfaceCode_Phenom": {
-        "d=11,rounds=11,basis=Z": {
+    ],
+    "RotatedSurfaceCode_Phenom": [
+        {
+            "circuit_params": {
+                "d": 11,
+                "rounds": 11,
+                "basis": "Z"
+            },
             "BP": {
                 "max_iter": 50
             },
@@ -68,9 +81,14 @@
             },
             "UnionFind": {}
         }
-    },
-    "RotatedSurfaceCode_Circuit": {
-        "d=11,rounds=11,basis=Z": {
+    ],
+    "RotatedSurfaceCode_Circuit": [
+        {
+            "circuit_params": {
+                "d": 11,
+                "rounds": 11,
+                "basis": "Z"
+            },
             "BP": {
                 "max_iter": 50
             },
@@ -104,11 +122,20 @@
             },
             "UnionFind": {}
         }
-    },
-    "HexColorCode_Phenom": {
-        "d=11,rounds=11,basis=Z": {
+    ],
+    "HexColorCode_Phenom": [
+        {
+            "circuit_params": {
+                "d": 11,
+                "rounds": 11,
+                "basis": "Z"
+            },
             "BP": {
                 "max_iter": 50
+            },
+            "BPOSD": {
+                "max_bp_iter": 50,
+                "osd_order": 10
             },
             "MemBP": {
                 "gamma": 0.55,
@@ -138,5 +165,5 @@
                 "stop_nconv": 1
             }
         }
-    }
+    ]
 }

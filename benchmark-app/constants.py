@@ -22,17 +22,13 @@ DEFAULT_ERROR_RATE = 0.001
 
 
 # --- Decoder parameters ------------------------------------------
-def _load_default_decoder_params_json_dict() -> dict[str, Any]:
+def _load_default_decoder_params_json_dict() -> dict[
+    str, list[dict[str, dict[str, Any]]]
+]:
     json_path = BENCHMARK_APP_ROOT / "default_decoder_params.json"
     with open(json_path, "r") as f:
         params = json.load(f)
     return params
 
 
-_DEFAULT_DECODER_PARAMS = _load_default_decoder_params_json_dict()
-
-
-def get_default_decoder_params(
-    circuit_name: str, circuit_params_str: str, decoder_name: str
-) -> dict[str, Any]:
-    return _DEFAULT_DECODER_PARAMS[circuit_name][circuit_params_str][decoder_name]
+DEFAULT_DECODER_PARAMS = _load_default_decoder_params_json_dict()

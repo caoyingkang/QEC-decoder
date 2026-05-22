@@ -294,7 +294,7 @@ class TaskStats:
         with open(path, "r", newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                schema_version = int(row["schema_version"])
+                schema_version = int(row["SCHEMA_VERSION"])
                 if schema_version != TaskMetadata.SCHEMA_VERSION:
                     raise ValueError(
                         f"CSV at {path} has entries with schema_version={schema_version}; "
