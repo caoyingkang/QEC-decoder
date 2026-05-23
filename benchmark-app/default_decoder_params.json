@@ -23,7 +23,7 @@
                     0.6200937872049607
                 ],
                 "num_chains": 4,
-                "num_relays": 4,
+                "num_relays": 16,
                 "pre_iter": 50,
                 "max_iter_per_relay": 50,
                 "stop_nconv": 1
@@ -62,7 +62,7 @@
                     0.7537800632074495
                 ],
                 "num_chains": 4,
-                "num_relays": 4,
+                "num_relays": 16,
                 "pre_iter": 50,
                 "max_iter_per_relay": 50,
                 "stop_nconv": 1
@@ -103,7 +103,7 @@
                     0.9575754453501071
                 ],
                 "num_chains": 4,
-                "num_relays": 4,
+                "num_relays": 16,
                 "pre_iter": 50,
                 "max_iter_per_relay": 50,
                 "stop_nconv": 1
@@ -148,7 +148,7 @@
                     0.697918233656232
                 ],
                 "num_chains": 4,
-                "num_relays": 4,
+                "num_relays": 16,
                 "pre_iter": 50,
                 "max_iter_per_relay": 50,
                 "stop_nconv": 1

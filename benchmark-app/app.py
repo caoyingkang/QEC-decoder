@@ -12,7 +12,7 @@ import threading
 
 from constants import CIRCUITS_ROOT
 from ui import render_sidebar_collector_selection, render_task_selection
-from utils import get_csv_path
+from utils import check_benchmark_completeness, get_csv_path
 
 qecdec.circuits.BB_144_12_12_Circuit.load_dir = CIRCUITS_ROOT / "BB_144_12_12_Circuit"
 
@@ -102,6 +102,16 @@ if __name__ == "__main__":
     # rprint("task_metadata:\n", task_metadata)
     # rprint("csv_path:\n", csv_path)
 
-    if st.button("Run benchmark", type="primary"):
-        benchmark_running_modal(task_metadata, collector_params, csv_path)
+    completed = check_benchmark_completeness(
+        task_metadata,
+        csv_path,
+        collector_params.shots_cap,
+        collector_params.errors_cap,
+    )
+    if completed:
+        st.success("Benchmark complete!")
+    else:
+        if st.button("Run benchmark", type="primary"):
+            benchmark_running_modal(task_metadata, collector_params, csv_path)
+
     st.stop()
