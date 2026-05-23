@@ -12,4 +12,10 @@ def dict_to_str(d: Mapping[str, Any], *, seperator: str = "_") -> str:
 def get_csv_path(
     circuit_name: str, circuit_params: Mapping[str, Any], decoder_name: str
 ) -> Path:
-    return RESULTS_DIR / dict_to_str(circuit_params) / decoder_name / "results.csv"
+    return (
+        RESULTS_DIR
+        / circuit_name
+        / dict_to_str(circuit_params)
+        / decoder_name
+        / "results.csv"
+    )

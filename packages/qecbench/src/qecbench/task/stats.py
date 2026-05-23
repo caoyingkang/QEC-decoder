@@ -290,6 +290,11 @@ class TaskStats:
         def _intarray_or_none(v: str) -> Int1DArray | None:
             return np.array(json.loads(v), dtype=np.int64) if v else None
 
+        def _decoder_params_object_hook(d: dict) -> dict:
+            if "gamma_dist_interval" in d:
+                d["gamma_dist_interval"] = tuple(d["gamma_dist_interval"])
+            return d
+
         stats_list: list[TaskStats] = []
         with open(path, "r", newline="") as f:
             reader = csv.DictReader(f)
@@ -305,7 +310,12 @@ class TaskStats:
                     circuit_params=frozendict(json.loads(row["circuit_params"])),
                     error_rate=float(row["error_rate"]),
                     decoder_name=row["decoder_name"],
-                    decoder_params=frozendict(json.loads(row["decoder_params"])),
+                    decoder_params=frozendict(
+                        json.loads(
+                            row["decoder_params"],
+                            object_hook=_decoder_params_object_hook,
+                        )
+                    ),
                     decoder_label=row["decoder_label"],
                 )
                 stats_list.append(
