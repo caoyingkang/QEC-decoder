@@ -2,19 +2,26 @@
     "BB_144_12_12_Circuit": [
         {
             "circuit_params": {
-                "rounds": 12,
-                "basis": "Z"
+                "basis": "Z",
+                "rounds": 12
             },
             "BP": {
                 "max_iter": 50
             },
-            "BPOSD": {
-                "max_bp_iter": 50,
-                "osd_order": 10
-            },
             "MemBP": {
                 "gamma": 0.2,
                 "max_iter": 50
+            },
+            "RelayBP": {
+                "gamma0": 0.2,
+                "gamma_dist_interval": [
+                    -0.19806670996164882,
+                    0.6200937872049607
+                ],
+                "num_relays": 16,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
             },
             "MultiRelayBP": {
                 "gamma0": 0.2,
@@ -28,25 +35,18 @@
                 "max_iter_per_relay": 50,
                 "stop_nconv": 1
             },
-            "RelayBP": {
-                "gamma0": 0.2,
-                "gamma_dist_interval": [
-                    -0.19806670996164882,
-                    0.6200937872049607
-                ],
-                "num_relays": 16,
-                "pre_iter": 50,
-                "max_iter_per_relay": 50,
-                "stop_nconv": 1
+            "BPOSD": {
+                "max_bp_iter": 50,
+                "osd_order": 10
             }
         }
     ],
     "RotatedSurfaceCode_Phenom": [
         {
             "circuit_params": {
+                "basis": "Z",
                 "d": 11,
-                "rounds": 11,
-                "basis": "Z"
+                "rounds": 11
             },
             "BP": {
                 "max_iter": 50
@@ -55,6 +55,19 @@
                 "gamma": 0.55,
                 "max_iter": 50
             },
+            "LearnedDMemBP": {},
+            "RelayBP": {
+                "gamma0": 0.55,
+                "gamma_dist_interval": [
+                    -0.2249502476717961,
+                    0.7537800632074495
+                ],
+                "num_relays": 16,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
+            },
+            "LearnedRelayBP": {},
             "MultiRelayBP": {
                 "gamma0": 0.55,
                 "gamma_dist_interval": [
@@ -67,27 +80,17 @@
                 "max_iter_per_relay": 50,
                 "stop_nconv": 1
             },
+            "LearnedMultiRelayBP": {},
             "MWPM": {},
-            "RelayBP": {
-                "gamma0": 0.55,
-                "gamma_dist_interval": [
-                    -0.2249502476717961,
-                    0.7537800632074495
-                ],
-                "num_relays": 16,
-                "pre_iter": 50,
-                "max_iter_per_relay": 50,
-                "stop_nconv": 1
-            },
             "UnionFind": {}
         }
     ],
     "RotatedSurfaceCode_Circuit": [
         {
             "circuit_params": {
+                "basis": "Z",
                 "d": 11,
-                "rounds": 11,
-                "basis": "Z"
+                "rounds": 11
             },
             "BP": {
                 "max_iter": 50
@@ -96,11 +99,22 @@
                 "gamma": 0.55,
                 "max_iter": 50
             },
+            "RelayBP": {
+                "gamma0": 0.55,
+                "gamma_dist_interval": [
+                    -0.2944735403909491,
+                    0.9444054073490704
+                ],
+                "num_relays": 16,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
+            },
             "MultiRelayBP": {
                 "gamma0": 0.55,
                 "gamma_dist_interval": [
-                    -0.2526669073577039,
-                    0.9575754453501071
+                    -0.2944735403909491,
+                    0.9444054073490704
                 ],
                 "num_chains": 4,
                 "num_relays": 16,
@@ -109,37 +123,33 @@
                 "stop_nconv": 1
             },
             "MWPM": {},
-            "RelayBP": {
-                "gamma0": 0.55,
-                "gamma_dist_interval": [
-                    -0.2526669073577039,
-                    0.9575754453501071
-                ],
-                "num_relays": 16,
-                "pre_iter": 50,
-                "max_iter_per_relay": 50,
-                "stop_nconv": 1
-            },
             "UnionFind": {}
         }
     ],
     "HexColorCode_Phenom": [
         {
             "circuit_params": {
+                "basis": "Z",
                 "d": 11,
-                "rounds": 11,
-                "basis": "Z"
+                "rounds": 11
             },
             "BP": {
                 "max_iter": 50
             },
-            "BPOSD": {
-                "max_bp_iter": 50,
-                "osd_order": 10
-            },
             "MemBP": {
                 "gamma": 0.55,
                 "max_iter": 50
+            },
+            "RelayBP": {
+                "gamma0": 0.55,
+                "gamma_dist_interval": [
+                    -0.21295457674166532,
+                    0.697918233656232
+                ],
+                "num_relays": 16,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
             },
             "MultiRelayBP": {
                 "gamma0": 0.55,
@@ -153,16 +163,9 @@
                 "max_iter_per_relay": 50,
                 "stop_nconv": 1
             },
-            "RelayBP": {
-                "gamma0": 0.55,
-                "gamma_dist_interval": [
-                    -0.21295457674166532,
-                    0.697918233656232
-                ],
-                "num_relays": 16,
-                "pre_iter": 50,
-                "max_iter_per_relay": 50,
-                "stop_nconv": 1
+            "BPOSD": {
+                "max_bp_iter": 50,
+                "osd_order": 10
             }
         }
     ]
