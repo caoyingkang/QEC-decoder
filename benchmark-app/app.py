@@ -19,6 +19,10 @@ from ui import (
 )
 from utils import get_csv_path
 
+# Register learned decoders so they can be instantiated by `qecdec.decoders.create_decoder`.
+import learned_decoders  # noqa: F401
+
+
 qecdec.circuits.BB_144_12_12_Circuit.load_dir = CIRCUITS_ROOT / "BB_144_12_12_Circuit"
 
 

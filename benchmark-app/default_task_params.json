@@ -5,6 +5,7 @@
                 "basis": "Z",
                 "rounds": 12
             },
+            "error_rate": 0.001,
             "BP": {
                 "max_iter": 50
             },
@@ -48,6 +49,7 @@
                 "d": 11,
                 "rounds": 11
             },
+            "error_rate": 0.005,
             "BP": {
                 "max_iter": 50
             },
@@ -55,7 +57,9 @@
                 "gamma": 0.65,
                 "max_iter": 50
             },
-            "LearnedDMemBP": {},
+            "LearnedDMemBP": {
+                "max_iter": 50
+            },
             "RelayBP": {
                 "gamma0": 0.65,
                 "gamma_dist_interval": [
@@ -67,7 +71,16 @@
                 "max_iter_per_relay": 50,
                 "stop_nconv": 1
             },
-            "LearnedRelayBP": {},
+            "LearnedRelayBP": {
+                "gamma_dist_interval": [
+                    -0.2241259276391633,
+                    0.5608805426310253
+                ],
+                "num_relays": 16,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
+            },
             "MultiRelayBP": {
                 "gamma0": 0.65,
                 "gamma_dist_interval": [
@@ -80,7 +93,17 @@
                 "max_iter_per_relay": 50,
                 "stop_nconv": 1
             },
-            "LearnedMultiRelayBP": {},
+            "LearnedMultiRelayBP": {
+                "gamma_dist_interval": [
+                    -0.2241259276391633,
+                    0.5608805426310253
+                ],
+                "num_chains": 4,
+                "num_relays": 16,
+                "pre_iter": 50,
+                "max_iter_per_relay": 50,
+                "stop_nconv": 1
+            },
             "MWPM": {},
             "UnionFind": {}
         }
@@ -92,6 +115,7 @@
                 "d": 11,
                 "rounds": 11
             },
+            "error_rate": 0.001,
             "BP": {
                 "max_iter": 50
             },
@@ -133,6 +157,7 @@
                 "d": 11,
                 "rounds": 11
             },
+            "error_rate": 0.005,
             "BP": {
                 "max_iter": 50
             },

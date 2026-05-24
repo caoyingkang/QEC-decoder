@@ -2,12 +2,14 @@ from pathlib import Path
 
 import numpy as np
 
-from qecdec.decoders import DMemBPDecoder
+from qecdec.decoders import DMemBPDecoder, MultiRelayBPDecoder, RelayBPDecoder
 from qecdec.types import Bit2DArray, Float1DArray
 import torch
 
+from constants import REPO_ROOT
 
-def _load_gamma_from_checkpoint(ckpt_path: Path) -> np.ndarray:
+
+def _load_gamma_from_checkpoint(ckpt_rel_path: Path) -> np.ndarray:
     """Extract the trained ``gamma`` parameter from a LearnedDMemBP Lightning checkpoint.
 
     The Lightning state_dict stores it under ``"model.gamma"`` (DecodingModule
@@ -15,45 +17,107 @@ def _load_gamma_from_checkpoint(ckpt_path: Path) -> np.ndarray:
     shape ``(num_vars,)`` ready to pass as the ``gamma`` argument to
     ``qecdec.decoders.DMemBPDecoder``.
     """
-    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    ckpt_abs_path = REPO_ROOT / ckpt_rel_path
+    ckpt = torch.load(ckpt_abs_path, map_location="cpu", weights_only=False)
     state_dict = ckpt["state_dict"]
     if "model.gamma" not in state_dict:
         raise KeyError(
-            f"'model.gamma' not found in checkpoint state_dict at {ckpt_path}. "
+            f"'model.gamma' not found in checkpoint state_dict at {ckpt_abs_path}. "
             f"Available keys: {sorted(state_dict.keys())}"
         )
     gamma = state_dict["model.gamma"].detach().cpu().to(torch.float64).numpy()
     if gamma.ndim != 1:
         raise ValueError(
-            f"Expected 1D gamma vector, got shape {gamma.shape} from {ckpt_path}"
+            f"Expected 1D gamma vector, got shape {gamma.shape} from {ckpt_abs_path}"
         )
     return gamma
 
 
 class LearnedDMemBPDecoder(DMemBPDecoder, registry_name="LearnedDMemBP"):
-    """Disordered-memory min-sum BP decoder."""
+    """DMemBP decoder with learned memory weights."""
 
     def __init__(
         self,
         pcm: Bit2DArray,
         prior: Float1DArray,
         *,
-        ckpt_path: Path | str,
+        ckpt_rel_path: Path | str,
         max_iter: int,
     ):
         """
-        Parameters
-        ----------
-        pcm : ndarray
-            Parity-check matrix, shape=(num_chks, num_vars), uint8 ∈ {0,1}.
-            Each row (check) must have at least two nonzero entries; each column
-            (variable) must have at least one nonzero entry.
-        prior : ndarray
-            Prior error probabilities, shape=(num_vars,), float64 ∈ (0,0.5).
-        ckpt_path : Path or str
-            Path to the Lightning checkpoint file containing the learned parameters.
-        max_iter : int
-            Max number of BP iterations.
+        ``ckpt_rel_path`` is the relative path from the repo root to the Lightning
+        checkpoint file containing the learned parameters. Other parameters are
+        passed to the DMemBPDecoder constructor.
         """
-        gamma = _load_gamma_from_checkpoint(Path(ckpt_path))
+        gamma = _load_gamma_from_checkpoint(ckpt_rel_path)
         super().__init__(pcm, prior, gamma=gamma, max_iter=max_iter)
+
+
+class LearnedRelayBPDecoder(RelayBPDecoder, registry_name="LearnedRelayBP"):
+    """RelayBP decoder with learned memory weights in the initial stage."""
+
+    def __init__(
+        self,
+        pcm: Bit2DArray,
+        prior: Float1DArray,
+        *,
+        ckpt_rel_path: Path | str,
+        gamma_dist_interval: tuple[float, float],
+        num_relays: int,
+        pre_iter: int,
+        max_iter_per_relay: int,
+        stop_nconv: int,
+    ):
+        """
+        ``ckpt_rel_path`` is the relative path from the repo root to the Lightning
+        checkpoint file containing the learned parameters. Other parameters are
+        passed to the RelayBP constructor.
+        """
+        gamma0 = _load_gamma_from_checkpoint(ckpt_rel_path)
+        super().__init__(
+            pcm,
+            prior,
+            gamma0=gamma0,
+            gamma_dist_interval=gamma_dist_interval,
+            num_relays=num_relays,
+            pre_iter=pre_iter,
+            max_iter_per_relay=max_iter_per_relay,
+            stop_nconv=stop_nconv,
+        )
+
+
+class LearnedMultiRelayBPDecoder(
+    MultiRelayBPDecoder, registry_name="LearnedMultiRelayBP"
+):
+    """MultiRelayBP decoder with learned memory weights in the initial stage."""
+
+    def __init__(
+        self,
+        pcm: Bit2DArray,
+        prior: Float1DArray,
+        *,
+        ckpt_rel_path: Path | str,
+        gamma_dist_interval: tuple[float, float],
+        num_chains: int,
+        num_relays: int,
+        pre_iter: int,
+        max_iter_per_relay: int,
+        stop_nconv: int,
+    ):
+        """
+        ``ckpt_rel_path`` is the relative path from the repo root to the Lightning
+        checkpoint file containing the learned parameters. Other parameters are
+        passed to the MultiRelayBP constructor.
+        """
+        gamma0 = _load_gamma_from_checkpoint(ckpt_rel_path)
+        super().__init__(
+            pcm,
+            prior,
+            gamma0=gamma0,
+            gamma_dist_interval=gamma_dist_interval,
+            num_chains=num_chains,
+            num_relays=num_relays,
+            pre_iter=pre_iter,
+            max_iter_per_relay=max_iter_per_relay,
+            stop_nconv=stop_nconv,
+        )

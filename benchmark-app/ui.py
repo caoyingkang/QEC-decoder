@@ -9,12 +9,12 @@ import streamlit as st
 
 from constants import (
     DEFAULT_BATCH_SIZE,
+    DEFAULT_TASK_PARAMS,
     DEFAULT_ERRORS_CAP,
-    DEFAULT_ERROR_RATE,
     DEFAULT_SHOTS_CAP,
-    DEFAULT_DECODER_PARAMS,
+    REPO_ROOT,
 )
-from utils import dict_to_str
+from utils import dict_to_str, discover_torch_run_dirs
 
 
 def render_sidebar_collector_selection() -> CollectorParams:
@@ -277,6 +277,218 @@ def _render_multirelaybp_params_selection(default: dict[str, Any]) -> dict[str, 
     }
 
 
+def _render_learned_dmembp_params_selection(
+    default: dict[str, Any], circuit_name: str, circuit_params: dict[str, Any]
+) -> dict[str, Any]:
+    all_run_dirs = discover_torch_run_dirs(
+        circuit_name, circuit_params, "LearnedDMemBP"
+    )
+    with st.expander("LearnedDMemBP decoder params", expanded=True):
+        col1, col2, _ = st.columns(3)
+        with col1:
+            max_iter = st.number_input(
+                "max_iter",
+                key="learned_dmembp_max_iter",
+                value=default["max_iter"],
+                min_value=1,
+                help="Max number of BP iterations.",
+            )
+        with col2:
+            run_dir = st.selectbox(
+                "checkpoint",
+                key="learned_dmembp_checkpoint",
+                options=all_run_dirs,
+                index=None,
+                format_func=lambda x: x.name,
+                help="Which checkpoint to load gamma vector from.",
+            )
+    if run_dir is None:
+        st.stop()
+    ckpt_path = run_dir / "checkpoints" / "best_model.ckpt"
+    ckpt_rel_path = ckpt_path.relative_to(REPO_ROOT).as_posix()
+
+    return {"max_iter": max_iter, "ckpt_rel_path": ckpt_rel_path}
+
+
+def _render_learned_relaybp_params_selection(
+    default: dict[str, Any], circuit_name: str, circuit_params: dict[str, Any]
+) -> dict[str, Any]:
+    all_run_dirs = discover_torch_run_dirs(
+        circuit_name, circuit_params, "LearnedDMemBP"
+    )
+    with st.expander("LearnedRelayBP decoder params", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            run_dir = st.selectbox(
+                "checkpoint",
+                key="learned_relaybp_checkpoint",
+                options=all_run_dirs,
+                index=None,
+                format_func=lambda x: x.name,
+                help="Which checkpoint to load gamma0 vector from.",
+            )
+        with col2:
+            gdi_low = st.number_input(
+                "gamma_dist_interval low",
+                key="learned_relaybp_gdi_low",
+                value=default["gamma_dist_interval"][0],
+                format="%f",
+                help="Lower bound of the uniform distribution for random memory weights used in DMemBP relays.",
+            )
+        with col3:
+            gdi_high = st.number_input(
+                "gamma_dist_interval high",
+                key="learned_relaybp_gdi_high",
+                value=default["gamma_dist_interval"][1],
+                format="%f",
+                help="Upper bound of the uniform distribution for random memory weights used in DMemBP relays.",
+            )
+        if gdi_low >= gdi_high:
+            st.error("gamma_dist_interval: low must be strictly less than high.")
+            st.stop()
+        col4, col5, col6 = st.columns(3)
+        with col4:
+            num_relays = st.number_input(
+                "num_relays",
+                key="learned_relaybp_num_relays",
+                value=default["num_relays"],
+                min_value=1,
+                help="Number of DMemBP relays (beyond the initial stage).",
+            )
+        with col5:
+            pre_iter = st.number_input(
+                "pre_iter",
+                key="learned_relaybp_pre_iter",
+                value=default["pre_iter"],
+                min_value=1,
+                help="Number of iterations for the initial stage.",
+            )
+        with col6:
+            max_iter_per_relay = st.number_input(
+                "max_iter_per_relay",
+                key="learned_relaybp_max_iter_per_relay",
+                value=default["max_iter_per_relay"],
+                min_value=1,
+                help="Max number of iterations per DMemBP relay.",
+            )
+        col7, _, _ = st.columns(3)
+        with col7:
+            stop_nconv = st.number_input(
+                "stop_nconv",
+                key="learned_relaybp_stop_nconv",
+                value=default["stop_nconv"],
+                min_value=1,
+                max_value=num_relays + 1,
+                help="How many solutions to find before terminating.",
+            )
+    if run_dir is None:
+        st.stop()
+    ckpt_path = run_dir / "checkpoints" / "best_model.ckpt"
+    ckpt_rel_path = ckpt_path.relative_to(REPO_ROOT).as_posix()
+    return {
+        "ckpt_rel_path": ckpt_rel_path,
+        "gamma_dist_interval": (gdi_low, gdi_high),
+        "num_relays": num_relays,
+        "pre_iter": pre_iter,
+        "max_iter_per_relay": max_iter_per_relay,
+        "stop_nconv": stop_nconv,
+    }
+
+
+def _render_learned_multirelaybp_params_selection(
+    default: dict[str, Any], circuit_name: str, circuit_params: dict[str, Any]
+) -> dict[str, Any]:
+    all_run_dirs = discover_torch_run_dirs(
+        circuit_name, circuit_params, "LearnedDMemBP"
+    )
+    with st.expander("LearnedMultiRelayBP decoder params", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            run_dir = st.selectbox(
+                "checkpoint",
+                key="learned_multirelaybp_checkpoint",
+                options=all_run_dirs,
+                index=None,
+                format_func=lambda x: x.name,
+                help="Which checkpoint to load gamma0 vector from.",
+            )
+        with col2:
+            gdi_low = st.number_input(
+                "gamma_dist_interval low",
+                key="learned_multirelaybp_gdi_low",
+                value=default["gamma_dist_interval"][0],
+                format="%f",
+                help="Lower bound of the uniform distribution for random memory weights used in DMemBP relays.",
+            )
+        with col3:
+            gdi_high = st.number_input(
+                "gamma_dist_interval high",
+                key="learned_multirelaybp_gdi_high",
+                value=default["gamma_dist_interval"][1],
+                format="%f",
+                help="Upper bound of the uniform distribution for random memory weights used in DMemBP relays.",
+            )
+        if gdi_low >= gdi_high:
+            st.error("gamma_dist_interval: low must be strictly less than high.")
+            st.stop()
+        col4, col5, col6 = st.columns(3)
+        with col4:
+            num_chains = st.number_input(
+                "num_chains",
+                key="learned_multirelaybp_num_chains",
+                value=default["num_chains"],
+                min_value=1,
+                help="Number of independent chains after the initial stage.",
+            )
+        with col5:
+            num_relays = st.number_input(
+                "num_relays",
+                key="learned_multirelaybp_num_relays",
+                value=default["num_relays"],
+                min_value=1,
+                help="Number of DMemBP relays in each chain (beyond the initial stage).",
+            )
+        with col6:
+            pre_iter = st.number_input(
+                "pre_iter",
+                key="learned_multirelaybp_pre_iter",
+                value=default["pre_iter"],
+                min_value=1,
+                help="Number of iterations for the initial stage.",
+            )
+        col7, col8, _ = st.columns(3)
+        with col7:
+            max_iter_per_relay = st.number_input(
+                "max_iter_per_relay",
+                key="learned_multirelaybp_max_iter_per_relay",
+                value=default["max_iter_per_relay"],
+                min_value=1,
+                help="Max number of iterations per DMemBP relay.",
+            )
+        with col8:
+            stop_nconv = st.number_input(
+                "stop_nconv",
+                key="learned_multirelaybp_stop_nconv",
+                value=default["stop_nconv"],
+                min_value=1,
+                max_value=num_relays + 1,
+                help="How many solutions to find before each chain terminates.",
+            )
+    if run_dir is None:
+        st.stop()
+    ckpt_path = run_dir / "checkpoints" / "best_model.ckpt"
+    ckpt_rel_path = ckpt_path.relative_to(REPO_ROOT).as_posix()
+    return {
+        "ckpt_rel_path": ckpt_rel_path,
+        "gamma_dist_interval": (gdi_low, gdi_high),
+        "num_chains": num_chains,
+        "num_relays": num_relays,
+        "pre_iter": pre_iter,
+        "max_iter_per_relay": max_iter_per_relay,
+        "stop_nconv": stop_nconv,
+    }
+
+
 def render_task_selection() -> TaskMetadata:
     """Render benchmark task selection."""
     st.subheader("Select QEC circuit")
@@ -286,7 +498,7 @@ def render_task_selection() -> TaskMetadata:
         circuit_name = st.selectbox(
             "circuit name",
             key="circuit_name",
-            options=list(DEFAULT_DECODER_PARAMS.keys()),
+            options=list(DEFAULT_TASK_PARAMS.keys()),
             index=None,
         )
     if circuit_name is None:
@@ -296,19 +508,20 @@ def render_task_selection() -> TaskMetadata:
         selected_entry = st.selectbox(
             "circuit params",
             key="circuit_params",
-            options=DEFAULT_DECODER_PARAMS[circuit_name],
+            options=DEFAULT_TASK_PARAMS[circuit_name],
             index=None,
             format_func=lambda x: dict_to_str(x["circuit_params"]),
         )
     if selected_entry is None:
         st.stop()
     circuit_params = selected_entry.pop("circuit_params")
+    default_error_rate = selected_entry.pop("error_rate")
 
     with col3:
         error_rate = st.number_input(
             "physical error rate",
             key="error_rate",
-            value=DEFAULT_ERROR_RATE,
+            value=default_error_rate,
             min_value=0.0,
             max_value=0.1,
             format="%f",
@@ -334,10 +547,22 @@ def render_task_selection() -> TaskMetadata:
         decoder_params = _render_bposd_params_selection(default_decoder_params)
     elif decoder_name == "MemBP":
         decoder_params = _render_membp_params_selection(default_decoder_params)
-    elif decoder_name == "MultiRelayBP":
-        decoder_params = _render_multirelaybp_params_selection(default_decoder_params)
     elif decoder_name == "RelayBP":
         decoder_params = _render_relaybp_params_selection(default_decoder_params)
+    elif decoder_name == "MultiRelayBP":
+        decoder_params = _render_multirelaybp_params_selection(default_decoder_params)
+    elif decoder_name == "LearnedDMemBP":
+        decoder_params = _render_learned_dmembp_params_selection(
+            default_decoder_params, circuit_name, circuit_params
+        )
+    elif decoder_name == "LearnedRelayBP":
+        decoder_params = _render_learned_relaybp_params_selection(
+            default_decoder_params, circuit_name, circuit_params
+        )
+    elif decoder_name == "LearnedMultiRelayBP":
+        decoder_params = _render_learned_multirelaybp_params_selection(
+            default_decoder_params, circuit_name, circuit_params
+        )
     elif decoder_name in ["MWPM", "UnionFind"]:
         decoder_params = {}
     else:
