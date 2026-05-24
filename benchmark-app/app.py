@@ -4,15 +4,20 @@ Run with: `uv run streamlit run benchmark-app/app.py` (from repo root)
 """
 
 from pathlib import Path
-from qecbench import CollectorParams, TaskMetadata, run_benchmark
-import qecdec
 import queue
-import streamlit as st
 import threading
 
+from qecbench import CollectorParams, TaskMetadata, run_benchmark
+import qecdec
+import streamlit as st
+
 from constants import CIRCUITS_ROOT
-from ui import render_sidebar_collector_selection, render_task_selection
-from utils import check_benchmark_completeness, get_csv_path
+from ui import (
+    check_benchmark_completeness,
+    render_sidebar_collector_selection,
+    render_task_selection,
+)
+from utils import get_csv_path
 
 qecdec.circuits.BB_144_12_12_Circuit.load_dir = CIRCUITS_ROOT / "BB_144_12_12_Circuit"
 
@@ -108,10 +113,9 @@ if __name__ == "__main__":
         collector_params.shots_cap,
         collector_params.errors_cap,
     )
-    if completed:
-        st.success("Benchmark complete!")
-    else:
-        if st.button("Run benchmark", type="primary"):
+    if not completed:
+        clicked = st.button("Run benchmark", type="primary")
+        if clicked:
             benchmark_running_modal(task_metadata, collector_params, csv_path)
 
     st.stop()

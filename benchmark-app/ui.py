@@ -1,9 +1,10 @@
 """Streamlit UI components for the benchmark app."""
 
 import os
+from pathlib import Path
 from typing import Any
 
-from qecbench import CollectorParams, TaskMetadata
+from qecbench import CollectorParams, TaskMetadata, TaskStats
 import streamlit as st
 
 from constants import (
@@ -351,3 +352,33 @@ def render_task_selection() -> TaskMetadata:
         decoder_name=decoder_name,
         decoder_params=decoder_params,
     )
+
+def check_benchmark_completeness(
+    task_metadata: TaskMetadata,
+    csv_path: Path,
+    shots_cap: int,
+    errors_cap: int,
+) -> bool:
+    stats_list = TaskStats.load_csv(csv_path)
+    stats = TaskStats.find_by_metadata(stats_list, task_metadata)
+    if stats is None:
+        st.info(
+            "No benchmark results found for the selected task. Please run the benchmark."
+        )
+        return False
+    elif not stats.is_complete(shots_cap, errors_cap):
+        st.info(
+            "The selected benchmark task is not complete:\n\n"
+            f"Shots: {stats.shots:_}/{shots_cap:_}\n\n"
+            f"Errors: {stats.obser_errors}/{errors_cap}\n\n"
+            "Please resume the benchmark."
+        )
+        return False
+    else:
+        st.success(
+            "Benchmark complete!\n\n"
+            f"Shots: {stats.shots:_}/{shots_cap:_}\n\n"
+            f"Errors: {stats.obser_errors}/{errors_cap}\n\n"
+            f"Failure Rate: {stats.failure_rate:.2e}"
+        )
+        return True
