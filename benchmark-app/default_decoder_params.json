@@ -52,15 +52,15 @@
                 "max_iter": 50
             },
             "MemBP": {
-                "gamma": 0.55,
+                "gamma": 0.65,
                 "max_iter": 50
             },
             "LearnedDMemBP": {},
             "RelayBP": {
-                "gamma0": 0.55,
+                "gamma0": 0.65,
                 "gamma_dist_interval": [
-                    -0.2249502476717961,
-                    0.7537800632074495
+                    -0.2241259276391633,
+                    0.5608805426310253
                 ],
                 "num_relays": 16,
                 "pre_iter": 50,
@@ -69,10 +69,10 @@
             },
             "LearnedRelayBP": {},
             "MultiRelayBP": {
-                "gamma0": 0.55,
+                "gamma0": 0.65,
                 "gamma_dist_interval": [
-                    -0.2249502476717961,
-                    0.7537800632074495
+                    -0.2241259276391633,
+                    0.5608805426310253
                 ],
                 "num_chains": 4,
                 "num_relays": 16,
