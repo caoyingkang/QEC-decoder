@@ -604,6 +604,7 @@ def check_benchmark_completeness(
             "Benchmark complete!\n\n"
             f"Shots: {stats.shots:_}/{shots_cap:_}\n\n"
             f"Errors: {stats.obser_errors}/{errors_cap}\n\n"
-            f"Failure Rate: {stats.failure_rate:.2e}"
+            f"FR (per shot): {stats.failure_rate:.2e}\n\n"
+            f"FR (per round): {(stats.failure_rate / stats.metadata.circuit_params['rounds']):.2e}"
         )
         return True
