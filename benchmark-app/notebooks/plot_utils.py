@@ -14,7 +14,7 @@ from typing import Iterable, Optional, Literal
 import numpy as np
 from matplotlib.axes import Axes
 
-from qecbench import BenchmarkStats
+from qecbench import TaskStats
 
 
 def shot_error_rate_to_piece_error_rate(
@@ -65,16 +65,16 @@ METRIC_LABELS = {
 
 
 def plot_iter_cdf(
-    stats: Iterable[BenchmarkStats],
+    stats: Iterable[TaskStats],
     ax: Axes,
     *,
     min_iter: Optional[int] = None,
-    label_fn: Callable[[BenchmarkStats], str | None],
+    label_fn: Callable[[TaskStats], str | None],
     title: Optional[str] = None,
     xscale: str = "log",
 ) -> None:
     """Plot the cumulative distribution of iteration numbers, one curve for
-    each `BenchmarkStats` in `stats`.
+    each `TaskStats` in `stats`.
 
     If `min_iter` is set, the view will be cropped to data points with iteration
     number at least this value.
@@ -106,7 +106,7 @@ def plot_iter_cdf(
 
 
 def _budget_curve(
-    s: BenchmarkStats,
+    s: TaskStats,
     *,
     budget_step: int,
     x_metric: Literal["iter_budget", "avg_iter"],
@@ -115,7 +115,7 @@ def _budget_curve(
     assert s.iters_hist_on_converged is not None and s.iters_hist_on_success is not None
     assert s.shots > 0
     shots = s.shots
-    rounds = s.metadata.rounds
+    rounds = s.metadata.circuit_params["rounds"]
     max_budget = s.metadata.max_iter
     budget_list = list(range(budget_step, max_budget + 1, budget_step))
     cum_conv = np.cumsum(s.iters_hist_on_converged)
@@ -147,13 +147,13 @@ def _budget_curve(
 
 
 def plot_fr_vs_iter_budget(
-    stats: Iterable[BenchmarkStats],
+    stats: Iterable[TaskStats],
     ax: Axes,
     *,
     budget_step: int,
     x_metric: Literal["iter_budget", "avg_iter"],
     y_metric: Literal["fr_per_shot", "fr_per_round"],
-    label_fn: Callable[[BenchmarkStats], str | None],
+    label_fn: Callable[[TaskStats], str | None],
     title: Optional[str] = None,
     xscale: str = "log",
     yscale: str = "log",
