@@ -12,6 +12,7 @@ relay/
 *.so
 target/
 docs/
+paper/
 scratch.ipynb
 *.pt
 *.log
