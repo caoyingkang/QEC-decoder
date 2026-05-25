@@ -8,11 +8,13 @@ data-bound styling (axis labels, scales, legend, grid, ticks).
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Iterable, Optional, Literal
 
 import numpy as np
 from matplotlib.axes import Axes
+from matplotlib.colors import Normalize
+from matplotlib.image import AxesImage
 
 from qecbench import TaskStats
 
@@ -39,13 +41,16 @@ def shot_error_rate_to_piece_error_rate(
         p = shot_error_rate_to_piece_error_rate(p, pieces=pieces)
         return 1 - (1 - p) ** values
     if shot_error_rate > 0.5:
-        return 1 - shot_error_rate_to_piece_error_rate(1 - shot_error_rate, pieces=pieces)
+        return 1 - shot_error_rate_to_piece_error_rate(
+            1 - shot_error_rate, pieces=pieces
+        )
     randomize_rate = 2 * shot_error_rate
     round_randomize_rate = 1 - (1 - randomize_rate) ** (1 / pieces)
     round_error_rate = round_randomize_rate / 2
     if round_error_rate == 0:
         return shot_error_rate / pieces
     return round_error_rate
+
 
 LABEL_FONTSIZE = 20
 TITLE_FONTSIZE = 22
@@ -191,3 +196,99 @@ def plot_fr_vs_iter_budget(
     ax.tick_params(axis="both", which="major", labelsize=TICK_FONTSIZE)
     ax.grid(True, which="both", alpha=0.5)
     ax.legend(fontsize=LEGEND_FONTSIZE, loc="upper right")
+
+
+def _default_fr_annotation_fmt(v: float) -> str:
+    return f"{v:.3f}" if v >= 0.01 else f"{v:.1e}"
+
+
+def plot_heatmap(
+    grid: np.ndarray,
+    ax: Axes,
+    *,
+    x_values: Sequence[int],
+    y_values: Sequence[int],
+    norm: Normalize,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
+    cmap_name: str = "viridis",
+    title: Optional[str] = None,
+    annotations: bool = True,
+    annotation_fmt: Optional[Callable[[float], str]] = None,
+) -> AxesImage:
+    """Render a precomputed 2D ``grid`` as a heatmap on ``ax`` and return the image.
+
+    ``grid`` has shape ``(len(y_values), len(x_values))``; ``np.nan`` entries are
+    treated as missing and drawn in white. Pass a caller-owned ``norm`` (shared
+    across a grid of subplots) for consistent coloring; the returned ``AxesImage``
+    lets the caller build a figure-level colorbar.
+
+    Finite non-positive values are clamped up to ``norm.vmin`` for coloring (so a
+    ``LogNorm`` does not mask them), but annotations always show the true value.
+    """
+    import matplotlib.pyplot as plt
+
+    x_values = list(x_values)
+    y_values = list(y_values)
+    if grid.shape != (len(y_values), len(x_values)):
+        raise ValueError(
+            f"grid shape {grid.shape} does not match "
+            f"(len(y_values)={len(y_values)}, len(x_values)={len(x_values)})"
+        )
+    if annotation_fmt is None:
+        annotation_fmt = _default_fr_annotation_fmt
+
+    cmap = plt.get_cmap(cmap_name).copy()
+    cmap.set_bad("white")
+
+    vmin = norm.vmin
+    vmax = norm.vmax
+    threshold = (
+        float(np.sqrt(vmin * vmax))
+        if vmin is not None and vmax is not None and vmin > 0 and vmax > 0
+        else None
+    )
+
+    # Clamp finite non-positive values up to vmin so LogNorm does not mask them;
+    # NaN (missing) stays NaN -> drawn as the "bad" color (white).
+    color_grid = grid.copy()
+    if vmin is not None:
+        finite = np.isfinite(color_grid)
+        color_grid[finite] = np.where(color_grid[finite] <= 0, vmin, color_grid[finite])
+
+    im = ax.imshow(color_grid, cmap=cmap, norm=norm, aspect="auto", origin="lower")
+
+    if annotations:
+        for yi in range(len(y_values)):
+            for xi in range(len(x_values)):
+                val = grid[yi, xi]
+                if not np.isfinite(val):
+                    continue
+                color = (
+                    "white"
+                    if threshold is not None and max(val, vmin) < threshold
+                    else "black"
+                )
+                ax.text(
+                    xi,
+                    yi,
+                    annotation_fmt(val),
+                    ha="center",
+                    va="center",
+                    fontsize=HEATMAP_ANNOTATION_FONTSIZE,
+                    color=color,
+                )
+
+    ax.set_xticks(range(len(x_values)))
+    ax.set_xticklabels(x_values)
+    ax.set_yticks(range(len(y_values)))
+    ax.set_yticklabels(y_values)
+    ax.tick_params(axis="both", labelsize=TICK_FONTSIZE)
+    if x_label:
+        ax.set_xlabel(x_label, fontsize=LABEL_FONTSIZE)
+    if y_label:
+        ax.set_ylabel(y_label, fontsize=LABEL_FONTSIZE)
+    if title:
+        ax.set_title(title, fontsize=TITLE_FONTSIZE, fontweight="bold")
+
+    return im
