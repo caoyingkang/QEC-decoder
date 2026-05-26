@@ -9,7 +9,7 @@ data-bound styling (axis labels, scales, legend, grid, ticks).
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Iterable, Optional, Literal
+from typing import Iterable, Literal, Optional, TypeVar
 
 import numpy as np
 from matplotlib.axes import Axes
@@ -151,7 +151,7 @@ def _budget_curve(
     return x, y
 
 
-def plot_fr_vs_iter_budget(
+def plot_fr_vs_iter_budget_from_inferred(
     stats: Iterable[TaskStats],
     ax: Axes,
     *,
@@ -187,8 +187,6 @@ def plot_fr_vs_iter_budget(
         )
         ax.plot(x, y, label=label, marker="+")
 
-    if title:
-        ax.set_title(title, fontsize=TITLE_FONTSIZE, fontweight="bold")
     ax.set_xscale(xscale)
     ax.set_yscale(yscale)
     ax.set_xlabel(METRIC_LABELS[x_metric], fontsize=LABEL_FONTSIZE)
@@ -196,6 +194,73 @@ def plot_fr_vs_iter_budget(
     ax.tick_params(axis="both", which="major", labelsize=TICK_FONTSIZE)
     ax.grid(True, which="both", alpha=0.5)
     ax.legend(fontsize=LEGEND_FONTSIZE, loc="upper right")
+    if title:
+        ax.set_title(title, fontsize=TITLE_FONTSIZE, fontweight="bold")
+
+
+GROUPID = TypeVar("GROUPID")
+
+
+def plot_fr_vs_iter_budget_from_collected(
+    stats: Iterable[TaskStats],
+    ax: Axes,
+    *,
+    x_metric: Literal["iter_budget", "avg_iter"],
+    y_metric: Literal["fr_per_shot", "fr_per_round"],
+    group_fn: Callable[[TaskStats], GROUPID],
+    label_fn: Callable[[GROUPID], str],
+    marker_fn: Callable[[GROUPID], str],
+    color_fn: Callable[[GROUPID], str],
+    linestyle_fn: Callable[[GROUPID], str],
+    xscale: Literal["log", "linear"],
+    yscale: Literal["log", "linear"],
+    title: Optional[str] = None,
+) -> None:
+    def _x(s: TaskStats) -> float:
+        if x_metric == "iter_budget":
+            return float(s.metadata.max_iter)
+        elif x_metric == "avg_iter":
+            return s.avg_iters
+        raise ValueError(f"unknown x_metric: {x_metric!r}")
+
+    def _y(s: TaskStats) -> float:
+        fr = s.failure_rate
+        if y_metric == "fr_per_shot":
+            return fr
+        elif y_metric == "fr_per_round":
+            return shot_error_rate_to_piece_error_rate(
+                fr, pieces=s.metadata.circuit_params["rounds"]
+            )
+        raise ValueError(f"unknown y_metric: {y_metric!r}")
+
+    groups: dict[GROUPID, list[TaskStats]] = {}
+    for s in stats:
+        if not s.metadata.is_iterative:
+            raise RuntimeError("Expect iterative decoders")
+        groups.setdefault(group_fn(s), []).append(s)
+
+    for id, group in groups.items():
+        group.sort(key=lambda s: s.metadata.max_iter)  # sort by iteration budget
+        x = np.array([_x(s) for s in group])
+        y = np.array([_y(s) for s in group])
+        ax.plot(
+            x,
+            y,
+            label=label_fn(id),
+            marker=marker_fn(id),
+            color=color_fn(id),
+            linestyle=linestyle_fn(id),
+        )
+
+    ax.set_xscale(xscale)
+    ax.set_yscale(yscale)
+    ax.set_xlabel(METRIC_LABELS[x_metric], fontsize=LABEL_FONTSIZE)
+    ax.set_ylabel(METRIC_LABELS[y_metric], fontsize=LABEL_FONTSIZE)
+    ax.tick_params(axis="both", which="major", labelsize=TICK_FONTSIZE)
+    ax.grid(True, which="both", alpha=0.5)
+    ax.legend(fontsize=LEGEND_FONTSIZE, loc="upper right")
+    if title:
+        ax.set_title(title, fontsize=TITLE_FONTSIZE, fontweight="bold")
 
 
 def _default_fr_annotation_fmt(v: float) -> str:
