@@ -6,16 +6,14 @@ colorbar placement, save, show); these helpers only render data and the
 data-bound styling (axis labels, scales, legend, grid, ticks).
 """
 
-from __future__ import annotations
+from collections.abc import Callable, Iterable, Sequence
+from typing import Literal, TypeVar
 
-from collections.abc import Callable, Sequence
-from typing import Iterable, Literal, Optional, TypeVar
-
-import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.colors import Normalize
 from matplotlib.image import AxesImage
-
+import matplotlib.pyplot as plt
+import numpy as np
 from qecbench import TaskStats
 
 
@@ -58,7 +56,7 @@ SUPTITLE_FONTSIZE = 25
 LEGEND_FONTSIZE = 12
 TICK_FONTSIZE = 20
 HEATMAP_SUPTITLE_FONTSIZE = 30
-HEATMAP_ANNOTATION_FONTSIZE = 12
+HEATMAP_ANNOTATION_FONTSIZE = 14
 LEGEND_FONTSIZE = 14
 
 METRIC_LABELS = {
@@ -73,9 +71,9 @@ def plot_iter_cdf(
     stats: Iterable[TaskStats],
     ax: Axes,
     *,
-    min_iter: Optional[int] = None,
+    min_iter: int | None = None,
     label_fn: Callable[[TaskStats], str | None],
-    title: Optional[str] = None,
+    title: str | None = None,
     xscale: str = "log",
 ) -> None:
     """Plot the cumulative distribution of iteration numbers, one curve for
@@ -112,8 +110,8 @@ def plot_iter_cdf(
 
 def _budget_curve(
     s: TaskStats,
+    budget_list: list[int],
     *,
-    budget_step: int,
     x_metric: Literal["iter_budget", "avg_iter"],
     y_metric: Literal["fr_per_shot", "fr_per_round"],
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -122,7 +120,6 @@ def _budget_curve(
     shots = s.shots
     rounds = s.metadata.circuit_params["rounds"]
     max_budget = s.metadata.max_iter
-    budget_list = list(range(budget_step, max_budget + 1, budget_step))
     cum_conv = np.cumsum(s.iters_hist_on_converged)
     cum_conv_weighted = np.cumsum(np.arange(max_budget + 1) * s.iters_hist_on_converged)
     cum_succ = np.cumsum(s.iters_hist_on_success)
@@ -151,49 +148,63 @@ def _budget_curve(
     return x, y
 
 
-def plot_fr_vs_iter_budget_from_inferred(
+def plot_fr_vs_iter_from_inferred(
     stats: Iterable[TaskStats],
     ax: Axes,
+    budget_list: list[int],
     *,
-    budget_step: int,
     x_metric: Literal["iter_budget", "avg_iter"],
     y_metric: Literal["fr_per_shot", "fr_per_round"],
-    label_fn: Callable[[TaskStats], str | None],
-    title: Optional[str] = None,
-    xscale: str = "log",
-    yscale: str = "log",
+    label_fn: Callable[[TaskStats], str],
+    marker_fn: Callable[[TaskStats], str],
+    markerfacecolor_fn: Callable[[TaskStats], str | None],
+    color_fn: Callable[[TaskStats], str],
+    linestyle_fn: Callable[[TaskStats], str],
+    xscale: Literal["log", "linear"],
+    yscale: Literal["log", "linear"],
+    show_legend: bool = True,
+    legend_loc: str = "lower right",
+    title: str | None = None,
+    set_xlabel: bool = True,
+    set_ylabel: bool = True,
 ) -> None:
     """Contour plot of failure rate vs iteration budget.
 
     For each stats entry, synthesize a curve by truncating the iteration
     histogram at a range of different iteration budgets. Any shot that
     originally converged at an iteration greater than the budget is
-    treated as un-converged (and therefore a decoding failure). The list
-    of budgets for a stats entry `s` is given by
-    `range(budget_step, s.metadata.max_iter + 1, budget_step)`.
+    treated as un-converged (and therefore a decoding failure).
     """
-    if budget_step < 1:
-        raise ValueError(f"budget_step must be >= 1, got {budget_step}")
 
     for s in stats:
         if not s.metadata.is_iterative:
             raise RuntimeError("Expect iterative decoders")
-        label = label_fn(s)
         x, y = _budget_curve(
             s,
-            budget_step=budget_step,
+            budget_list,
             x_metric=x_metric,
             y_metric=y_metric,
         )
-        ax.plot(x, y, label=label, marker="+")
+        ax.plot(
+            x,
+            y,
+            label=label_fn(s),
+            marker=marker_fn(s),
+            markerfacecolor=markerfacecolor_fn(s),
+            color=color_fn(s),
+            linestyle=linestyle_fn(s),
+        )
 
     ax.set_xscale(xscale)
     ax.set_yscale(yscale)
-    ax.set_xlabel(METRIC_LABELS[x_metric], fontsize=LABEL_FONTSIZE)
-    ax.set_ylabel(METRIC_LABELS[y_metric], fontsize=LABEL_FONTSIZE)
+    if set_xlabel:
+        ax.set_xlabel(METRIC_LABELS[x_metric], fontsize=LABEL_FONTSIZE)
+    if set_ylabel:
+        ax.set_ylabel(METRIC_LABELS[y_metric], fontsize=LABEL_FONTSIZE)
     ax.tick_params(axis="both", which="major", labelsize=TICK_FONTSIZE)
     ax.grid(True, which="both", alpha=0.5)
-    ax.legend(fontsize=LEGEND_FONTSIZE, loc="upper right")
+    if show_legend:
+        ax.legend(fontsize=LEGEND_FONTSIZE, loc=legend_loc)
     if title:
         ax.set_title(title, fontsize=TITLE_FONTSIZE, fontweight="bold")
 
@@ -201,7 +212,7 @@ def plot_fr_vs_iter_budget_from_inferred(
 GROUPID = TypeVar("GROUPID")
 
 
-def plot_fr_vs_iter_budget_from_collected(
+def plot_fr_vs_iter_from_collected(
     stats: Iterable[TaskStats],
     ax: Axes,
     *,
@@ -214,7 +225,7 @@ def plot_fr_vs_iter_budget_from_collected(
     linestyle_fn: Callable[[GROUPID], str],
     xscale: Literal["log", "linear"],
     yscale: Literal["log", "linear"],
-    title: Optional[str] = None,
+    title: str | None = None,
 ) -> None:
     def _x(s: TaskStats) -> float:
         if x_metric == "iter_budget":
@@ -263,10 +274,6 @@ def plot_fr_vs_iter_budget_from_collected(
         ax.set_title(title, fontsize=TITLE_FONTSIZE, fontweight="bold")
 
 
-def _default_fr_annotation_fmt(v: float) -> str:
-    return f"{v:.3f}" if v >= 0.01 else f"{v:.1e}"
-
-
 def plot_heatmap(
     grid: np.ndarray,
     ax: Axes,
@@ -274,25 +281,20 @@ def plot_heatmap(
     x_values: Sequence[int],
     y_values: Sequence[int],
     norm: Normalize,
-    x_label: Optional[str] = None,
-    y_label: Optional[str] = None,
+    x_label: str | None = None,
+    y_label: str | None = None,
     cmap_name: str = "viridis",
-    title: Optional[str] = None,
+    title: str | None = None,
     annotations: bool = True,
-    annotation_fmt: Optional[Callable[[float], str]] = None,
+    annotation_fmt: Callable[[float], str] = lambda x: f"{x}",
 ) -> AxesImage:
     """Render a precomputed 2D ``grid`` as a heatmap on ``ax`` and return the image.
 
     ``grid`` has shape ``(len(y_values), len(x_values))``; ``np.nan`` entries are
-    treated as missing and drawn in white. Pass a caller-owned ``norm`` (shared
-    across a grid of subplots) for consistent coloring; the returned ``AxesImage``
-    lets the caller build a figure-level colorbar.
-
-    Finite non-positive values are clamped up to ``norm.vmin`` for coloring (so a
-    ``LogNorm`` does not mask them), but annotations always show the true value.
+    treated as missing and drawn in white. Pass caller-owned ``norm`` and ``cmap_name``
+    for consistent coloring; the returned ``AxesImage`` lets the caller build a
+    figure-level colorbar.
     """
-    import matplotlib.pyplot as plt
-
     x_values = list(x_values)
     y_values = list(y_values)
     if grid.shape != (len(y_values), len(x_values)):
@@ -300,8 +302,6 @@ def plot_heatmap(
             f"grid shape {grid.shape} does not match "
             f"(len(y_values)={len(y_values)}, len(x_values)={len(x_values)})"
         )
-    if annotation_fmt is None:
-        annotation_fmt = _default_fr_annotation_fmt
 
     cmap = plt.get_cmap(cmap_name).copy()
     cmap.set_bad("white")
@@ -314,14 +314,7 @@ def plot_heatmap(
         else None
     )
 
-    # Clamp finite non-positive values up to vmin so LogNorm does not mask them;
-    # NaN (missing) stays NaN -> drawn as the "bad" color (white).
-    color_grid = grid.copy()
-    if vmin is not None:
-        finite = np.isfinite(color_grid)
-        color_grid[finite] = np.where(color_grid[finite] <= 0, vmin, color_grid[finite])
-
-    im = ax.imshow(color_grid, cmap=cmap, norm=norm, aspect="auto", origin="lower")
+    im = ax.imshow(grid, cmap=cmap, norm=norm, aspect="auto", origin="lower")
 
     if annotations:
         for yi in range(len(y_values)):
@@ -330,9 +323,7 @@ def plot_heatmap(
                 if not np.isfinite(val):
                     continue
                 color = (
-                    "white"
-                    if threshold is not None and max(val, vmin) < threshold
-                    else "black"
+                    "white" if threshold is not None and val < threshold else "black"
                 )
                 ax.text(
                     xi,
