@@ -53,18 +53,12 @@ def shot_error_rate_to_piece_error_rate(
 LABEL_FONTSIZE = 20
 TITLE_FONTSIZE = 22
 SUPTITLE_FONTSIZE = 25
-LEGEND_FONTSIZE = 12
-TICK_FONTSIZE = 20
+TICK_FONTSIZE = 14
 HEATMAP_SUPTITLE_FONTSIZE = 30
 HEATMAP_ANNOTATION_FONTSIZE = 14
 LEGEND_FONTSIZE = 14
-
-METRIC_LABELS = {
-    "iter_budget": "Iteration budget",
-    "avg_iter": "Average iterations",
-    "fr_per_shot": "Failure rate",
-    "fr_per_round": "Failure rate per round",
-}
+FR_LABELS = {"per_shot": "Failure rate", "per_round": "Failure rate per round"}
+ITER_LABELS = {"iter_budget": "Max iteration", "avg_iter": "Average iteration"}
 
 
 def plot_iter_cdf(
@@ -112,14 +106,15 @@ def _budget_curve(
     s: TaskStats,
     budget_list: list[int],
     *,
-    x_metric: Literal["iter_budget", "avg_iter"],
-    y_metric: Literal["fr_per_shot", "fr_per_round"],
+    fr_mode: Literal["per_shot", "per_round"],
+    iter_mode: Literal["max_iter", "avg_iter"],
 ) -> tuple[np.ndarray, np.ndarray]:
     assert s.iters_hist_on_converged is not None and s.iters_hist_on_success is not None
     assert s.shots > 0
     shots = s.shots
     rounds = s.metadata.circuit_params["rounds"]
     max_budget = s.metadata.max_iter
+    assert all(b <= max_budget for b in budget_list)
     cum_conv = np.cumsum(s.iters_hist_on_converged)
     cum_conv_weighted = np.cumsum(np.arange(max_budget + 1) * s.iters_hist_on_converged)
     cum_succ = np.cumsum(s.iters_hist_on_success)
@@ -129,79 +124,78 @@ def _budget_curve(
 
     for idx, budget in enumerate(budget_list):
         conv_cnt = int(cum_conv[budget])
-        if x_metric == "iter_budget":
+        if iter_mode == "max_iter":
             x[idx] = float(budget)
-        elif x_metric == "avg_iter":
+        elif iter_mode == "avg_iter":
             x[idx] = (cum_conv_weighted[budget] + (shots - conv_cnt) * budget) / shots
         else:
-            raise ValueError(f"unknown x_metric: {x_metric!r}")
+            raise ValueError(f"unknown iter_mode: {iter_mode!r}")
 
         succ_cnt = int(cum_succ[budget])
         fr = (shots - succ_cnt) / shots
-        if y_metric == "fr_per_shot":
+        if fr_mode == "per_shot":
             y[idx] = fr
-        elif y_metric == "fr_per_round":
+        elif fr_mode == "per_round":
             y[idx] = shot_error_rate_to_piece_error_rate(fr, pieces=rounds)
         else:
-            raise ValueError(f"unknown y_metric: {y_metric!r}")
+            raise ValueError(f"unknown fr_mode: {fr_mode!r}")
 
     return x, y
 
 
-def plot_fr_vs_iter_from_inferred(
+def plot_fr_vs_iter_contour_from_inferred(
     stats: Iterable[TaskStats],
     ax: Axes,
-    budget_list: list[int],
+    budget_list_fn: Callable[[TaskStats], list[int]],
     *,
-    x_metric: Literal["iter_budget", "avg_iter"],
-    y_metric: Literal["fr_per_shot", "fr_per_round"],
+    fr_mode: Literal["per_shot", "per_round"],
+    iter_mode: Literal["max_iter", "avg_iter"],
     label_fn: Callable[[TaskStats], str],
-    marker_fn: Callable[[TaskStats], str],
-    markerfacecolor_fn: Callable[[TaskStats], str | None],
     color_fn: Callable[[TaskStats], str],
-    linestyle_fn: Callable[[TaskStats], str],
+    linestyle: Callable[[TaskStats], str] | str,
+    marker: Callable[[TaskStats], str] | str,
+    mfc: Callable[[TaskStats], str | None] | str | None,
     xscale: Literal["log", "linear"],
     yscale: Literal["log", "linear"],
+    xlabel: str | None = None,
+    ylabel: str | None = None,
     show_legend: bool = True,
-    legend_loc: str = "lower right",
+    legend_loc: str = "upper right",
     title: str | None = None,
-    set_xlabel: bool = True,
-    set_ylabel: bool = True,
 ) -> None:
-    """Contour plot of failure rate vs iteration budget.
+    """Contour plot of failure rate vs number of iterations.
 
-    For each stats entry, synthesize a curve by truncating the iteration
+    For each ``stats`` entry, synthesize a curve by truncating the iteration
     histogram at a range of different iteration budgets. Any shot that
-    originally converged at an iteration greater than the budget is
-    treated as un-converged (and therefore a decoding failure).
+    originally converged at an iteration greater than the budget is treated
+    as un-converged (and therefore a decoding failure).
     """
-
     for s in stats:
         if not s.metadata.is_iterative:
             raise RuntimeError("Expect iterative decoders")
         x, y = _budget_curve(
             s,
-            budget_list,
-            x_metric=x_metric,
-            y_metric=y_metric,
+            budget_list_fn(s),
+            fr_mode=fr_mode,
+            iter_mode=iter_mode,
         )
         ax.plot(
             x,
             y,
             label=label_fn(s),
-            marker=marker_fn(s),
-            markerfacecolor=markerfacecolor_fn(s),
             color=color_fn(s),
-            linestyle=linestyle_fn(s),
+            linestyle=linestyle(s) if isinstance(linestyle, Callable) else linestyle,
+            marker=marker(s) if isinstance(marker, Callable) else marker,
+            mfc=mfc(s) if isinstance(mfc, Callable) else mfc,
         )
 
     ax.set_xscale(xscale)
     ax.set_yscale(yscale)
-    if set_xlabel:
-        ax.set_xlabel(METRIC_LABELS[x_metric], fontsize=LABEL_FONTSIZE)
-    if set_ylabel:
-        ax.set_ylabel(METRIC_LABELS[y_metric], fontsize=LABEL_FONTSIZE)
-    ax.tick_params(axis="both", which="major", labelsize=TICK_FONTSIZE)
+    if xlabel:
+        ax.set_xlabel(xlabel, fontsize=LABEL_FONTSIZE)
+    if ylabel:
+        ax.set_ylabel(ylabel, fontsize=LABEL_FONTSIZE)
+    ax.tick_params(axis="both", which="both", labelsize=TICK_FONTSIZE)
     ax.grid(True, which="both", alpha=0.5)
     if show_legend:
         ax.legend(fontsize=LEGEND_FONTSIZE, loc=legend_loc)
@@ -225,6 +219,8 @@ def plot_fr_vs_iter_from_collected(
     linestyle_fn: Callable[[GROUPID], str],
     xscale: Literal["log", "linear"],
     yscale: Literal["log", "linear"],
+    xlabel: str | None = None,
+    ylabel: str | None = None,
     title: str | None = None,
 ) -> None:
     def _x(s: TaskStats) -> float:
@@ -265,8 +261,10 @@ def plot_fr_vs_iter_from_collected(
 
     ax.set_xscale(xscale)
     ax.set_yscale(yscale)
-    ax.set_xlabel(METRIC_LABELS[x_metric], fontsize=LABEL_FONTSIZE)
-    ax.set_ylabel(METRIC_LABELS[y_metric], fontsize=LABEL_FONTSIZE)
+    if xlabel:
+        ax.set_xlabel(xlabel, fontsize=LABEL_FONTSIZE)
+    if ylabel:
+        ax.set_ylabel(ylabel, fontsize=LABEL_FONTSIZE)
     ax.tick_params(axis="both", which="major", labelsize=TICK_FONTSIZE)
     ax.grid(True, which="both", alpha=0.5)
     ax.legend(fontsize=LEGEND_FONTSIZE, loc="upper right")
@@ -281,8 +279,8 @@ def plot_heatmap(
     x_values: Sequence[int],
     y_values: Sequence[int],
     norm: Normalize,
-    x_label: str | None = None,
-    y_label: str | None = None,
+    xlabel: str | None = None,
+    ylabel: str | None = None,
     cmap_name: str = "viridis",
     title: str | None = None,
     annotations: bool = True,
@@ -340,10 +338,10 @@ def plot_heatmap(
     ax.set_yticks(range(len(y_values)))
     ax.set_yticklabels(y_values)
     ax.tick_params(axis="both", labelsize=TICK_FONTSIZE)
-    if x_label:
-        ax.set_xlabel(x_label, fontsize=LABEL_FONTSIZE)
-    if y_label:
-        ax.set_ylabel(y_label, fontsize=LABEL_FONTSIZE)
+    if xlabel:
+        ax.set_xlabel(xlabel, fontsize=LABEL_FONTSIZE)
+    if ylabel:
+        ax.set_ylabel(ylabel, fontsize=LABEL_FONTSIZE)
     if title:
         ax.set_title(title, fontsize=TITLE_FONTSIZE, fontweight="bold")
 
