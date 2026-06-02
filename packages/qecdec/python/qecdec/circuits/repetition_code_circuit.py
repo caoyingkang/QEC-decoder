@@ -1,6 +1,5 @@
-from typing import Optional
-
 import stim
+from typing_extensions import Self
 
 from .base import QECCircuit
 
@@ -13,10 +12,10 @@ class RepetitionCode_Circuit(QECCircuit, registry_name="RepetitionCode_Circuit")
         *,
         d: int,
         rounds: int,
-        data_qubit_error_rate: Optional[float] = None,
-        prep_error_rate: Optional[float] = None,
-        meas_error_rate: Optional[float] = None,
-        cnot_error_rate: Optional[float] = None,
+        data_qubit_error_rate: float | None = None,
+        prep_error_rate: float | None = None,
+        meas_error_rate: float | None = None,
+        cnot_error_rate: float | None = None,
     ):
         """
         Parameters
@@ -60,7 +59,7 @@ class RepetitionCode_Circuit(QECCircuit, registry_name="RepetitionCode_Circuit")
         *,
         d: int,
         rounds: int,
-    ) -> "RepetitionCode_Circuit":
+    ) -> Self:
         return RepetitionCode_Circuit(
             d=d,
             rounds=rounds,

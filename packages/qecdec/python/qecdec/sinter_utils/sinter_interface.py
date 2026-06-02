@@ -2,24 +2,23 @@ import numpy as np
 import sinter
 
 from ..decoders import Decoder
-from ..slwin import SlidingWindowDecoder
 from ..types import Bit2DArray
 
 
 class QecdecSinterDecoder(sinter.Decoder):
     """
-    Wrap a `Decoder` or `SlidingWindowDecoder` object as a `sinter.Decoder`
+    Wrap a ``qecdec.decoders.Decoder`` object as a ``sinter.Decoder``
     object, so that it can be used in `sinter.collect`.
     """
 
-    def __init__(self, decoder: Decoder | SlidingWindowDecoder, obsmat: Bit2DArray):
+    def __init__(self, decoder: Decoder, obsmat: Bit2DArray):
         """
         Parameters
         ----------
-            decoder : Decoder | SlidingWindowDecoder
-                Decoder to be wrapped. Make sure that `decoder` is serializable
+            decoder : Decoder
+                Decoder to be wrapped. Make sure that ``decoder`` is serializable
                 by pickle (if not, you might want to customize the
-                `decoder.__getstate__` and `decoder.__setstate__` methods).
+                ``decoder.__getstate__`` and ``decoder.__setstate__`` methods).
 
             obsmat : ndarray
                 Observable matrix. Sinter decoders need this because they are meant
@@ -30,7 +29,7 @@ class QecdecSinterDecoder(sinter.Decoder):
 
     def compile_decoder_for_dem(self, *, dem):
         """
-        Dummy method to satisfy the interface of `sinter.Decoder`.
+        Dummy method to satisfy the interface of ``sinter.Decoder``.
         You should never call this method.
         """
         return self
@@ -40,7 +39,7 @@ class QecdecSinterDecoder(sinter.Decoder):
     ) -> np.ndarray:
         """
         Decode bit-packed syndromes, and return bit-packed observable predictions.
-        This method is meant to be used by `sinter.collect`.
+        This method is meant to be used by ``sinter.collect``.
         You are not supposed to call this method directly.
         """
         syndrome_batch = np.unpackbits(

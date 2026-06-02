@@ -1,4 +1,4 @@
-"""Provide a `sinter` interface."""
+"""Provide a ``sinter`` interface."""
 
 from .sinter_interface import QecdecSinterDecoder
 

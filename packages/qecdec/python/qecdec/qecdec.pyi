@@ -1,9 +1,5 @@
 """Type stubs for the qecdec Rust extension (PyO3)."""
 
-from __future__ import annotations
-
-from typing import Optional
-
 from .types import (
     Bit1DArray,
     Bit2DArray,
@@ -22,7 +18,7 @@ class BPDecoderRust:
         pcm: Bit2DArray,
         prior: Float1DArray,
         *,
-        norm: Optional[float] = None,
+        norm: float | None = None,
         max_iter: int,
     ) -> None:
         """
@@ -41,7 +37,7 @@ class BPDecoderRust:
 
     def decode_detailed(
         self, syndrome: Bit1DArray, *, record_llr_history: bool
-    ) -> tuple[Bit1DArray, bool, int, Optional[Float2DArray]]:
+    ) -> tuple[Bit1DArray, bool, int, Float2DArray | None]:
         """Decode a syndrome vector.
 
         Parameters
@@ -96,7 +92,7 @@ class DMemBPDecoderRust:
         prior: Float1DArray,
         *,
         gamma: Float1DArray,
-        norm: Optional[float] = None,
+        norm: float | None = None,
         max_iter: int,
     ) -> None:
         """
@@ -414,7 +410,7 @@ class RelayBPDecoderRust:
         ...
 
     def decode_detailed(
-        self, syndrome: Bit1DArray, *, seed: Optional[int] = None
+        self, syndrome: Bit1DArray, *, seed: int | None = None
     ) -> tuple[Bit1DArray, bool, int]:
         """Decode a syndrome vector.
 
@@ -441,7 +437,7 @@ class RelayBPDecoderRust:
         syndrome_batch: Bit2DArray,
         *,
         parallel: bool,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> tuple[Bit2DArray, Bool1DArray, Int1DArray]:
         """Decode a batch of syndrome vectors.
 
@@ -507,7 +503,7 @@ class MultiRelayBPDecoderRust:
         ...
 
     def decode_detailed(
-        self, syndrome: Bit1DArray, *, seed: Optional[int] = None
+        self, syndrome: Bit1DArray, *, seed: int | None = None
     ) -> tuple[Bit1DArray, bool, int]:
         """Decode a syndrome vector.
 
@@ -534,7 +530,7 @@ class MultiRelayBPDecoderRust:
         syndrome_batch: Bit2DArray,
         *,
         parallel: bool,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> tuple[Bit2DArray, Bool1DArray, Int1DArray]:
         """Decode a batch of syndrome vectors.
 

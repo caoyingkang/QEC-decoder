@@ -1,5 +1,3 @@
-from typing import Optional
-
 import numpy as np
 
 from ..qecdec import EnsSerialBPDecoderRust
@@ -35,7 +33,7 @@ class EnsSerialBPDecoder(IterativeDecoder, registry_name="EnsSerialBP"):
         max_iter: int,
         ensemble_size: int,
         topk: int,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ):
         """
         Parameters

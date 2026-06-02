@@ -1,5 +1,3 @@
-from typing import Optional
-
 import numpy as np
 
 from ..qecdec import SerialBPDecoderRust
@@ -24,7 +22,7 @@ class SerialBPDecoder(IterativeDecoder, registry_name="SerialBP"):
         prior: Float1DArray,
         *,
         max_iter: int,
-        vn_order: Optional[Int1DArray] = None,
+        vn_order: Int1DArray | None = None,
     ):
         """
         Parameters

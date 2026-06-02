@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union
+from typing import Any
 
 import numpy as np
 
@@ -34,7 +34,7 @@ class MultiRelayBPDecoder(IterativeDecoder, registry_name="MultiRelayBP"):
         pcm: Bit2DArray,
         prior: Float1DArray,
         *,
-        gamma0: Union[Float1DArray, float],
+        gamma0: Float1DArray | float,
         gamma_dist_interval: tuple[float, float],
         num_chains: int,
         num_relays: int,
@@ -107,7 +107,7 @@ class MultiRelayBPDecoder(IterativeDecoder, registry_name="MultiRelayBP"):
         self.__dict__.update(state)
         self._decoder = self._build_decoder()
 
-    def decode(self, syndrome: Bit1DArray, *, seed: Optional[int] = None) -> Bit1DArray:
+    def decode(self, syndrome: Bit1DArray, *, seed: int | None = None) -> Bit1DArray:
         """Decode a syndrome vector with detailed diagnostics.
 
         Parameters
@@ -130,7 +130,7 @@ class MultiRelayBPDecoder(IterativeDecoder, registry_name="MultiRelayBP"):
         syndrome_batch: Bit2DArray,
         *,
         parallel: bool = False,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> Bit2DArray:
         """Decode a batch of syndromes.
 
@@ -155,7 +155,7 @@ class MultiRelayBPDecoder(IterativeDecoder, registry_name="MultiRelayBP"):
         return ehat_batch
 
     def decode_detailed(
-        self, syndrome: Bit1DArray, *, seed: Optional[int] = None
+        self, syndrome: Bit1DArray, *, seed: int | None = None
     ) -> tuple[Bit1DArray, bool, int]:
         """Decode a syndrome vector with detailed diagnostics.
 
@@ -182,7 +182,7 @@ class MultiRelayBPDecoder(IterativeDecoder, registry_name="MultiRelayBP"):
         syndrome_batch: Bit2DArray,
         *,
         parallel: bool = False,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> tuple[Bit2DArray, Bool1DArray, Int1DArray]:
         """Decode a batch of syndromes with detailed diagnostics.
 

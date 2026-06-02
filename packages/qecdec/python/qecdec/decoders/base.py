@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from functools import cached_property
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -13,7 +13,7 @@ class Decoder(ABC):
 
     registry: ClassVar[dict[str, type["Decoder"]]] = {}
 
-    def __init_subclass__(cls, registry_name: Optional[str] = None) -> None:
+    def __init_subclass__(cls, registry_name: str | None = None) -> None:
         # Only register subclasses that set `registry_name`.
         if registry_name is not None:
             if registry_name in Decoder.registry:
@@ -153,7 +153,7 @@ class IterativeDecoder(Decoder):
 
     registry: ClassVar[dict[str, type["IterativeDecoder"]]] = {}
 
-    def __init_subclass__(cls, registry_name: Optional[str] = None) -> None:
+    def __init_subclass__(cls, registry_name: str | None = None) -> None:
         super().__init_subclass__(registry_name)
 
         # Only register subclasses that set `registry_name`.

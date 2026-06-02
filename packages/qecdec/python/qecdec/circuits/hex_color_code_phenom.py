@@ -1,6 +1,8 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Iterable, Literal
+from typing import Literal
+from typing_extensions import Self
 
 import stim
 
@@ -87,7 +89,7 @@ class HexColorCode_Phenom(QECCircuit, registry_name="HexColorCode_Phenom"):
         d: int,
         rounds: int,
         basis: Literal["X", "Y", "Z"],
-    ) -> "HexColorCode_Phenom":
+    ) -> Self:
         return HexColorCode_Phenom(
             d=d,
             rounds=rounds,

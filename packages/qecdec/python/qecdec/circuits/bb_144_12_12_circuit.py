@@ -1,5 +1,6 @@
 from pathlib import Path
-from typing import ClassVar, Literal, Optional
+from typing import ClassVar, Literal
+from typing_extensions import Self
 
 import numpy as np
 import stim
@@ -111,7 +112,7 @@ def _filter_detectors_by_basis(
 class BB_144_12_12_Circuit(QECCircuit, registry_name="BB_144_12_12_Circuit"):
     """Memory circuit for the gross code (i.e., a BB code with parameters [[144,12,12]])."""
 
-    load_dir: ClassVar[Optional[Path]] = None
+    load_dir: ClassVar[Path | None] = None
 
     def __init__(
         self,
@@ -153,7 +154,7 @@ class BB_144_12_12_Circuit(QECCircuit, registry_name="BB_144_12_12_Circuit"):
         basis: Literal["X", "Z"],
         rounds: int,
         filter_detectors: bool = True,
-    ) -> "BB_144_12_12_Circuit":
+    ) -> Self:
         return BB_144_12_12_Circuit(
             basis=basis,
             rounds=rounds,

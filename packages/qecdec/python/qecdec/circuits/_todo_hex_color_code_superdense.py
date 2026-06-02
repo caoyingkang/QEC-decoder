@@ -1,6 +1,8 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Iterable, Literal
+from typing import Literal
+from typing_extensions import Self
 
 import stim
 
@@ -99,7 +101,7 @@ class HexColorCode_Superdense(QECCircuit, registry_name="HexColorCode_Superdense
         d: int,
         rounds: int,
         basis: Literal["X", "Y", "Z"],
-    ) -> "HexColorCode_Superdense":
+    ) -> Self:
         return HexColorCode_Superdense(
             d=d,
             rounds=rounds,

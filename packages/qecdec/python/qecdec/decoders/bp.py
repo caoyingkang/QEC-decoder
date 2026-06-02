@@ -1,5 +1,3 @@
-from typing import Optional
-
 from ..qecdec import BPDecoderRust
 from ..types import (
     Bit1DArray,
@@ -21,7 +19,7 @@ class BPDecoder(IterativeDecoder, registry_name="BP"):
         prior: Float1DArray,
         *,
         max_iter: int,
-        norm: Optional[float] = None,
+        norm: float | None = None,
     ):
         """
         Parameters
@@ -78,7 +76,7 @@ class BPDecoder(IterativeDecoder, registry_name="BP"):
         syndrome: Bit1DArray,
         *,
         record_llr_history: bool = False,
-    ) -> tuple[Bit1DArray, bool, int, Optional[Float2DArray]]:
+    ) -> tuple[Bit1DArray, bool, int, Float2DArray | None]:
         """Decode a syndrome vector with detailed diagnostics.
 
         Parameters

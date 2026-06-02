@@ -1,6 +1,7 @@
 from typing import Literal
 
 import stim
+from typing_extensions import Self
 
 from .base import QECCircuit
 
@@ -97,7 +98,7 @@ class RotatedSurfaceCode_Phenom(QECCircuit, registry_name="RotatedSurfaceCode_Ph
         d: int,
         rounds: int,
         basis: Literal["X", "Z"],
-    ) -> "RotatedSurfaceCode_Phenom":
+    ) -> Self:
         return RotatedSurfaceCode_Phenom(
             d=d,
             rounds=rounds,

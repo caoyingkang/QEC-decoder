@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Any, ClassVar, Optional
 
@@ -22,7 +20,7 @@ class TorchModelDecoder(IterativeDecoder):
 
     registry: ClassVar[dict[str, type["TorchModelDecoder"]]] = {}
 
-    def __init_subclass__(cls, registry_name: Optional[str] = None) -> None:
+    def __init_subclass__(cls, registry_name: str | None = None) -> None:
         super().__init_subclass__(registry_name)
 
         # Make sure subclasses define class-attribute 'model_name'

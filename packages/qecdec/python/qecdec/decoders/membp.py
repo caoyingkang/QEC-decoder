@@ -1,5 +1,3 @@
-from typing import Optional
-
 import numpy as np
 
 from ..qecdec import DMemBPDecoderRust
@@ -23,7 +21,7 @@ class MemBPDecoder(IterativeDecoder, registry_name="MemBP"):
         *,
         gamma: float,
         max_iter: int,
-        norm: Optional[float] = None,
+        norm: float | None = None,
     ):
         """
         Parameters

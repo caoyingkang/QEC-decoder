@@ -1,4 +1,5 @@
 from typing import Literal
+from typing_extensions import Self
 
 import stim
 
@@ -111,7 +112,7 @@ class RotatedSurfaceCode_Circuit(
         d: int,
         rounds: int,
         basis: Literal["X", "Z"],
-    ) -> "RotatedSurfaceCode_Circuit":
+    ) -> Self:
         return RotatedSurfaceCode_Circuit(
             d=d,
             rounds=rounds,

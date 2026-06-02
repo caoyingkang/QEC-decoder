@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from functools import cached_property
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 import numpy as np
 import stim
@@ -19,8 +19,8 @@ class QECCircuit(ABC):
 
     registry: ClassVar[dict[str, type["QECCircuit"]]] = {}
 
-    def __init_subclass__(cls, registry_name: Optional[str] = None) -> None:
-        # Only register subclasses that set `registry_name`.
+    def __init_subclass__(cls, registry_name: str | None = None) -> None:
+        # Only register subclasses that set ``registry_name``.
         if registry_name is not None:
             if registry_name in QECCircuit.registry:
                 raise ValueError(
