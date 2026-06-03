@@ -20,8 +20,8 @@ def create_decoder(
         raise ValueError(f"Invalid decoder name: {name!r}")
     sig = inspect.signature(cls.__init__)
     whitelist = [
-        name
-        for name, param in sig.parameters.items()
+        param_name
+        for param_name, param in sig.parameters.items()
         if param.kind == inspect.Parameter.KEYWORD_ONLY
     ]
     filtered_kwargs = {k: v for k, v in kwargs.items() if k in whitelist}

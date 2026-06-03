@@ -95,14 +95,9 @@ class HexColorCode_Superdense(QECCircuit, registry_name="HexColorCode_Superdense
 
     @classmethod
     def with_uniform_error_rate(
-        cls,
-        error_rate: float,
-        *,
-        d: int,
-        rounds: int,
-        basis: Literal["X", "Y", "Z"],
+        cls, error_rate: float, *, d: int, rounds: int, basis: Literal["X", "Y", "Z"]
     ) -> Self:
-        return HexColorCode_Superdense(
+        return cls(
             d=d,
             rounds=rounds,
             basis=basis,

@@ -106,14 +106,9 @@ class RotatedSurfaceCode_Circuit(
 
     @classmethod
     def with_uniform_error_rate(
-        cls,
-        error_rate: float,
-        *,
-        d: int,
-        rounds: int,
-        basis: Literal["X", "Z"],
+        cls, error_rate: float, *, d: int, rounds: int, basis: Literal["X", "Z"]
     ) -> Self:
-        return RotatedSurfaceCode_Circuit(
+        return cls(
             d=d,
             rounds=rounds,
             basis=basis,

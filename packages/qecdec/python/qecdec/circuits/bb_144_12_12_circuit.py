@@ -155,7 +155,7 @@ class BB_144_12_12_Circuit(QECCircuit, registry_name="BB_144_12_12_Circuit"):
         rounds: int,
         filter_detectors: bool = True,
     ) -> Self:
-        return BB_144_12_12_Circuit(
+        return cls(
             basis=basis,
             rounds=rounds,
             error_rate=error_rate,

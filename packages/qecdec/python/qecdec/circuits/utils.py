@@ -28,19 +28,15 @@ def _extract_error_mechanisms_from_dem(
             t: stim.DemTarget
             for t in instruction.targets_copy():
                 if t.is_relative_detector_id():
-                    if t.val in dets:
-                        dets.remove(t.val)
-                    else:
-                        dets.add(t.val)
+                    dets ^= {t.val}
                 elif t.is_logical_observable_id():
-                    if t.val in obsers:
-                        obsers.remove(t.val)
-                    else:
-                        obsers.add(t.val)
+                    obsers ^= {t.val}
                 elif t.is_separator():
                     pass
                 else:
-                    raise RuntimeError("Not supposed to be here")
+                    raise RuntimeError(
+                        f"Unexpected DEM target in error instruction: {t!r}"
+                    )
             if len(dets) == 0 and len(obsers) != 0:
                 raise RuntimeError(
                     f"Found an error mechanism that flips logical observables but no detectors. Instruction: {instruction}"
@@ -52,7 +48,7 @@ def _extract_error_mechanisms_from_dem(
                 eff2prob[eff] = (1 - eff2prob[eff]) * p + eff2prob[eff] * (1 - p)
             else:  # this error is new, let's register it
                 eff2prob[eff] = p
-        elif instruction.type == "detector" or instruction.type == "logical_observable":
+        elif instruction.type in ("detector", "logical_observable"):
             pass
         else:
             raise ValueError(f"Instruction type not expected: {instruction.type}")
@@ -66,7 +62,7 @@ def _extract_detector_coords_from_dem(dem: stim.DetectorErrorModel) -> Float2DAr
     numpy array that has num_detectors rows, with the i-th row being the vector of
     coordinates of the i-th detector.
     """
-    coords: list[list[float]] = [None] * dem.num_detectors
+    coords: list[list[float] | None] = [None] * dem.num_detectors
 
     instruction: stim.DemInstruction
     for instruction in dem.flattened():
@@ -74,7 +70,7 @@ def _extract_detector_coords_from_dem(dem: stim.DetectorErrorModel) -> Float2DAr
             coo = instruction.args_copy()
             t: stim.DemTarget = instruction.targets_copy()[0]
             coords[t.val] = coo
-        elif instruction.type == "error" or instruction.type == "logical_observable":
+        elif instruction.type in ("error", "logical_observable"):
             pass
         else:
             raise ValueError(f"Instruction type not expected: {instruction.type}")

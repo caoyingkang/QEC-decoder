@@ -53,14 +53,8 @@ class RepetitionCode_Circuit(QECCircuit, registry_name="RepetitionCode_Circuit")
         super().__init__(circuit)
 
     @classmethod
-    def with_uniform_error_rate(
-        cls,
-        error_rate: float,
-        *,
-        d: int,
-        rounds: int,
-    ) -> Self:
-        return RepetitionCode_Circuit(
+    def with_uniform_error_rate(cls, error_rate: float, *, d: int, rounds: int) -> Self:
+        return cls(
             d=d,
             rounds=rounds,
             data_qubit_error_rate=error_rate,
@@ -77,23 +71,23 @@ class RepetitionCode_Circuit(QECCircuit, registry_name="RepetitionCode_Circuit")
         # Prepare all measure qubits in the |0> state.
         circuit_SE.append("R", self.mq_inds)
         if self.prep_error_rate is not None:
-            circuit_SE.append("X_ERROR", self.mq_inds, self.prep_error_rate)  # noqa: E501
+            circuit_SE.append("X_ERROR", self.mq_inds, self.prep_error_rate)
         circuit_SE.append("TICK")
         # Apply CNOT gates in the 1st layer.
         cnot_inds = list(range(0, self.num_qubits - 1))
         circuit_SE.append("CNOT", cnot_inds)
         if self.cnot_error_rate is not None:
-            circuit_SE.append("DEPOLARIZE2", cnot_inds, self.cnot_error_rate)  # noqa: E501
+            circuit_SE.append("DEPOLARIZE2", cnot_inds, self.cnot_error_rate)
         circuit_SE.append("TICK")
         # Apply CNOT gates in the 2nd layer.
         cnot_inds = list(range(self.num_qubits - 1, 0, -1))
         circuit_SE.append("CNOT", cnot_inds)
         if self.cnot_error_rate is not None:
-            circuit_SE.append("DEPOLARIZE2", cnot_inds, self.cnot_error_rate)  # noqa: E501
+            circuit_SE.append("DEPOLARIZE2", cnot_inds, self.cnot_error_rate)
         circuit_SE.append("TICK")
         # Readout all measure qubits.
         if self.meas_error_rate is not None:
-            circuit_SE.append("X_ERROR", self.mq_inds, self.meas_error_rate)  # noqa: E501
+            circuit_SE.append("X_ERROR", self.mq_inds, self.meas_error_rate)
         circuit_SE.append("M", self.mq_inds)
         circuit_SE.append("TICK")
 
@@ -104,13 +98,13 @@ class RepetitionCode_Circuit(QECCircuit, registry_name="RepetitionCode_Circuit")
         # Prepare all data qubits in the |0> state.
         circuit_first_round.append("R", self.dq_inds)
         if self.prep_error_rate is not None:
-            circuit_first_round.append("X_ERROR", self.dq_inds, self.prep_error_rate)  # noqa: E501
+            circuit_first_round.append("X_ERROR", self.dq_inds, self.prep_error_rate)
         circuit_first_round.append("TICK")
         # Data qubits suffer from noise.
         if self.data_qubit_error_rate is not None:
             circuit_first_round.append(
                 "DEPOLARIZE1", self.dq_inds, self.data_qubit_error_rate
-            )  # noqa: E501
+            )
         circuit_first_round.append("TICK")
         # Syndrome extraction.
         circuit_first_round += circuit_SE
@@ -118,7 +112,7 @@ class RepetitionCode_Circuit(QECCircuit, registry_name="RepetitionCode_Circuit")
         for k, i in enumerate(self.mq_inds):
             circuit_first_round.append(
                 "DETECTOR", [stim.target_rec(-self.num_mq + k)], (i, 0)
-            )  # noqa: E501
+            )
 
         # ------------------------------------------------------------------------------------------------
         # Build the circuit for subsequent rounds.
@@ -128,7 +122,7 @@ class RepetitionCode_Circuit(QECCircuit, registry_name="RepetitionCode_Circuit")
         if self.data_qubit_error_rate is not None:
             circuit_subsequent_round.append(
                 "DEPOLARIZE1", self.dq_inds, self.data_qubit_error_rate
-            )  # noqa: E501
+            )
         circuit_subsequent_round.append("TICK")
         # Syndrome extraction.
         circuit_subsequent_round += circuit_SE
@@ -152,7 +146,7 @@ class RepetitionCode_Circuit(QECCircuit, registry_name="RepetitionCode_Circuit")
         if self.meas_error_rate is not None:
             circuit_final_measurement.append(
                 "X_ERROR", self.dq_inds, self.meas_error_rate
-            )  # noqa: E501
+            )
         circuit_final_measurement.append("M", self.dq_inds)
         circuit_final_measurement.append("TICK")
         # Specify detectors.

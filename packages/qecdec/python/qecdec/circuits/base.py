@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from functools import cached_property
 from typing import ClassVar
+from typing_extensions import Self
 
 import numpy as np
 import stim
@@ -28,11 +29,6 @@ class QECCircuit(ABC):
                 )
             QECCircuit.registry[registry_name] = cls
 
-    def __new__(cls, *args, **kwargs):
-        if cls is QECCircuit:
-            raise TypeError(f"Abstract class {cls.__name__} cannot be instantiated")
-        return super().__new__(cls)
-
     def __init__(self, circuit: stim.Circuit) -> None:
         self.stim_circuit = circuit
 
@@ -42,7 +38,7 @@ class QECCircuit(ABC):
         cls,
         error_rate: float,
         **kwargs,
-    ) -> "QECCircuit":
+    ) -> Self:
         """Alternative constructor with all fault locations having the
         same error rate.
         """

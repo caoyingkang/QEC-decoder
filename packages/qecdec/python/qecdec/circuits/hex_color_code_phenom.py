@@ -83,14 +83,9 @@ class HexColorCode_Phenom(QECCircuit, registry_name="HexColorCode_Phenom"):
 
     @classmethod
     def with_uniform_error_rate(
-        cls,
-        error_rate: float,
-        *,
-        d: int,
-        rounds: int,
-        basis: Literal["X", "Y", "Z"],
+        cls, error_rate: float, *, d: int, rounds: int, basis: Literal["X", "Y", "Z"]
     ) -> Self:
-        return HexColorCode_Phenom(
+        return cls(
             d=d,
             rounds=rounds,
             basis=basis,
