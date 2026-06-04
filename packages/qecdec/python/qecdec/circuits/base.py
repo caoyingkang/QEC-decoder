@@ -64,8 +64,11 @@ class QECCircuit(ABC):
         """List of ``ErrorMechanism`` objects, sorted by the tuple of flipped detectors."""
         eff2prob = _extract_error_mechanisms_from_dem(self.stim_dem)
         return sorted(
-            ErrorMechanism(dets=dets, obsers=obsers, p=p)
-            for (dets, obsers), p in eff2prob.items()
+            (
+                ErrorMechanism(dets=dets, obsers=obsers, p=p)
+                for (dets, obsers), p in eff2prob.items()
+            ),
+            key=lambda e: e.dets,
         )
 
     @property

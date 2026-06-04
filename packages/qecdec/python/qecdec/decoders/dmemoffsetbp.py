@@ -49,31 +49,58 @@ class DMemOffsetBPDecoder(IterativeDecoder, registry_name="DMemOffsetBP"):
         """
         super().__init__(pcm, prior, max_iter=max_iter)
 
-        assert isinstance(gamma, np.ndarray) and gamma.shape == (self.num_vars,)
+        if not isinstance(gamma, np.ndarray):
+            raise TypeError(
+                f"`gamma` must be a numpy array, got {type(gamma).__name__}."
+            )
+        if gamma.shape != (self.num_vars,):
+            raise ValueError(
+                f"`gamma` must have shape ({self.num_vars},), got {gamma.shape}."
+            )
         self.gamma = gamma
 
         if isinstance(norm, list):
-            assert len(norm) == self.num_chks
-            assert all(isinstance(x, list) for x in norm)
-            assert all(len(norm[i]) == self.chk_degs[i] for i in range(self.num_chks))
+            if len(norm) != self.num_chks:
+                raise ValueError(
+                    f"`norm` must have {self.num_chks} rows, got {len(norm)}."
+                )
+            if not all(isinstance(x, list) for x in norm):
+                raise TypeError("`norm` must be a list of lists.")
+            if not all(len(norm[i]) == self.chk_degs[i] for i in range(self.num_chks)):
+                raise ValueError(
+                    "Each row of `norm` must match the corresponding check node degree."
+                )
         elif isinstance(norm, (float, int)):
             norm = [
                 [norm for _ in range(self.chk_degs[i])] for i in range(self.num_chks)
             ]
         else:
-            raise ValueError("Invalid data type for `norm`")
+            raise TypeError(
+                f"`norm` must be a float or list of lists, got {type(norm).__name__}."
+            )
         self.norm = norm
 
         if isinstance(offset, list):
-            assert len(offset) == self.num_chks
-            assert all(isinstance(x, list) for x in offset)
-            assert all(len(offset[i]) == self.chk_degs[i] for i in range(self.num_chks))
+            if len(offset) != self.num_chks:
+                raise ValueError(
+                    f"`offset` must have {self.num_chks} rows, got {len(offset)}."
+                )
+            if not all(isinstance(x, list) for x in offset):
+                raise TypeError("`offset` must be a list of lists.")
+            if not all(
+                len(offset[i]) == self.chk_degs[i] for i in range(self.num_chks)
+            ):
+                raise ValueError(
+                    "Each row of `offset` must match the corresponding check node degree."
+                )
         elif isinstance(offset, (float, int)):
             offset = [
                 [offset for _ in range(self.chk_degs[i])] for i in range(self.num_chks)
             ]
         else:
-            raise ValueError("Invalid data type for `offset`")
+            raise TypeError(
+                f"`offset` must be a float or list of lists, got {type(offset).__name__}."
+            )
         self.offset = offset
 
         self._decoder = self._build_decoder()

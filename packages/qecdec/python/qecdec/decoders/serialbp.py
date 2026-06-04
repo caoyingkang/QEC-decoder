@@ -45,12 +45,14 @@ class SerialBPDecoder(IterativeDecoder, registry_name="SerialBP"):
         if vn_order is None:
             self.vn_order = np.arange(self.num_vars, dtype=np.int64)
         else:
-            assert vn_order.shape == (self.num_vars,), (
-                f"vn_order must have shape ({self.num_vars},), got {vn_order.shape}"
-            )
-            assert np.array_equal(np.sort(vn_order), np.arange(self.num_vars)), (
-                "vn_order must be a permutation of 0, 1, ..., num_vars-1"
-            )
+            if vn_order.shape != (self.num_vars,):
+                raise ValueError(
+                    f"`vn_order` must have shape ({self.num_vars},), got {vn_order.shape}."
+                )
+            if not np.array_equal(np.sort(vn_order), np.arange(self.num_vars)):
+                raise ValueError(
+                    "`vn_order` must be a permutation of 0, 1, ..., num_vars-1."
+                )
             self.vn_order = np.asarray(vn_order, dtype=np.int64)
 
         self._decoder = self._build_decoder()

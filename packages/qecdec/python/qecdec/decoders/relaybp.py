@@ -69,7 +69,14 @@ class RelayBPDecoder(IterativeDecoder, registry_name="RelayBP"):
 
         if isinstance(gamma0, (float, int)):
             gamma0 = np.full(self.num_vars, gamma0)
-        assert isinstance(gamma0, np.ndarray) and gamma0.shape == (self.num_vars,)
+        if not isinstance(gamma0, np.ndarray):
+            raise TypeError(
+                f"`gamma0` must be a float or numpy array, got {type(gamma0).__name__}."
+            )
+        if gamma0.shape != (self.num_vars,):
+            raise ValueError(
+                f"`gamma0` must have shape ({self.num_vars},), got {gamma0.shape}."
+            )
         if stop_nconv < 1 or stop_nconv > num_relays + 1:
             raise ValueError(
                 "stop_nconv must satisfy 1 <= stop_nconv <= num_relays + 1"

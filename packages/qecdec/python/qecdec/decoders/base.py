@@ -33,11 +33,27 @@ class Decoder(ABC):
         prior : ndarray
             Prior error probabilities, shape=(num_vars,), float64 ∈ (0,0.5).
         """
-        assert isinstance(pcm, np.ndarray) and pcm.ndim == 2
-        assert isinstance(prior, np.ndarray) and prior.ndim == 1
-        assert pcm.shape[1] == prior.shape[0]
-        assert np.all((pcm == 0) | (pcm == 1))
-        assert np.all((prior > 0) & (prior < 0.5))
+        if not isinstance(pcm, np.ndarray):
+            raise TypeError(f"`pcm` must be a numpy array, got {type(pcm).__name__}.")
+        if pcm.ndim != 2:
+            raise ValueError(f"`pcm` must be 2-dimensional, got ndim={pcm.ndim}.")
+        if not isinstance(prior, np.ndarray):
+            raise TypeError(
+                f"`prior` must be a numpy array, got {type(prior).__name__}."
+            )
+        if prior.ndim != 1:
+            raise ValueError(f"`prior` must be 1-dimensional, got ndim={prior.ndim}.")
+        if pcm.shape[1] != prior.shape[0]:
+            raise ValueError(
+                f"`pcm` has {pcm.shape[1]} columns but `prior` has {prior.shape[0]} "
+                "entries; they must match."
+            )
+        if not np.all((pcm == 0) | (pcm == 1)):
+            raise ValueError("`pcm` entries must all be 0 or 1.")
+        if not np.all((prior > 0) & (prior < 0.5)):
+            raise ValueError(
+                "`prior` entries must all lie in the open interval (0, 0.5)."
+            )
         if not np.all(pcm.sum(axis=1) >= 2):
             raise ValueError("Each row (check) must have at least two nonzero entries.")
         if not np.all(pcm.sum(axis=0) >= 1):
@@ -179,7 +195,8 @@ class IterativeDecoder(Decoder):
         """
         super().__init__(pcm, prior)
 
-        assert max_iter > 0
+        if max_iter <= 0:
+            raise ValueError(f"`max_iter` must be positive, got {max_iter}.")
         self.max_iter = max_iter
 
     @classmethod

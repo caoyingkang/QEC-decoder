@@ -42,7 +42,14 @@ class DMemBPDecoder(IterativeDecoder, registry_name="DMemBP"):
         """
         super().__init__(pcm, prior, max_iter=max_iter)
 
-        assert isinstance(gamma, np.ndarray) and gamma.shape == (self.num_vars,)
+        if not isinstance(gamma, np.ndarray):
+            raise TypeError(
+                f"`gamma` must be a numpy array, got {type(gamma).__name__}."
+            )
+        if gamma.shape != (self.num_vars,):
+            raise ValueError(
+                f"`gamma` must have shape ({self.num_vars},), got {gamma.shape}."
+            )
         self.gamma = gamma
         self.norm = norm
 
