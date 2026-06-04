@@ -12,8 +12,7 @@ def create_circuit(name: str, **kwargs) -> QECCircuit:
     Check out ``qecdec.circuits.CIRCUITS_REGISTRY`` for all available circuit names and
     the corresponding return classes.
     """
-    cls = CIRCUITS_REGISTRY.get(name)
-    if cls is None:
+    if (cls := CIRCUITS_REGISTRY.get(name)) is None:
         raise ValueError(f"Invalid circuit name: {name!r}")
     sig = inspect.signature(cls.__init__)
     filtered_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
@@ -29,8 +28,7 @@ def create_circuit_with_uniform_error_rate(
     Check out ``qecdec.circuits.CIRCUITS_REGISTRY`` for all available circuit names and
     the corresponding return classes.
     """
-    cls = CIRCUITS_REGISTRY.get(name)
-    if cls is None:
+    if (cls := CIRCUITS_REGISTRY.get(name)) is None:
         raise ValueError(f"Invalid circuit name: {name!r}")
     sig = inspect.signature(cls.with_uniform_error_rate)
     whitelist = [

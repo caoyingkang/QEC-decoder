@@ -15,8 +15,7 @@ def create_decoder(
     Check out ``qecdec.decoders.DECODERS_REGISTRY`` for all available decoder names and
     the corresponding return classes.
     """
-    cls = DECODERS_REGISTRY.get(name)
-    if cls is None:
+    if (cls := DECODERS_REGISTRY.get(name)) is None:
         raise ValueError(f"Invalid decoder name: {name!r}")
     sig = inspect.signature(cls.__init__)
     whitelist = [
