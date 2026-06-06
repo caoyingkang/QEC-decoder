@@ -6,8 +6,9 @@ colorbar placement, save, show); these helpers only render data and the
 data-bound styling (axis labels, scales, legend, grid, ticks).
 """
 
-from collections.abc import Callable, Iterable, Sequence
-from typing import Literal, TypeVar
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from pathlib import Path
+from typing import Any, Literal, TypeVar
 
 from matplotlib.axes import Axes
 from matplotlib.colors import Normalize
@@ -15,6 +16,14 @@ from matplotlib.image import AxesImage
 import matplotlib.pyplot as plt
 import numpy as np
 from qecbench import TaskStats
+
+HEATMAP_ANNOTATION_FONTSIZE = 7.5
+LABEL_FONTSIZE = 20
+LEGEND_FONTSIZE = 14
+SUPLABEL_FONTSIZE = 20
+SUPTITLE_FONTSIZE = 25
+TICK_FONTSIZE = 14
+TITLE_FONTSIZE = 22
 
 
 def shot_error_rate_to_piece_error_rate(
@@ -50,56 +59,28 @@ def shot_error_rate_to_piece_error_rate(
     return round_error_rate
 
 
-LABEL_FONTSIZE = 20
-TITLE_FONTSIZE = 22
-SUPTITLE_FONTSIZE = 25
-TICK_FONTSIZE = 14
-HEATMAP_SUPTITLE_FONTSIZE = 30
-HEATMAP_ANNOTATION_FONTSIZE = 14
-LEGEND_FONTSIZE = 14
-FR_LABELS = {"per_shot": "Failure rate", "per_round": "Failure rate per round"}
-ITER_LABELS = {"iter_budget": "Max iteration", "avg_iter": "Average iteration"}
-
-
-def plot_iter_cdf(
-    stats: Iterable[TaskStats],
-    ax: Axes,
+def load_stats(
+    csv_path: Path,
     *,
-    min_iter: int | None = None,
-    label_fn: Callable[[TaskStats], str | None],
-    title: str | None = None,
-    xscale: str = "log",
-) -> None:
-    """Plot the cumulative distribution of iteration numbers, one curve for
-    each `TaskStats` in `stats`.
-
-    If `min_iter` is set, the view will be cropped to data points with iteration
-    number at least this value.
-    """
-    if min_iter is None:
-        min_iter = 1 if xscale == "log" else 0
-
-    for s in stats:
-        if not s.metadata.is_iterative:
-            raise RuntimeError("Expect iterative decoders")
-        label = label_fn(s)
-        hist = s.iters_hist_on_converged.copy()
-        hist[-1] += s.shots - s.synd_matches
-        assert int(np.sum(hist)) == s.shots > 0
-        x = np.arange(len(hist))
-        y = np.cumsum(hist) / s.shots * 100
-        ax.plot(x[min_iter:], y[min_iter:], label=label)
-
-    if title:
-        ax.set_title(title, fontsize=TITLE_FONTSIZE, fontweight="bold")
-    ax.set_xscale(xscale)
-    ax.yaxis.get_major_formatter().set_useOffset(False)
-    ax.set_xlabel("Iterations", fontsize=LABEL_FONTSIZE)
-    ax.set_ylabel("Cumulative Probability (%)", fontsize=LABEL_FONTSIZE)
-    ax.set_xlim(left=min_iter)
-    ax.tick_params(axis="both", which="major", labelsize=TICK_FONTSIZE)
-    ax.grid(True, which="both", alpha=0.5)
-    ax.legend(fontsize=LEGEND_FONTSIZE, loc="lower right")
+    error_rates: list[float],
+    decoder_fixed_params: dict[str, Any],
+    decoder_flex_params: dict[str, list[Any]] | None = None,
+) -> Iterator[TaskStats]:
+    if decoder_flex_params is None:
+        decoder_flex_params = {}
+    for s in TaskStats.load_csv(csv_path):
+        if (
+            s.metadata.error_rate in error_rates
+            and all(
+                s.metadata.decoder_params.get(k) == v
+                for k, v in decoder_fixed_params.items()
+            )
+            and all(
+                s.metadata.decoder_params.get(k) in v_list
+                for k, v_list in decoder_flex_params.items()
+            )
+        ):
+            yield s
 
 
 def _budget_curve(
@@ -124,21 +105,25 @@ def _budget_curve(
 
     for idx, budget in enumerate(budget_list):
         conv_cnt = int(cum_conv[budget])
-        if iter_mode == "max_iter":
-            x[idx] = float(budget)
-        elif iter_mode == "avg_iter":
-            x[idx] = (cum_conv_weighted[budget] + (shots - conv_cnt) * budget) / shots
-        else:
-            raise ValueError(f"unknown iter_mode: {iter_mode!r}")
+        match iter_mode:
+            case "max_iter":
+                x[idx] = float(budget)
+            case "avg_iter":
+                x[idx] = (
+                    cum_conv_weighted[budget] + (shots - conv_cnt) * budget
+                ) / shots
+            case _:
+                raise ValueError(f"unknown iter_mode: {iter_mode!r}")
 
         succ_cnt = int(cum_succ[budget])
         fr = (shots - succ_cnt) / shots
-        if fr_mode == "per_shot":
-            y[idx] = fr
-        elif fr_mode == "per_round":
-            y[idx] = shot_error_rate_to_piece_error_rate(fr, pieces=rounds)
-        else:
-            raise ValueError(f"unknown fr_mode: {fr_mode!r}")
+        match fr_mode:
+            case "per_shot":
+                y[idx] = fr
+            case "per_round":
+                y[idx] = shot_error_rate_to_piece_error_rate(fr, pieces=rounds)
+            case _:
+                raise ValueError(f"unknown fr_mode: {fr_mode!r}")
 
     return x, y
 
@@ -172,7 +157,7 @@ def plot_fr_vs_iter_contour_from_inferred(
     """
     for s in stats:
         if not s.metadata.is_iterative:
-            raise RuntimeError("Expect iterative decoders")
+            raise ValueError("Expect iterative decoders")
         x, y = _budget_curve(
             s,
             budget_list_fn(s),
@@ -196,7 +181,8 @@ def plot_fr_vs_iter_contour_from_inferred(
     if ylabel:
         ax.set_ylabel(ylabel, fontsize=LABEL_FONTSIZE)
     ax.tick_params(axis="both", which="both", labelsize=TICK_FONTSIZE)
-    ax.grid(True, which="both", alpha=0.5)
+    ax.grid(True, which="major", alpha=0.5)
+    ax.grid(False, which="minor")
     if show_legend:
         ax.legend(fontsize=LEGEND_FONTSIZE, loc=legend_loc)
     if title:
@@ -214,49 +200,63 @@ def plot_fr_vs_iter_from_collected(
     y_metric: Literal["fr_per_shot", "fr_per_round"],
     group_fn: Callable[[TaskStats], GROUPID],
     label_fn: Callable[[GROUPID], str],
-    marker_fn: Callable[[GROUPID], str],
     color_fn: Callable[[GROUPID], str],
-    linestyle_fn: Callable[[GROUPID], str],
+    linestyle: Callable[[GROUPID], str] | str,
+    marker: Callable[[GROUPID], str] | str,
+    mfc: Callable[[GROUPID], str | None] | str | None,
     xscale: Literal["log", "linear"],
     yscale: Literal["log", "linear"],
     xlabel: str | None = None,
     ylabel: str | None = None,
+    show_legend: bool = True,
+    legend_loc: str = "upper right",
     title: str | None = None,
 ) -> None:
+    """Contour plot of failure rate vs number of iterations.
+
+    Every data point corresponds to a single ``stats`` entry, every curve
+    corresponds to ``stats`` entries in the same group.
+    """
+
     def _x(s: TaskStats) -> float:
-        if x_metric == "iter_budget":
-            return float(s.metadata.max_iter)
-        elif x_metric == "avg_iter":
-            return s.avg_iters
-        raise ValueError(f"unknown x_metric: {x_metric!r}")
+        match x_metric:
+            case "iter_budget":
+                return float(s.metadata.max_iter)
+            case "avg_iter":
+                return s.avg_iters
+            case _:
+                raise ValueError(f"unknown x_metric: {x_metric!r}")
 
     def _y(s: TaskStats) -> float:
         fr = s.failure_rate
-        if y_metric == "fr_per_shot":
-            return fr
-        elif y_metric == "fr_per_round":
-            return shot_error_rate_to_piece_error_rate(
-                fr, pieces=s.metadata.circuit_params["rounds"]
-            )
-        raise ValueError(f"unknown y_metric: {y_metric!r}")
+        match y_metric:
+            case "fr_per_shot":
+                return fr
+            case "fr_per_round":
+                return shot_error_rate_to_piece_error_rate(
+                    fr, pieces=s.metadata.circuit_params["rounds"]
+                )
+            case _:
+                raise ValueError(f"unknown y_metric: {y_metric!r}")
 
     groups: dict[GROUPID, list[TaskStats]] = {}
     for s in stats:
         if not s.metadata.is_iterative:
-            raise RuntimeError("Expect iterative decoders")
+            raise ValueError("Expect iterative decoders")
         groups.setdefault(group_fn(s), []).append(s)
 
-    for id, group in groups.items():
+    for gid, group in groups.items():
         group.sort(key=lambda s: s.metadata.max_iter)  # sort by iteration budget
         x = np.array([_x(s) for s in group])
         y = np.array([_y(s) for s in group])
         ax.plot(
             x,
             y,
-            label=label_fn(id),
-            marker=marker_fn(id),
-            color=color_fn(id),
-            linestyle=linestyle_fn(id),
+            label=label_fn(gid),
+            color=color_fn(gid),
+            linestyle=linestyle(gid) if isinstance(linestyle, Callable) else linestyle,
+            marker=marker(gid) if isinstance(marker, Callable) else marker,
+            mfc=mfc(gid) if isinstance(mfc, Callable) else mfc,
         )
 
     ax.set_xscale(xscale)
@@ -266,8 +266,10 @@ def plot_fr_vs_iter_from_collected(
     if ylabel:
         ax.set_ylabel(ylabel, fontsize=LABEL_FONTSIZE)
     ax.tick_params(axis="both", which="major", labelsize=TICK_FONTSIZE)
-    ax.grid(True, which="both", alpha=0.5)
-    ax.legend(fontsize=LEGEND_FONTSIZE, loc="upper right")
+    ax.grid(True, which="major", alpha=0.5)
+    ax.grid(False, which="minor")
+    if show_legend:
+        ax.legend(fontsize=LEGEND_FONTSIZE, loc=legend_loc)
     if title:
         ax.set_title(title, fontsize=TITLE_FONTSIZE, fontweight="bold")
 
@@ -312,7 +314,7 @@ def plot_heatmap(
         else None
     )
 
-    im = ax.imshow(grid, cmap=cmap, norm=norm, aspect="auto", origin="lower")
+    im = ax.imshow(grid, cmap=cmap, norm=norm, aspect="equal", origin="lower")
 
     if annotations:
         for yi in range(len(y_values)):
@@ -346,3 +348,46 @@ def plot_heatmap(
         ax.set_title(title, fontsize=TITLE_FONTSIZE, fontweight="bold")
 
     return im
+
+
+def plot_iter_cdf(
+    stats: Iterable[TaskStats],
+    ax: Axes,
+    *,
+    min_iter: int | None = None,
+    label_fn: Callable[[TaskStats], str],
+    xscale: Literal["log", "linear"],
+    show_legend: bool = True,
+    legend_loc: str = "lower right",
+    title: str | None = None,
+) -> None:
+    """Plot the cumulative distribution of iteration numbers, one curve for
+    each ``stats`` entry.
+
+    If ``min_iter`` is set, the view will be cropped to data points with iteration
+    number at least this value.
+    """
+    if min_iter is None:
+        min_iter = 1 if xscale == "log" else 0
+
+    for s in stats:
+        if not s.metadata.is_iterative:
+            raise ValueError("Expect iterative decoders")
+        hist = s.iters_hist_on_converged.copy()
+        hist[-1] += s.shots - s.synd_matches
+        assert int(np.sum(hist)) == s.shots > 0
+        x = np.arange(len(hist))
+        y = np.cumsum(hist) / s.shots * 100
+        ax.plot(x[min_iter:], y[min_iter:], label=label_fn(s))
+
+    ax.set_xscale(xscale)
+    ax.set_xlabel("Iterations", fontsize=LABEL_FONTSIZE)
+    ax.set_ylabel("CDF (%)", fontsize=LABEL_FONTSIZE)
+    ax.set_xlim(left=min_iter)
+    ax.tick_params(axis="both", which="major", labelsize=TICK_FONTSIZE)
+    ax.yaxis.get_major_formatter().set_useOffset(False)
+    ax.grid(True, which="both", alpha=0.5)
+    if show_legend:
+        ax.legend(fontsize=LEGEND_FONTSIZE, loc=legend_loc)
+    if title:
+        ax.set_title(title, fontsize=TITLE_FONTSIZE, fontweight="bold")
