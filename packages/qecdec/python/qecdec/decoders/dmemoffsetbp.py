@@ -59,57 +59,44 @@ class DMemOffsetBPDecoder(IterativeDecoder, registry_name="DMemOffsetBP"):
             )
         self.gamma = gamma
 
-        match norm:
-            case list():
-                if len(norm) != self.num_chks:
-                    raise ValueError(
-                        f"`norm` must have {self.num_chks} rows, got {len(norm)}."
-                    )
-                if not all(isinstance(x, list) for x in norm):
-                    raise TypeError("`norm` must be a list of lists.")
-                if not all(
-                    len(norm[i]) == self.chk_degs[i] for i in range(self.num_chks)
-                ):
-                    raise ValueError(
-                        "Each row of `norm` must match the corresponding check node degree."
-                    )
-            case float() | int():
-                norm = [
-                    [norm for _ in range(self.chk_degs[i])]
-                    for i in range(self.num_chks)
-                ]
-            case _:
-                raise TypeError(
-                    f"`norm` must be a float or list of lists, got {type(norm).__name__}."
-                )
-        self.norm = norm
-
-        match offset:
-            case list():
-                if len(offset) != self.num_chks:
-                    raise ValueError(
-                        f"`offset` must have {self.num_chks} rows, got {len(offset)}."
-                    )
-                if not all(isinstance(x, list) for x in offset):
-                    raise TypeError("`offset` must be a list of lists.")
-                if not all(
-                    len(offset[i]) == self.chk_degs[i] for i in range(self.num_chks)
-                ):
-                    raise ValueError(
-                        "Each row of `offset` must match the corresponding check node degree."
-                    )
-            case float() | int():
-                offset = [
-                    [offset for _ in range(self.chk_degs[i])]
-                    for i in range(self.num_chks)
-                ]
-            case _:
-                raise TypeError(
-                    f"`offset` must be a float or list of lists, got {type(offset).__name__}."
-                )
-        self.offset = offset
+        self.norm = self._expand_to_edge_lists(norm, "norm")
+        self.offset = self._expand_to_edge_lists(offset, "offset")
 
         self._decoder = self._build_decoder()
+
+    def _expand_to_edge_lists(
+        self, value: list[list[float]] | float, name: str
+    ) -> list[list[float]]:
+        """Validate and expand a per-edge parameter to nested lists.
+
+        A scalar is broadcast to every check-to-variable edge; a list of lists
+        is validated to have one row per check node and a row length matching
+        each check node's degree.
+        """
+        match value:
+            case list():
+                if len(value) != self.num_chks:
+                    raise ValueError(
+                        f"`{name}` must have {self.num_chks} rows, got {len(value)}."
+                    )
+                if not all(isinstance(x, list) for x in value):
+                    raise TypeError(f"`{name}` must be a list of lists.")
+                if not all(
+                    len(value[i]) == self.chk_degs[i] for i in range(self.num_chks)
+                ):
+                    raise ValueError(
+                        f"Each row of `{name}` must match the corresponding check node degree."
+                    )
+                return value
+            case float() | int():
+                return [
+                    [value for _ in range(self.chk_degs[i])]
+                    for i in range(self.num_chks)
+                ]
+            case _:
+                raise TypeError(
+                    f"`{name}` must be a float or list of lists, got {type(value).__name__}."
+                )
 
     def _build_decoder(self) -> DMemOffsetBPDecoderRust:
         return DMemOffsetBPDecoderRust(
