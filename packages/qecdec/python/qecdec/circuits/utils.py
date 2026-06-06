@@ -20,38 +20,41 @@ def _extract_error_mechanisms_from_dem(
 
     instruction: stim.DemInstruction
     for instruction in dem.flattened():
-        if instruction.type == "error":
-            p = instruction.args_copy()[0]  # probability of the error
+        match instruction.type:
+            case "error":
+                p = instruction.args_copy()[0]  # probability of the error
 
-            dets: set[int] = set()  # flipped detectors
-            obsers: set[int] = set()  # flipped observables
-            t: stim.DemTarget
-            for t in instruction.targets_copy():
-                if t.is_relative_detector_id():
-                    dets ^= {t.val}
-                elif t.is_logical_observable_id():
-                    obsers ^= {t.val}
-                elif t.is_separator():
-                    pass
-                else:
+                dets: set[int] = set()  # flipped detectors
+                obsers: set[int] = set()  # flipped observables
+                t: stim.DemTarget
+                for t in instruction.targets_copy():
+                    if t.is_relative_detector_id():
+                        dets ^= {t.val}
+                    elif t.is_logical_observable_id():
+                        obsers ^= {t.val}
+                    elif t.is_separator():
+                        pass
+                    else:
+                        raise RuntimeError(
+                            f"Unexpected DEM target in error instruction: {t!r}"
+                        )
+                if len(dets) == 0 and len(obsers) != 0:
                     raise RuntimeError(
-                        f"Unexpected DEM target in error instruction: {t!r}"
+                        f"Found an error mechanism that flips logical observables but no detectors. Instruction: {instruction}"
                     )
-            if len(dets) == 0 and len(obsers) != 0:
-                raise RuntimeError(
-                    f"Found an error mechanism that flips logical observables but no detectors. Instruction: {instruction}"
+                eff = (tuple(sorted(dets)), tuple(sorted(obsers)))
+                if (
+                    eff in eff2prob
+                ):  # this error has appeared earlier, let's update its probability
+                    eff2prob[eff] = (1 - eff2prob[eff]) * p + eff2prob[eff] * (1 - p)
+                else:  # this error is new, let's register it
+                    eff2prob[eff] = p
+            case "detector" | "logical_observable":
+                pass
+            case _:
+                raise ValueError(
+                    f"Instruction type not expected: {instruction.type}"
                 )
-            eff = (tuple(sorted(dets)), tuple(sorted(obsers)))
-            if (
-                eff in eff2prob
-            ):  # this error has appeared earlier, let's update its probability
-                eff2prob[eff] = (1 - eff2prob[eff]) * p + eff2prob[eff] * (1 - p)
-            else:  # this error is new, let's register it
-                eff2prob[eff] = p
-        elif instruction.type in ("detector", "logical_observable"):
-            pass
-        else:
-            raise ValueError(f"Instruction type not expected: {instruction.type}")
 
     return eff2prob
 
@@ -66,14 +69,17 @@ def _extract_detector_coords_from_dem(dem: stim.DetectorErrorModel) -> Float2DAr
 
     instruction: stim.DemInstruction
     for instruction in dem.flattened():
-        if instruction.type == "detector":
-            coo = instruction.args_copy()
-            t: stim.DemTarget = instruction.targets_copy()[0]
-            coords[t.val] = coo
-        elif instruction.type in ("error", "logical_observable"):
-            pass
-        else:
-            raise ValueError(f"Instruction type not expected: {instruction.type}")
+        match instruction.type:
+            case "detector":
+                coo = instruction.args_copy()
+                t: stim.DemTarget = instruction.targets_copy()[0]
+                coords[t.val] = coo
+            case "error" | "logical_observable":
+                pass
+            case _:
+                raise ValueError(
+                    f"Instruction type not expected: {instruction.type}"
+                )
 
     if None in coords:
         raise ValueError("Some detector coordinates are not found.")

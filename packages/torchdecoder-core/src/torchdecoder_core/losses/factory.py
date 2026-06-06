@@ -18,28 +18,28 @@ def build_decoding_loss(
     Given a check matrix, an observable matrix, and a configuration, build a loss function
     for training iterative QEC decoders.
     """
-    loss_name = loss_cfg.name
-    if loss_name == "UniformIterationLoss":
-        return UniformIterationLoss(
-            chkmat,
-            obsmat,
-            beta=loss_cfg.beta,
-            skip_iters=loss_cfg.skip_iters,
-        )
-    elif loss_name == "ConvergenceAwareLoss":
-        if "curriculum" in loss_cfg:
-            curriculum = Curriculum(
-                max_emphasis=loss_cfg.curriculum.max_emphasis,
-                ramp_epochs=loss_cfg.curriculum.ramp_epochs,
+    match loss_cfg.name:
+        case "UniformIterationLoss":
+            return UniformIterationLoss(
+                chkmat,
+                obsmat,
+                beta=loss_cfg.beta,
+                skip_iters=loss_cfg.skip_iters,
             )
-        else:
-            curriculum = None
-        return ConvergenceAwareLoss(
-            chkmat,
-            obsmat,
-            beta=loss_cfg.beta,
-            focal_gamma=loss_cfg.focal_gamma,
-            curriculum=curriculum,
-        )
-    else:
-        raise ValueError(f"Invalid loss function name: {loss_name!r}")
+        case "ConvergenceAwareLoss":
+            if "curriculum" in loss_cfg:
+                curriculum = Curriculum(
+                    max_emphasis=loss_cfg.curriculum.max_emphasis,
+                    ramp_epochs=loss_cfg.curriculum.ramp_epochs,
+                )
+            else:
+                curriculum = None
+            return ConvergenceAwareLoss(
+                chkmat,
+                obsmat,
+                beta=loss_cfg.beta,
+                focal_gamma=loss_cfg.focal_gamma,
+                curriculum=curriculum,
+            )
+        case _:
+            raise ValueError(f"Invalid loss function name: {loss_cfg.name!r}")

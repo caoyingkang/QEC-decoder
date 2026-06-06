@@ -14,31 +14,32 @@ class DecodingDataModule(L.LightningDataModule):
         self.num_workers = num_workers
 
     def setup(self, stage: str):
-        if stage == "fit":
-            self.train_ds = DecodingDataset.load_from_file(
-                self.data_dir / "train_dataset.pt"
-            )
-            self.val_ds = DecodingDataset.load_from_file(
-                self.data_dir / "val_dataset.pt"
-            )
-            print(">>>>>> Summary of train_dataset:")
-            self.train_ds.print_summary()
-            print(">>>>>> Summary of val_dataset:")
-            self.val_ds.print_summary()
-        elif stage == "validate":
-            self.val_ds = DecodingDataset.load_from_file(
-                self.data_dir / "val_dataset.pt"
-            )
-            print(">>>>>> Summary of val_dataset:")
-            self.val_ds.print_summary()
-        elif stage == "test":
-            self.test_ds = DecodingDataset.load_from_file(
-                self.data_dir / "test_dataset.pt"
-            )
-            print(">>>>>> Summary of test_dataset:")
-            self.test_ds.print_summary()
-        else:
-            raise NotImplementedError(f"Stage {stage} is not supported")
+        match stage:
+            case "fit":
+                self.train_ds = DecodingDataset.load_from_file(
+                    self.data_dir / "train_dataset.pt"
+                )
+                self.val_ds = DecodingDataset.load_from_file(
+                    self.data_dir / "val_dataset.pt"
+                )
+                print(">>>>>> Summary of train_dataset:")
+                self.train_ds.print_summary()
+                print(">>>>>> Summary of val_dataset:")
+                self.val_ds.print_summary()
+            case "validate":
+                self.val_ds = DecodingDataset.load_from_file(
+                    self.data_dir / "val_dataset.pt"
+                )
+                print(">>>>>> Summary of val_dataset:")
+                self.val_ds.print_summary()
+            case "test":
+                self.test_ds = DecodingDataset.load_from_file(
+                    self.data_dir / "test_dataset.pt"
+                )
+                print(">>>>>> Summary of test_dataset:")
+                self.test_ds.print_summary()
+            case _:
+                raise NotImplementedError(f"Stage {stage} is not supported")
 
     def train_dataloader(self):
         return DataLoader(

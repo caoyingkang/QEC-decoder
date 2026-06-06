@@ -541,34 +541,37 @@ def render_task_selection() -> TaskMetadata:
         st.stop()
     default_decoder_params = selected_entry[decoder_name]
 
-    if decoder_name == "BP":
-        decoder_params = _render_bp_params_selection(default_decoder_params)
-    elif decoder_name == "BPOSD":
-        decoder_params = _render_bposd_params_selection(default_decoder_params)
-    elif decoder_name == "MemBP":
-        decoder_params = _render_membp_params_selection(default_decoder_params)
-    elif decoder_name == "RelayBP":
-        decoder_params = _render_relaybp_params_selection(default_decoder_params)
-    elif decoder_name == "MultiRelayBP":
-        decoder_params = _render_multirelaybp_params_selection(default_decoder_params)
-    elif decoder_name == "LearnedDMemBP":
-        decoder_params = _render_learned_dmembp_params_selection(
-            default_decoder_params, circuit_name, circuit_params
-        )
-    elif decoder_name == "LearnedRelayBP":
-        decoder_params = _render_learned_relaybp_params_selection(
-            default_decoder_params, circuit_name, circuit_params
-        )
-    elif decoder_name == "LearnedMultiRelayBP":
-        decoder_params = _render_learned_multirelaybp_params_selection(
-            default_decoder_params, circuit_name, circuit_params
-        )
-    elif decoder_name in ["MWPM", "UnionFind"]:
-        decoder_params = {}
-    else:
-        raise NotImplementedError(
-            f"{decoder_name} decoder is not yet supported by the benchmark suite."
-        )
+    match decoder_name:
+        case "BP":
+            decoder_params = _render_bp_params_selection(default_decoder_params)
+        case "BPOSD":
+            decoder_params = _render_bposd_params_selection(default_decoder_params)
+        case "MemBP":
+            decoder_params = _render_membp_params_selection(default_decoder_params)
+        case "RelayBP":
+            decoder_params = _render_relaybp_params_selection(default_decoder_params)
+        case "MultiRelayBP":
+            decoder_params = _render_multirelaybp_params_selection(
+                default_decoder_params
+            )
+        case "LearnedDMemBP":
+            decoder_params = _render_learned_dmembp_params_selection(
+                default_decoder_params, circuit_name, circuit_params
+            )
+        case "LearnedRelayBP":
+            decoder_params = _render_learned_relaybp_params_selection(
+                default_decoder_params, circuit_name, circuit_params
+            )
+        case "LearnedMultiRelayBP":
+            decoder_params = _render_learned_multirelaybp_params_selection(
+                default_decoder_params, circuit_name, circuit_params
+            )
+        case "MWPM" | "UnionFind":
+            decoder_params = {}
+        case _:
+            raise NotImplementedError(
+                f"{decoder_name} decoder is not yet supported by the benchmark suite."
+            )
 
     return TaskMetadata(
         circuit_name=circuit_name,
