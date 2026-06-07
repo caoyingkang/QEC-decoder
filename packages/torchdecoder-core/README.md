@@ -11,13 +11,14 @@ This package does not contain dataset builders or training/testing scripts; see 
 
 | Path | Contents |
 |------|----------|
-| **`pyproject.toml`** | Python project metadata. |
-| **`src/torchdecoder_core/`** | Source code for the Python package `torchdecoder_core`. |
-| **`src/torchdecoder_core/models/`** | Decoder model implementations and factory: `LearnedDMemBP`, `MultiDMemBP`. |
-| **`src/torchdecoder_core/losses/`** | Loss functions and factory: `UniformIterationLoss`, `ConvergenceAwareLoss`. |
-| **`src/torchdecoder_core/metrics/`** | Validation metrics. |
-| **`src/torchdecoder_core/dataset/`** | Dataset classes. |
-| **`src/torchdecoder_core/utils/`** | Helper modules and utility functions. |
+| `pyproject.toml` | Python project metadata. |
+| `src/torchdecoder_core/` | Source code for the Python package `torchdecoder_core`. |
+| `src/torchdecoder_core/models/` | Decoder model implementations and factory: `LearnedDMemBP`, `MultiDMemBP`. |
+| `src/torchdecoder_core/losses/` | Loss functions and factory: `UniformIterationLoss`, `ConvergenceAwareLoss`. |
+| `src/torchdecoder_core/metrics/` | Validation metrics. |
+| `src/torchdecoder_core/dataset/` | Dataset classes. |
+| `src/torchdecoder_core/qecdec_adapters/` | `TorchModelDecoder` adapters that wrap a trained model as a `qecdec` decoder. |
+| `src/torchdecoder_core/utils/` | Helper modules and utility functions. |
 
 ## Running tests
 
