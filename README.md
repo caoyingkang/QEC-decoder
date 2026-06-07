@@ -53,3 +53,9 @@ uv sync --all-packages --group qecdec-notebooks
 ## Dev container (alternative to manual setup)
 
 This repository includes a VS Code Dev Container under `.devcontainer/`. It requires GPU access on the host machine.
+
+## Running unit tests
+
+```bash
+uv run pytest packages/*/tests -v
+```
