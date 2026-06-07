@@ -1,6 +1,6 @@
-from .experiment_factory import create_experiment, get_circuit_dir
+from .circuit_factory import circuit_slug, create_circuit_from_config
 
 __all__ = [
-    "create_experiment",
-    "get_circuit_dir",
+    "circuit_slug",
+    "create_circuit_from_config",
 ]

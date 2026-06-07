@@ -1,13 +1,11 @@
-from typing import Optional
-
-import numpy as np
-import torch
 import lightning as L
+import numpy as np
 from omegaconf import DictConfig
+import torch
 
-from torchdecoder_core.models import build_decoder_model
-from torchdecoder_core.losses import build_decoding_loss, LossResult
+from torchdecoder_core.losses import LossResult, build_decoding_loss
 from torchdecoder_core.metrics import IterativeDecodingMetric
+from torchdecoder_core.models import build_decoder_model
 
 
 class DecodingModule(L.LightningModule):
@@ -20,7 +18,7 @@ class DecodingModule(L.LightningModule):
         model_cfg: DictConfig,
         loss_cfg: DictConfig,
         optim_cfg: DictConfig,
-        compile_mode: Optional[str],
+        compile_mode: str | None,
     ):
         """
         Parameters
@@ -43,7 +41,7 @@ class DecodingModule(L.LightningModule):
             optim_cfg : DictConfig
                 Configuration for the optimizer.
 
-            compile_mode : Optional[str]
+            compile_mode : str | None
                 Mode in torch.compile to optimize the decoder model and the loss function.
                 If None, no compilation is performed.
         """

@@ -20,26 +20,23 @@ import os
 from pathlib import Path
 import warnings
 
-from tabulate import tabulate
 import humanize
 import lightning as L
 from lightning.pytorch.callbacks import (
-    ModelSummary,
     EarlyStopping,
-    ModelCheckpoint,
     LearningRateMonitor,
+    ModelCheckpoint,
+    ModelSummary,
 )
 from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.profilers import PyTorchProfiler
-import torch
-from omegaconf import OmegaConf, DictConfig
+from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
-from lightning_utils import (
-    CurriculumCallback,
-    DecodingDataModule,
-    DecodingModule,
-)
-from utils import create_experiment
+from tabulate import tabulate
+import torch
+
+from lightning_utils import CurriculumCallback, DecodingDataModule, DecodingModule
+from utils import circuit_slug, create_circuit_from_config
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATASETS_ROOT = PROJECT_ROOT / "datasets"
@@ -69,28 +66,15 @@ def load_config(path: Path, overrides: list[str]) -> DictConfig:
     return cfg
 
 
-def get_data_dir(qec_cfg: DictConfig) -> Path:
-    code = qec_cfg.code
-    noise_model = qec_cfg.noise_model
-    d = qec_cfg.d
-    rounds = qec_cfg.rounds
-    basis = qec_cfg.basis
-    return DATASETS_ROOT.joinpath(
-        f"{code}_{noise_model}",
-        f"d={d}_rounds={rounds}_basis={basis}",
-    )
+def get_data_dir(circuit_cfg: DictConfig) -> Path:
+    return DATASETS_ROOT.joinpath(circuit_cfg.circuit_name, circuit_slug(circuit_cfg))
 
 
 def get_run_dir(cfg: DictConfig) -> Path:
-    code = cfg.qec.code
-    noise_model = cfg.qec.noise_model
-    d = cfg.qec.d
-    rounds = cfg.qec.rounds
-    basis = cfg.qec.basis
     model_name = cfg.model.name
     base_dir = RUNS_ROOT.joinpath(
-        f"{code}_{noise_model}",
-        f"d={d}_rounds={rounds}_basis={basis}",
+        cfg.circuit.circuit_name,
+        circuit_slug(cfg.circuit),
         model_name,
     )
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -150,34 +134,25 @@ def main():
 
     config_path = Path(args.config).resolve()
     cfg = load_config(config_path, overrides)
-    qec_cfg = cfg.qec
+    circuit_cfg = cfg.circuit
     print(">>>>>> Config:")
     print(OmegaConf.to_yaml(cfg))
 
-    data_dir = get_data_dir(qec_cfg)
+    data_dir = get_data_dir(circuit_cfg)
     run_dir = get_run_dir(cfg)
     print(f">>>>>> Data directory: {data_dir}")
     print(f">>>>>> Run directory: {run_dir}")
     run_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(cfg, run_dir / "config.yaml")
 
-    load_circuit_from_file = qec_cfg.code.startswith("BB_")
-    expmt = create_experiment(
-        qec_cfg.code,
-        qec_cfg.noise_model,
-        qec_cfg.d,
-        qec_cfg.rounds,
-        qec_cfg.basis,
-        qec_cfg.p,
-        load_circuit_from_file,
-    )
-    print(f">>>>>> Number of error mechanisms: {expmt.num_error_mechanisms}")
-    print(f">>>>>> Number of detectors: {expmt.num_detectors}")
-    print(f">>>>>> Number of observables: {expmt.num_observables}")
+    circuit = create_circuit_from_config(circuit_cfg)
+    print(f">>>>>> Number of error mechanisms: {circuit.num_error_mechanisms}")
+    print(f">>>>>> Number of detectors: {circuit.num_detectors}")
+    print(f">>>>>> Number of observables: {circuit.num_observables}")
     decoder = DecodingModule(
-        expmt.chkmat,
-        expmt.obsmat,
-        expmt.prior,
+        circuit.chkmat,
+        circuit.obsmat,
+        circuit.prior,
         model_cfg=cfg.model,
         loss_cfg=cfg.loss,
         optim_cfg=cfg.optim,

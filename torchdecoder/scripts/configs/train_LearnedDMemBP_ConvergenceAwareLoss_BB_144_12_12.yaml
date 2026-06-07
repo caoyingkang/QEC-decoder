@@ -1,10 +1,9 @@
-qec:
-  code: BB_144_12_12
-  noise_model: CircuitLevel
-  d: 12
-  rounds: 12
-  basis: Z
-  p: 0.003
+circuit:
+  circuit_name: BB_144_12_12_Circuit
+  circuit_params:
+    basis: Z
+    rounds: 12
+  error_rate: 0.003
 
 model:
   name: LearnedDMemBP

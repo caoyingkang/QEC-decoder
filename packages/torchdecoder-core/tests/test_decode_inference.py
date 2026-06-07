@@ -19,13 +19,13 @@ SEED = 42
 
 @pytest.fixture(scope="module")
 def pcm_prior() -> tuple[np.ndarray, np.ndarray]:
-    expmt = RepetitionCode_Circuit(
+    circuit = RepetitionCode_Circuit(
         d=5,
         rounds=5,
         data_qubit_error_rate=0.01,
         meas_error_rate=0.01,
     )
-    return expmt.chkmat, expmt.prior
+    return circuit.chkmat, circuit.prior
 
 
 @pytest.fixture(scope="module")

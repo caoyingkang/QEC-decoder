@@ -30,7 +30,7 @@ Notes:
   (preserves sign) or `mlp_norm=None` (no normalization) instead.
 """
 
-from typing import Literal, Optional, Union
+from typing import Literal
 
 import numpy as np
 import torch
@@ -38,11 +38,11 @@ import torch.nn as nn
 
 from ..utils.mlp import MLP
 from ..utils.tensor_utils import (
-    smooth_sign,
-    smooth_min,
-    leave_one_out_sign_product,
     leave_one_out_min,
+    leave_one_out_sign_product,
     matmul_GF2,
+    smooth_min,
+    smooth_sign,
 )
 from .base import DecoderModel, InferenceResult
 
@@ -74,12 +74,12 @@ class MultiDMemBP(DecoderModel):
         mlp_hidden_features: int,
         mlp_hidden_depth: int,
         mlp_activation: str,
-        mlp_norm: Optional[str],
-        mlp_dropout_p: Optional[float],
+        mlp_norm: str | None,
+        mlp_dropout_p: float | None,
         min_impl_method: Literal["smooth", "hard"],
         sign_impl_method: Literal["smooth", "hard"],
         gamma_shared: bool,
-        gamma_init: Union[float, list[float]],
+        gamma_init: float | list[float],
     ):
         """
         Parameters
@@ -109,7 +109,7 @@ class MultiDMemBP(DecoderModel):
                 Normalization to use in the hidden layers of the MLP. If None, no normalization.
                 Supported options are "LayerNorm" and "RMSNorm".
 
-            mlp_dropout_p : Optional[float]
+            mlp_dropout_p : float | None
                 Dropout probability for the hidden layers of the MLP. If None, no dropout is applied.
 
             min_impl_method : Literal["smooth", "hard"]
@@ -243,7 +243,7 @@ class MultiDMemBP(DecoderModel):
         self.gamma_shared = gamma_shared
         self.gamma = nn.Parameter(self._init_gamma(gamma_init))  # (V,) or (V, M)
 
-    def _init_gamma(self, gamma_init: Union[float, list[float]]) -> torch.Tensor:
+    def _init_gamma(self, gamma_init: float | list[float]) -> torch.Tensor:
         if self.gamma_shared:
             shape = (self.num_vars,)
         else:

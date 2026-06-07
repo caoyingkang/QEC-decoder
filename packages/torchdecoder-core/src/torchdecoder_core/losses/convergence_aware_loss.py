@@ -1,10 +1,8 @@
-from typing import Optional
-
 import numpy as np
 import torch
 
-from .base import DecodingLoss, LossResult
 from .curriculum import Curriculum
+from .base import DecodingLoss, LossResult
 from ..utils.decoding_utils import diagnose_convergence
 from ..utils.tensor_utils import focal_BCE_with_logits
 
@@ -38,7 +36,7 @@ class ConvergenceAwareLoss(DecodingLoss):
         *,
         beta: float,
         focal_gamma: float,
-        curriculum: Optional[Curriculum],
+        curriculum: Curriculum | None,
     ):
         """
         Parameters

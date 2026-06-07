@@ -10,17 +10,16 @@ Options:
     --force : Rebuild even if datasets already exist
 """
 
-from pathlib import Path
 import argparse
+from pathlib import Path
 
 import numpy as np
 from omegaconf import OmegaConf
-from tqdm import tqdm
-from stim import CompiledDemSampler
+from qecdec.circuits import QECCircuit, create_circuit_with_uniform_error_rate
 from qecdec.decoders import MemBPDecoder
-from qecdec.experiments import Experiment
+from stim import CompiledDemSampler
 from torchdecoder_core.dataset import DecodingDataset
-from utils import create_experiment, get_circuit_dir
+from tqdm import tqdm
 
 DATASETS_ROOT = Path(__file__).resolve().parent.parent / "datasets"
 
@@ -91,7 +90,7 @@ def shuffle(
 
 def collect_dataset(
     *,
-    expmt: Experiment,
+    circuit: QECCircuit,
     target_size: int,
     max_easy_sample_ratio: float,
     membp_max_iter: int,
@@ -110,7 +109,7 @@ def collect_dataset(
     collected_shots = 0
     easy_shots = 0
 
-    sampler = expmt.dem.compile_sampler()
+    sampler = circuit.stim_dem.compile_sampler()
     pbar = tqdm(total=target_size, desc="Collecting shots", unit="shots")
     while collected_shots < target_size:
         syn, obs = sample_shots(sampler, 1_000)
@@ -122,8 +121,8 @@ def collect_dataset(
         h_syn, h_obs, e_syn, e_obs = classify_hard_easy(
             syn,
             obs,
-            chkmat=expmt.chkmat,
-            prior=expmt.prior,
+            chkmat=circuit.chkmat,
+            prior=circuit.prior,
             membp_max_iter=membp_max_iter,
             membp_gamma=membp_gamma,
         )
@@ -190,27 +189,18 @@ def build_dataset_for_config(config_dir: Path, force: bool) -> None:
 
     cfg = OmegaConf.load(config_path)
     OmegaConf.resolve(cfg)
-    qec_cfg = cfg.qec
-    code: str = qec_cfg.code
-    noise_model: str = qec_cfg.noise_model
-    d: int = qec_cfg.d
-    rounds: int = qec_cfg.rounds
-    basis: str = qec_cfg.basis
-    p_range: list[float] = list(qec_cfg.p_range)
+    circuit_cfg = cfg.circuit
+    circuit_name: str = circuit_cfg.circuit_name
+    circuit_params: dict = dict(
+        OmegaConf.to_container(circuit_cfg.circuit_params, resolve=True)
+    )
+    p_range: list[float] = list(circuit_cfg.error_rate_range)
     train_size: int = cfg.data.train_size
     val_size: int = cfg.data.val_size
     test_size: int = cfg.data.test_size
     max_easy_sample_ratio: float = cfg.data.max_easy_sample_ratio
     membp_max_iter: int = cfg.data.membp_max_iter
     membp_gamma: float = cfg.data.membp_gamma
-
-    # If the circuits should be loaded from file, validate that the files exist.
-    if qec_cfg.load_circuit_from_file:
-        circuit_dir = get_circuit_dir(code, noise_model, d, rounds, basis)
-        for p in p_range:
-            circuit_file = circuit_dir / f"error_rate={p}.stim"
-            if not circuit_file.exists():
-                raise FileNotFoundError(f"Missing circuit file: {circuit_file}")
 
     if not force and train_path.exists() and val_path.exists() and test_path.exists():
         print(f">>>>>> Skipping datasets inside {config_dir}.")
@@ -222,14 +212,15 @@ def build_dataset_for_config(config_dir: Path, force: bool) -> None:
         syndromes_per_p: list[np.ndarray] = []
         observables_per_p: list[np.ndarray] = []
         for p, target_size in zip(p_range, sizes_per_p):
-            print(
-                f"Building dataset for {code}, {noise_model}, d={d}, rounds={rounds}, basis={basis}, p={p}..."
+            kw_str = ", ".join(
+                f"{k}={circuit_params[k]}" for k in sorted(circuit_params)
             )
-            expmt = create_experiment(
-                code, noise_model, d, rounds, basis, p, qec_cfg.load_circuit_from_file
+            print(f"Building dataset for {circuit_name}, {kw_str}, error_rate={p}...")
+            circuit = create_circuit_with_uniform_error_rate(
+                circuit_name, p, **circuit_params
             )
             syn, obs = collect_dataset(
-                expmt=expmt,
+                circuit=circuit,
                 target_size=target_size,
                 max_easy_sample_ratio=max_easy_sample_ratio,
                 membp_max_iter=membp_max_iter,

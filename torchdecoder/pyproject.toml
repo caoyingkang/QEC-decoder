@@ -17,8 +17,6 @@ dependencies = [
     "humanize",
     "stim",
     "tqdm",
-    "optuna",
-    "optuna-integration[pytorch_lightning]",
 ]
 
 [tool.uv]

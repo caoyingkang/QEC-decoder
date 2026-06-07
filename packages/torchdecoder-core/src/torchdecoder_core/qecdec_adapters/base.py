@@ -2,8 +2,8 @@ from pathlib import Path
 from typing import Any, ClassVar, Optional
 
 import numpy as np
-import torch
 from omegaconf import DictConfig, OmegaConf
+import torch
 
 from qecdec.decoders import IterativeDecoder
 from qecdec.types import Bit1DArray, Bit2DArray, Bool1DArray, Float1DArray, Int1DArray
@@ -32,7 +32,7 @@ class TorchModelDecoder(IterativeDecoder):
         # Only register subclasses that set `registry_name`.
         if registry_name is not None:
             if registry_name in TorchModelDecoder.registry:
-                raise TorchModelDecoder(
+                raise ValueError(
                     f"TorchModelDecoder registry_name {registry_name!r} is already assigned."
                 )
             TorchModelDecoder.registry[registry_name] = cls

@@ -15,11 +15,11 @@ import os
 from pathlib import Path
 import warnings
 
-from omegaconf import OmegaConf, DictConfig
+from omegaconf import DictConfig, OmegaConf
 import lightning as L
 
 from lightning_utils import DecodingDataModule, DecodingModule
-from utils import create_experiment
+from utils import circuit_slug, create_circuit_from_config
 
 DATASETS_ROOT = Path(__file__).resolve().parent.parent / "datasets"
 
@@ -36,16 +36,8 @@ def load_config(path: Path) -> DictConfig:
     return cfg
 
 
-def get_data_dir(qec_cfg) -> Path:
-    code = qec_cfg.code
-    noise_model = qec_cfg.noise_model
-    d = qec_cfg.d
-    rounds = qec_cfg.rounds
-    basis = qec_cfg.basis
-    return DATASETS_ROOT.joinpath(
-        f"{code}_{noise_model}",
-        f"d={d}_rounds={rounds}_basis={basis}",
-    )
+def get_data_dir(circuit_cfg: DictConfig) -> Path:
+    return DATASETS_ROOT.joinpath(circuit_cfg.circuit_name, circuit_slug(circuit_cfg))
 
 
 def main():
@@ -63,28 +55,19 @@ def main():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
     config_path = run_dir / "config.yaml"
     cfg = load_config(config_path)
-    qec_cfg = cfg.qec
-    data_dir = get_data_dir(cfg.qec)
+    circuit_cfg = cfg.circuit
+    data_dir = get_data_dir(circuit_cfg)
     print(f">>>>>> Run directory: {run_dir}")
     print(f">>>>>> Data directory: {data_dir}")
     print(f">>>>>> Checkpoint path: {ckpt_path}")
 
-    load_circuit_from_file = qec_cfg.code in ["BB_144_12_12"]
-    expmt = create_experiment(
-        qec_cfg.code,
-        qec_cfg.noise_model,
-        qec_cfg.d,
-        qec_cfg.rounds,
-        qec_cfg.basis,
-        qec_cfg.p,
-        load_circuit_from_file,
-    )
+    circuit = create_circuit_from_config(circuit_cfg)
     decoder = DecodingModule.load_from_checkpoint(
         str(ckpt_path),
         weights_only=False,
-        chkmat=expmt.chkmat,
-        obsmat=expmt.obsmat,
-        prior=expmt.prior,
+        chkmat=circuit.chkmat,
+        obsmat=circuit.obsmat,
+        prior=circuit.prior,
         model_cfg=cfg.model,
         loss_cfg=cfg.loss,
         optim_cfg=cfg.optim,

@@ -1,11 +1,9 @@
-qec:
-  code: BB_144_12_12
-  noise_model: CircuitLevel
-  d: 12
-  rounds: 12
-  basis: Z
-  p_range: [0.003, 0.004, 0.005]
-  load_circuit_from_file: true
+circuit:
+  circuit_name: BB_144_12_12_Circuit
+  circuit_params:
+    basis: Z
+    rounds: 12
+  error_rate_range: [0.003, 0.004, 0.005]
 
 data:
   train_size: 100000

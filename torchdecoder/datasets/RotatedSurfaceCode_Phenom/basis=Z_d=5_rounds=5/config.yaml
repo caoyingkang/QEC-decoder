@@ -1,11 +1,10 @@
-qec:
-  code: RotatedSurfaceCode
-  noise_model: Phenomenological
-  d: 7
-  rounds: 7
-  basis: Z
-  p_range: [0.008, 0.01, 0.015, 0.02]
-  load_circuit_from_file: false
+circuit:
+  circuit_name: RotatedSurfaceCode_Phenom
+  circuit_params:
+    d: 5
+    rounds: 5
+    basis: Z
+  error_rate_range: [0.008, 0.01, 0.015, 0.02]
 
 data:
   train_size: 100000

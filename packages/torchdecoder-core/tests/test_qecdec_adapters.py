@@ -6,16 +6,16 @@ import torch
 import torch.nn as nn
 
 from qecdec.decoders import (
+    create_decoder,
     DECODERS_REGISTRY,
     ITERATIVE_DECODERS_REGISTRY,
-    create_decoder,
 )
 from qecdec.circuits import RepetitionCode_Circuit
 from torchdecoder_core.models import LearnedDMemBP, MultiDMemBP
 from torchdecoder_core.qecdec_adapters import (
-    TorchModelDecoder,
     LearnedDMemBPDecoder,
     MultiDMemBPDecoder,
+    TorchModelDecoder,
     TORCHMODEL_DECODERS_REGISTRY,
 )
 
@@ -34,13 +34,13 @@ def _save_fake_lightning_ckpt(model: nn.Module, path: Path) -> None:
 
 @pytest.fixture(scope="module")
 def pcm_prior() -> tuple[np.ndarray, np.ndarray]:
-    expmt = RepetitionCode_Circuit(
+    circuit = RepetitionCode_Circuit(
         d=5,
         rounds=5,
         data_qubit_error_rate=0.01,
         meas_error_rate=0.01,
     )
-    return expmt.chkmat, expmt.prior
+    return circuit.chkmat, circuit.prior
 
 
 @pytest.fixture(scope="module")
@@ -78,7 +78,7 @@ def learned_setup(tmp_path_factory, pcm_prior) -> dict:
         "ckpt_path": ckpt_path,
         "model_cfg": model_cfg,
         "adapter_cls": LearnedDMemBPDecoder,
-        "registry_name": "LearnedDMemBP",
+        "registry_name": "TorchModel(LearnedDMemBP)",
         "other_name": "MultiDMemBP",
     }
 
@@ -125,7 +125,7 @@ def multi_setup(tmp_path_factory, pcm_prior) -> dict:
         "ckpt_path": ckpt_path,
         "model_cfg": model_cfg,
         "adapter_cls": MultiDMemBPDecoder,
-        "registry_name": "MultiDMemBP",
+        "registry_name": "TorchModel(MultiDMemBP)",
         "other_name": "LearnedDMemBP",
     }
 

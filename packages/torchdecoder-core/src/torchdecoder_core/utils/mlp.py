@@ -1,7 +1,5 @@
 """Multi-layer perceptron network."""
 
-from typing import Optional
-
 import torch.nn as nn
 
 
@@ -51,8 +49,8 @@ class MLP(nn.Module):
         hidden_depth: int,
         activation: str,
         *,
-        norm: Optional[str],
-        dropout_p: Optional[float],
+        norm: str | None,
+        dropout_p: float | None,
         residual: bool,
     ):
         """
