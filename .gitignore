@@ -8,8 +8,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 CLAUDE.md
+*PLAN.md
 .claude/
 relay/
+arXiv-*/
 *.so
 target/
 docs/
@@ -24,3 +26,4 @@ scratch.ipynb
 torchdecoder/runs/
 lightning_logs/
 __hidden__*
+deprecated*
