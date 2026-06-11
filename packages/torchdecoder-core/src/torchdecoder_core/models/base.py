@@ -1,7 +1,6 @@
 """Base class for PyTorch iterative decoder models."""
 
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
@@ -9,6 +8,7 @@ import torch
 import torch.nn as nn
 
 from ..utils.decoding_utils import diagnose_convergence, gather_ehat
+from .checkpoint_mixin import LightningCheckpointMixin
 
 
 class InferenceResult(NamedTuple):
@@ -31,7 +31,7 @@ class InferenceResult(NamedTuple):
     decoding_iters: torch.Tensor
 
 
-class DecoderModel(nn.Module, ABC):
+class DecoderModel(LightningCheckpointMixin, nn.Module, ABC):
     """
     Abstract base class for PyTorch iterative decoder models.
 
@@ -103,40 +103,3 @@ class DecoderModel(nn.Module, ABC):
         decoding_iters[trivial_mask] = 0
 
         return InferenceResult(ehat, converged_mask, decoding_iters)
-
-    def load_lightning_checkpoint(
-        self, ckpt_path: Path, skip_keys: list[str] = []
-    ) -> None:
-        """
-        Load parameters and buffers from a Lightning checkpoint. Expect a checkpoint
-        saved by a `LightningModule`, with `state_dict` keys prefixed by `"model."`.
-
-        Parameters
-        ----------
-        ckpt_path : Path
-            Path to the Lightning checkpoint file.
-
-        skip_keys : list[str]
-            List of keys (without prefix) to skip loading.
-
-        Raises
-        ------
-        FileNotFoundError
-            If the checkpoint file does not exist.
-
-        RuntimeError
-            If the checkpoint state_dict keys do not exactly match this model.
-        """
-        if not ckpt_path.exists():
-            raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
-        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-
-        prefix = "model."
-        current_state_dict = self.state_dict()
-        new_state_dict = {}
-        for k, v in ckpt["state_dict"].items():
-            if k.startswith(prefix):
-                key = k[len(prefix) :]
-                new_state_dict[key] = current_state_dict[key] if key in skip_keys else v
-
-        self.load_state_dict(new_state_dict, strict=True)

@@ -19,11 +19,7 @@ class IterativeDecodingMetric(Metric):
     A `torchmetrics.Metric` that evaluates iterative decoder's performance.
     """
 
-    def __init__(
-        self,
-        chkmat: np.ndarray,
-        obsmat: np.ndarray,
-    ):
+    def __init__(self, chkmat: np.ndarray, obsmat: np.ndarray):
         """
         Parameters
         ----------

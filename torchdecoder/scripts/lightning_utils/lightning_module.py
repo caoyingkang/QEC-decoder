@@ -3,7 +3,7 @@ import numpy as np
 from omegaconf import DictConfig
 import torch
 
-from torchdecoder_core.losses import LossResult, build_decoding_loss
+from torchdecoder_core.losses import LossResult, build_loss_fn
 from torchdecoder_core.metrics import IterativeDecodingMetric
 from torchdecoder_core.models import build_decoder_model
 
@@ -70,7 +70,7 @@ class DecodingModule(L.LightningModule):
             self.model.compile(mode=compile_mode, fullgraph=True)
 
         # Set up loss function.
-        self.loss_fn = build_decoding_loss(chkmat, obsmat, loss_cfg)
+        self.loss_fn = build_loss_fn(chkmat, obsmat, loss_cfg)
         if compile_mode is not None:
             self.loss_fn.compile(mode=compile_mode, fullgraph=True)
 

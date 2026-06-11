@@ -11,11 +11,14 @@ import torch.nn as nn
 class LossResult(NamedTuple):
     """
     Return type of all decoding loss functions: a named tuple with fields `loss`,
-    `synd_loss`, `obser_loss` (all float scalar tensors).
+    `synd_loss`, `obser_loss` (float scalar tensors).
+
+    `synd_loss` is None for logical losses (e.g. `LogicalBCELoss`): logical decoder
+    models predict observables directly and have no syndrome loss.
     """
 
     loss: torch.Tensor
-    synd_loss: torch.Tensor
+    synd_loss: torch.Tensor | None
     obser_loss: torch.Tensor
 
 
@@ -105,10 +108,7 @@ class DecodingLoss(nn.Module, ABC):
 
     @abstractmethod
     def forward(
-        self,
-        llrs: torch.Tensor,
-        syndromes: torch.Tensor,
-        observables: torch.Tensor,
+        self, llrs: torch.Tensor, syndromes: torch.Tensor, observables: torch.Tensor
     ) -> LossResult:
         """
         Parameters

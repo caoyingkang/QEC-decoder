@@ -2,21 +2,21 @@
 
 import numpy as np
 from omegaconf import DictConfig
+import torch.nn as nn
 
-from .base import DecodingLoss
-from .uniform_iteration_loss import UniformIterationLoss
 from .convergence_aware_loss import ConvergenceAwareLoss
 from .curriculum import Curriculum
+from .logical_bce_loss import LogicalBCELoss
+from .uniform_iteration_loss import UniformIterationLoss
 
 
-def build_decoding_loss(
-    chkmat: np.ndarray,
-    obsmat: np.ndarray,
-    loss_cfg: DictConfig,
-) -> DecodingLoss:
+def build_loss_fn(
+    chkmat: np.ndarray, obsmat: np.ndarray, loss_cfg: DictConfig
+) -> nn.Module:
     """
-    Given a check matrix, an observable matrix, and a configuration, build a loss function
-    for training iterative QEC decoders.
+    Given a check matrix, an observable matrix, and a configuration, build a loss
+    function for training QEC decoder models. Covers both iterative decoding losses
+    (which need `chkmat`/`obsmat`) and logical losses (which ignore them).
     """
     match loss_cfg.name:
         case "UniformIterationLoss":
@@ -41,5 +41,7 @@ def build_decoding_loss(
                 focal_gamma=loss_cfg.focal_gamma,
                 curriculum=curriculum,
             )
+        case "LogicalBCELoss":
+            return LogicalBCELoss()
         case _:
             raise ValueError(f"Invalid loss function name: {loss_cfg.name!r}")
