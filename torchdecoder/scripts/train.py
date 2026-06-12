@@ -14,6 +14,7 @@ Examples: (from the torchdecoder/scripts directory)
     uv run python train.py --config configs/train_MultiDMemBP_ConvergenceAwareLoss_d=5.yaml --profile
     uv run python train.py --config configs/train_LearnedDMemBP_ConvergenceAwareLoss_BB_144_12_12.yaml
     uv run python train.py --config configs/train_Cascade_surface_d=5.yaml
+    uv run python train.py --config configs/train_Cascade_BB_144_12_12.yaml
 """
 
 import argparse

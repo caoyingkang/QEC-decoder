@@ -1,0 +1,58 @@
+circuit:
+  circuit_name: BBCode_Circuit
+  circuit_params:  # gross code [[144,12,12]]
+    ell: 12
+    m: 6
+    a_poly: [[3, 0], [0, 1], [0, 2]]  # A = x^3 + y  + y^2
+    b_poly: [[0, 3], [1, 0], [2, 0]]  # B = y^3 + x  + x^2
+    basis: Z
+    rounds: 12
+  error_rate: 0.0055  # p2: the target training/eval rate (paper: 0.55% for BB)
+
+model:
+  name: Cascade
+  H: 64   # hidden width (paper: up to 512; scaled down to our compute)
+  L: 12   # depth ~ code distance
+  bottleneck: 4
+
+loss:
+  name: LogicalBCELoss
+
+optim:
+  lr: 0.001
+  weight_decay: 0.01
+  warmup_steps: 500     # linear warmup, then cosine decay to final_lr_ratio * lr
+  final_lr_ratio: 0.1
+  grad_clip: 1.0
+
+ema:
+  decay: 0.9998
+
+curriculum:  # 3-stage noise curriculum: hold at p_start, anneal to circuit.error_rate, hold
+  p_start: 0.0015
+  stage1_epochs: 1
+  anneal_epochs: 1
+
+early_stopping:
+  min_delta: 0.0
+  patience: 15
+
+tb_logger:
+  log_graph: false
+
+data:
+  batch_size: 128
+  num_workers: null   # null = use cpu_count - 1
+  streaming:
+    shots_per_epoch: 65536  # 512 steps per epoch at batch_size 128
+    val_shots: 16384        # fixed-seed val set, sampled at circuit.error_rate
+    base_seed: 42
+    val_seed: 7
+
+trainer:
+  accelerator: cpu  # not "auto": BatchNorm3d on 5-D tensors crashes the MPS backend (NSException)
+  max_epochs: 60
+  max_steps: 30000   # also sizes the cosine lr schedule
+  enable_progress_bar: true
+
+compile_mode: null  # options: null, default, reduce-overhead, max-autotune

@@ -3,11 +3,11 @@
 import numpy as np
 from omegaconf import DictConfig
 
-from qecdec.circuits import QECCircuit
+from qecdec.circuits import BBCode_Circuit, QECCircuit
 
 from .base import DecoderModel
 from .cascade import Cascade
-from .geometry import SurfaceCodeGeometry
+from .geometry import BBCodeGeometry, SurfaceCodeGeometry
 from .learned_dmembp import LearnedDMemBP
 from .logical_base import LogicalDecoderModel
 from .multi_dmembp import MultiDMemBP
@@ -56,8 +56,13 @@ def build_logical_decoder_model(
     """
     match model_cfg.name:
         case "Cascade":
+            geometry = (
+                BBCodeGeometry(circuit)
+                if isinstance(circuit, BBCode_Circuit)
+                else SurfaceCodeGeometry(circuit)
+            )
             return Cascade(
-                SurfaceCodeGeometry(circuit),
+                geometry,
                 hidden_dim=model_cfg.H,
                 num_blocks=model_cfg.L,
                 bottleneck=model_cfg.bottleneck,

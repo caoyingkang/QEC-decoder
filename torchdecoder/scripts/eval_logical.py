@@ -1,7 +1,8 @@
 """
 Evaluate a trained logical decoder checkpoint on a fixed test set, against the
-trivial baselines (always-0 and per-observable majority class) and MWPM on
-identical shots.
+trivial baselines (always-0 and per-observable majority class) and a classical
+reference decoder on identical shots (MWPM for matchable codes, BPOSD for BB
+codes).
 
 Usage: (from torchdecoder/scripts directory)
     uv run python eval_logical.py --run-dir <path/to/run_dir> [options]
@@ -23,7 +24,8 @@ from omegaconf import OmegaConf
 from tabulate import tabulate
 import torch
 
-from qecdec.decoders import MWPMDecoder
+from qecdec.circuits import BBCode_Circuit
+from qecdec.decoders import BPOSDDecoder, MWPMDecoder
 from torchdecoder_core.dataset import sample_decoding_dataset
 from torchdecoder_core.models import build_logical_decoder_model
 from utils import create_circuit_from_config
@@ -76,11 +78,17 @@ def main():
         np.broadcast_to(majority, observables.shape), observables
     )
 
-    # MWPM reference on identical shots.
-    mwpm = MWPMDecoder(circuit.chkmat, circuit.prior)
-    ehat = mwpm.decode_batch(syndromes.numpy().astype(np.uint8))
-    mwpm_obs = (ehat @ circuit.obsmat.T) % 2
-    mwpm_err = shot_error_rate(mwpm_obs, observables)
+    # Classical reference on identical shots: MWPM for matchable codes, BPOSD
+    # for BB codes (weight-6 checks are not matchable).
+    if isinstance(circuit, BBCode_Circuit):
+        ref_name = "BPOSD"
+        ref_decoder = BPOSDDecoder(circuit.chkmat, circuit.prior, max_bp_iter=100)
+    else:
+        ref_name = "MWPM"
+        ref_decoder = MWPMDecoder(circuit.chkmat, circuit.prior)
+    ehat = ref_decoder.decode_batch(syndromes.numpy().astype(np.uint8))
+    ref_obs = (ehat @ circuit.obsmat.T) % 2
+    ref_err = shot_error_rate(ref_obs, observables)
 
     def fmt(err: float) -> str:
         stderr = math.sqrt(err * (1 - err) / args.shots)
@@ -92,7 +100,7 @@ def main():
                 [f"{cfg.model.name} ({args.ckpt})", fmt(model_err)],
                 ["always-0 baseline", fmt(zero_err)],
                 ["majority-class baseline", fmt(majority_err)],
-                ["MWPM", fmt(mwpm_err)],
+                [ref_name, fmt(ref_err)],
             ],
             headers=["decoder", "logical error rate (per shot)"],
             tablefmt="fancy_grid",
