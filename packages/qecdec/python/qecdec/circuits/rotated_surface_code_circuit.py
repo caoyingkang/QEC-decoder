@@ -3,11 +3,11 @@ from typing_extensions import Self
 
 import stim
 
-from .base import QECCircuit
+from .rotated_surface_code_base import RotatedSurfaceCodeBase
 
 
 class RotatedSurfaceCode_Circuit(
-    QECCircuit, registry_name="RotatedSurfaceCode_Circuit"
+    RotatedSurfaceCodeBase, registry_name="RotatedSurfaceCode_Circuit"
 ):
     """Memory circuit for the rotated surface code."""
 
@@ -45,64 +45,12 @@ class RotatedSurfaceCode_Circuit(
             gate2_error_rate : float
                 Error rate of two-qubit gates.
         """
-        if d % 2 == 0:
-            raise ValueError("Distance d must be an odd number")
-        if d < 3:
-            raise ValueError("Distance d must be at least 3")
-        if rounds < 2:
-            raise ValueError("rounds must be at least 2")
-        if basis not in ["X", "Z"]:
-            raise ValueError("Basis must be 'X' or 'Z'")
-
-        self.d = d
-        self.rounds = rounds
-        self.basis = basis
         self.data_qubit_error_rate = data_qubit_error_rate
         self.prep_error_rate = prep_error_rate
         self.meas_error_rate = meas_error_rate
         self.gate1_error_rate = gate1_error_rate
         self.gate2_error_rate = gate2_error_rate
-
-        self.w = 2 * d + 1  # width of the grid holding the qubits
-        self.num_dq = d * d  # number of data qubits
-        self.num_xmq = (d * d - 1) // 2  # number of X-type measure qubits
-        self.num_zmq = (d * d - 1) // 2  # number of Z-type measure qubits
-        self.num_mq = self.num_xmq + self.num_zmq  # total number of measure qubits
-        self.num_qubits = self.num_dq + self.num_mq  # total number of physical qubits
-
-        # Lattice site coordinates of data qubits and measure qubits.
-        self.dq_coos = frozenset(
-            (x, y)
-            for x in range(self.w)
-            for y in range(self.w)
-            if self._is_data_qubit_coord(x, y)
-        )
-        self.xmq_coos = frozenset(
-            (x, y)
-            for x in range(self.w)
-            for y in range(self.w)
-            if self._is_x_meas_qubit_coord(x, y)
-        )
-        self.zmq_coos = frozenset(
-            (x, y)
-            for x in range(self.w)
-            for y in range(self.w)
-            if self._is_z_meas_qubit_coord(x, y)
-        )
-        self.mq_coos = self.xmq_coos | self.zmq_coos
-        assert len(self.dq_coos) == self.num_dq
-        assert len(self.xmq_coos) == self.num_xmq
-        assert len(self.zmq_coos) == self.num_zmq
-        assert len(self.mq_coos) == self.num_mq
-
-        # Lattice site indices of data qubits and measure qubits (sorted in ascending order).
-        self.dq_inds = sorted(self._coo2ind(*coo) for coo in self.dq_coos)
-        self.xmq_inds = sorted(self._coo2ind(*coo) for coo in self.xmq_coos)
-        self.zmq_inds = sorted(self._coo2ind(*coo) for coo in self.zmq_coos)
-        self.mq_inds = sorted(self.xmq_inds + self.zmq_inds)
-
-        circuit = self._build_circuit()
-        super().__init__(circuit)
+        super().__init__(d=d, rounds=rounds, basis=basis)
 
     @classmethod
     def with_uniform_error_rate(
@@ -315,39 +263,3 @@ class RotatedSurfaceCode_Circuit(
         )
 
         return circuit
-
-    def _is_data_qubit_coord(self, x: int, y: int) -> bool:
-        """Check if (x, y) is the coordinate of a data qubit."""
-        return 0 <= x < self.w and 0 <= y < self.w and x % 2 == 1 and y % 2 == 1
-
-    def _is_x_meas_qubit_coord(self, x: int, y: int) -> bool:
-        """Check if (x, y) is the coordinate of an X-type measure qubit."""
-        return (
-            2 <= x < self.w - 2
-            and 0 <= y < self.w
-            and x % 2 == 0
-            and y % 2 == 0
-            and (x + y) % 4 == 2
-        )
-
-    def _is_z_meas_qubit_coord(self, x: int, y: int) -> bool:
-        """Check if (x, y) is the coordinate of a Z-type measure qubit."""
-        return (
-            0 <= x < self.w
-            and 2 <= y < self.w - 2
-            and x % 2 == 0
-            and y % 2 == 0
-            and (x + y) % 4 == 0
-        )
-
-    def _coo2ind(self, x: int, y: int) -> int:
-        """Convert (x, y) coordinates to lattice site index."""
-        if (x + y) % 2 == 1:
-            raise ValueError("Not a valid lattice site")
-        return (y // 2) * self.w + x
-
-    def _ind2coo(self, i: int) -> tuple[int, int]:
-        """Convert lattice site index to (x, y) coordinates."""
-        x = i % self.w
-        y = 2 * (i // self.w) + (x % 2)
-        return x, y

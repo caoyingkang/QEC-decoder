@@ -1,5 +1,6 @@
 from .base import DecoderModel, InferenceResult
 from .factory import build_decoder_model
+from .geometry import SurfaceCodeGeometry
 from .learned_dmembp import LearnedDMemBP
 from .logical_base import LogicalDecoderModel
 from .multi_dmembp import MultiDMemBP
@@ -11,4 +12,5 @@ __all__ = [
     "LearnedDMemBP",
     "LogicalDecoderModel",
     "MultiDMemBP",
+    "SurfaceCodeGeometry",
 ]
