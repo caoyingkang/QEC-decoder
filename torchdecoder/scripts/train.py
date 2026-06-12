@@ -13,6 +13,7 @@ Examples: (from the torchdecoder/scripts directory)
     uv run python train.py --config configs/train_MultiDMemBP_UniformIterationLoss_d=5.yaml loss.beta=0.0 model.mlp.activation=ReLU
     uv run python train.py --config configs/train_MultiDMemBP_ConvergenceAwareLoss_d=5.yaml --profile
     uv run python train.py --config configs/train_LearnedDMemBP_ConvergenceAwareLoss_BB_144_12_12.yaml
+    uv run python train.py --config configs/train_Cascade_surface_d=5.yaml
 """
 
 import argparse
@@ -35,12 +36,24 @@ from omegaconf.errors import ConfigKeyError
 from tabulate import tabulate
 import torch
 
-from lightning_utils import CurriculumCallback, DecodingDataModule, DecodingModule
-from utils import circuit_slug, create_circuit_from_config
+from lightning_utils import (
+    CurriculumCallback,
+    DecodingDataModule,
+    DecodingModule,
+    EMACallback,
+    LogicalDecodingModule,
+    NoiseCurriculumCallback,
+    StreamingDecodingDataModule,
+)
+from utils import circuit_slug, create_circuit_from_config, streaming_circuit_factory
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATASETS_ROOT = PROJECT_ROOT / "datasets"
 RUNS_ROOT = PROJECT_ROOT / "runs"
+
+# Models that predict logical observables directly (LogicalDecoderModel); they
+# train with the streaming-data path instead of pre-built .pt datasets.
+LOGICAL_MODEL_NAMES = frozenset({"Cascade"})
 
 
 def load_config(path: Path, overrides: list[str]) -> DictConfig:
@@ -138,9 +151,7 @@ def main():
     print(">>>>>> Config:")
     print(OmegaConf.to_yaml(cfg))
 
-    data_dir = get_data_dir(circuit_cfg)
     run_dir = get_run_dir(cfg)
-    print(f">>>>>> Data directory: {data_dir}")
     print(f">>>>>> Run directory: {run_dir}")
     run_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(cfg, run_dir / "config.yaml")
@@ -149,24 +160,48 @@ def main():
     print(f">>>>>> Number of error mechanisms: {circuit.num_error_mechanisms}")
     print(f">>>>>> Number of detectors: {circuit.num_detectors}")
     print(f">>>>>> Number of observables: {circuit.num_observables}")
-    decoder = DecodingModule(
-        circuit.chkmat,
-        circuit.obsmat,
-        circuit.prior,
-        model_cfg=cfg.model,
-        loss_cfg=cfg.loss,
-        optim_cfg=cfg.optim,
-        compile_mode=cfg.compile_mode,
-    )
+    is_logical = cfg.model.name in LOGICAL_MODEL_NAMES
+    if is_logical:
+        decoder = LogicalDecodingModule(
+            circuit,
+            model_cfg=cfg.model,
+            loss_cfg=cfg.loss,
+            optim_cfg=cfg.optim,
+            compile_mode=cfg.compile_mode,
+        )
+        datamodule = StreamingDecodingDataModule(
+            streaming_circuit_factory(circuit_cfg),
+            error_rate=circuit_cfg.error_rate,
+            shots_per_epoch=cfg.data.streaming.shots_per_epoch,
+            val_shots=cfg.data.streaming.val_shots,
+            batch_size=cfg.data.batch_size,
+            num_workers=cfg.data.num_workers,
+            base_seed=cfg.data.streaming.base_seed,
+            val_seed=cfg.data.streaming.val_seed,
+        )
+        monitor_metric = "logical_success_rate"
+    else:
+        data_dir = get_data_dir(circuit_cfg)
+        print(f">>>>>> Data directory: {data_dir}")
+        decoder = DecodingModule(
+            circuit.chkmat,
+            circuit.obsmat,
+            circuit.prior,
+            model_cfg=cfg.model,
+            loss_cfg=cfg.loss,
+            optim_cfg=cfg.optim,
+            compile_mode=cfg.compile_mode,
+        )
+        datamodule = DecodingDataModule(
+            data_dir,
+            batch_size=cfg.data.batch_size,
+            num_workers=cfg.data.num_workers,
+        )
+        monitor_metric = "strict_success_rate"
     print(">>>>>> Parameters:")
     print_params(decoder)
-    datamodule = DecodingDataModule(
-        data_dir,
-        batch_size=cfg.data.batch_size,
-        num_workers=cfg.data.num_workers,
-    )
     early_stopping_callback = EarlyStopping(
-        monitor="strict_success_rate",
+        monitor=monitor_metric,
         min_delta=cfg.early_stopping.min_delta,
         patience=cfg.early_stopping.patience,
         mode="max",
@@ -203,14 +238,29 @@ def main():
     )
     callbacks = [
         ModelSummary(max_depth=-1),
-        CurriculumCallback(),
         LearningRateMonitor(logging_interval="epoch"),
         early_stopping_callback,
         model_checkpoint_callback,
     ]
+    if is_logical:
+        if "ema" in cfg:
+            callbacks.append(EMACallback(decay=cfg.ema.decay))
+        if "curriculum" in cfg:
+            callbacks.append(
+                NoiseCurriculumCallback(
+                    p_start=cfg.curriculum.p_start,
+                    p_end=circuit_cfg.error_rate,
+                    stage1_epochs=cfg.curriculum.stage1_epochs,
+                    anneal_epochs=cfg.curriculum.anneal_epochs,
+                )
+            )
+    else:
+        callbacks.insert(1, CurriculumCallback())
     trainer = L.Trainer(
         accelerator=cfg.trainer.accelerator,
         max_epochs=cfg.trainer.max_epochs if profiler is None else 1,
+        max_steps=cfg.trainer.max_steps if "max_steps" in cfg.trainer else -1,
+        gradient_clip_val=cfg.optim.grad_clip if "grad_clip" in cfg.optim else None,
         limit_train_batches=None if profiler is None else 50,
         limit_val_batches=None if profiler is None else 50,
         num_sanity_val_steps=-1 if profiler is None else 0,  # Pre-train validation

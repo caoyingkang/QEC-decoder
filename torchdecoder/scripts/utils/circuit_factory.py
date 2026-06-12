@@ -4,6 +4,7 @@ On import, sets the ``load_dir`` class-attribute for stim-file-backed circuits s
 that ``create_circuit_from_config(...)`` works for them.
 """
 
+from functools import partial
 from pathlib import Path
 
 from omegaconf import DictConfig, OmegaConf
@@ -29,6 +30,25 @@ def create_circuit_from_config(circuit_cfg: DictConfig) -> QECCircuit:
         circuit_cfg.error_rate,
         **circuit_params,
     )
+
+
+def _create_circuit(
+    circuit_name: str, error_rate: float, **circuit_params
+) -> QECCircuit:
+    return qecdec.circuits.create_circuit_with_uniform_error_rate(
+        circuit_name, error_rate, **circuit_params
+    )
+
+
+def streaming_circuit_factory(circuit_cfg: DictConfig) -> partial:
+    """Picklable ``error_rate -> QECCircuit`` factory for streaming datasets.
+
+    A partial of a function in *this* module (rather than of the qecdec factory
+    directly), so unpickling in a DataLoader worker imports this module and runs
+    its ``load_dir`` setup for stim-file-backed circuits.
+    """
+    circuit_params = OmegaConf.to_container(circuit_cfg.circuit_params, resolve=True)
+    return partial(_create_circuit, circuit_cfg.circuit_name, **circuit_params)
 
 
 def circuit_slug(circuit_cfg: DictConfig) -> str:
