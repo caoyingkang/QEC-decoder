@@ -3,8 +3,13 @@
 import numpy as np
 from omegaconf import DictConfig
 
+from qecdec.circuits import QECCircuit
+
 from .base import DecoderModel
+from .cascade import Cascade
+from .geometry import SurfaceCodeGeometry
 from .learned_dmembp import LearnedDMemBP
+from .logical_base import LogicalDecoderModel
 from .multi_dmembp import MultiDMemBP
 
 
@@ -41,3 +46,21 @@ def build_decoder_model(
             )
         case _:
             raise ValueError(f"Invalid model name: {model_cfg.name!r}")
+
+
+def build_logical_decoder_model(
+    circuit: QECCircuit, model_cfg: DictConfig
+) -> LogicalDecoderModel:
+    """
+    Build a PyTorch logical decoder model for a QEC circuit, according to a model configuration.
+    """
+    match model_cfg.name:
+        case "Cascade":
+            return Cascade(
+                SurfaceCodeGeometry(circuit),
+                hidden_dim=model_cfg.H,
+                num_blocks=model_cfg.L,
+                bottleneck=model_cfg.bottleneck,
+            )
+        case _:
+            raise ValueError(f"Invalid logical model name: {model_cfg.name!r}")
